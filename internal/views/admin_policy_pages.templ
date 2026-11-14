@@ -118,6 +118,8 @@ type AdminNamedPolicyData struct {
 	// Settings are the current tab's settings, when it's a category.
 	Settings []AdminPolicySetting
 	Dialog   *AdminNamedPolicySettingDialog
+	// ListDialog is a list setting's dialog, when one is open.
+	ListDialog *AdminPolicyListDialog
 	// Assigned are the groups and people it applies to.
 	Assigned []AdminPolicyTarget
 	// The Assign dialog: open, what was searched, and what can be chosen.
@@ -424,6 +426,9 @@ templ AdminNamedPolicyPage(data AdminNamedPolicyData, verification ...AdminSecur
 						}
 						if data.Dialog != nil {
 							@adminNamedPolicySettingDialog(*data.Dialog, data.StepUpRequired)
+						}
+						if data.ListDialog != nil {
+							@adminPolicyListDialog(*data.ListDialog, data.StepUpRequired)
 						}
 				}
 			</div>

@@ -142,7 +142,6 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/security/proxies/{id}/delete", h.handleDeleteOutboundProxy)
 	adminRoute("POST /admin/security/proxies/{id}/everyone", h.handleSetOutboundProxyEveryone)
 	adminRoute("POST /admin/security/proxies/{id}/people", h.handleSetOutboundProxyPerson)
-	h.registerAdminMailAllowlistRoutes(adminRoute)
 	h.registerAdminGroupRoutes(adminRoute)
 	h.registerAdminPolicyRoutes(adminRoute)
 	h.registerAdminPolicyPageRoutes(adminRoute)

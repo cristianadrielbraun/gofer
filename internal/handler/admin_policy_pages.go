@@ -230,6 +230,10 @@ type adminNamedPolicyExtras struct {
 	details    *views.AdminGroupForm
 	pageError  string
 	verify     bool
+	// listTyped and listError are an entry a list's dialog refused, and
+	// why.
+	listTyped string
+	listError string
 }
 
 // adminNamedPolicyTabs are a named policy's tabs: each category with a
@@ -293,7 +297,9 @@ func adminNamedPolicySettingFor(key string) (*policy.Setting, bool) {
 	if !ok || setting.InstanceOnly {
 		return nil, false
 	}
-	if _, choices := adminPolicyChoices[key]; !choices {
+	_, choices := adminPolicyChoices[key]
+	_, list := adminPolicyLists[key]
+	if !choices && !list {
 		return nil, false
 	}
 	return setting, true
@@ -360,7 +366,12 @@ func (h *Handler) renderNamedPolicy(w http.ResponseWriter, r *http.Request, extr
 			continue
 		}
 		data.Settings = append(data.Settings, adminNamedPolicyRow(ctx, found.ID, setting, values))
-		if setting.Key == extras.setting {
+		if setting.Key != extras.setting {
+			continue
+		}
+		if _, list := adminPolicyLists[setting.Key]; list {
+			data.ListDialog = adminPolicyListDialogFor(ctx, found, setting, detail.Values, extras.listTyped, extras.listError)
+		} else {
 			data.Dialog = adminNamedPolicyDialog(ctx, found, setting, values)
 		}
 	}
@@ -403,6 +414,10 @@ func adminNamedPolicyRow(ctx context.Context, policyID string, setting *policy.S
 	}
 	if stored, ok := values[setting.Key]; ok {
 		row.Value, row.Source = adminPolicyChoiceLabel(ctx, setting.Key, stored.JSON), ""
+		if _, list := adminPolicyLists[setting.Key]; list {
+			decoded, _ := setting.Decode(stored.JSON)
+			row.Value = adminPolicyListText(ctx, setting, decoded)
+		}
 	}
 	if adminPolicyNotApplied[setting.Key] {
 		row.Note = i18n.T(ctx, "admin.policies.not_applied")
@@ -509,6 +524,10 @@ func (h *Handler) handleSetNamedPolicySetting(w http.ResponseWriter, r *http.Req
 	}
 	actor, ok := h.adminActor(w, r)
 	if !ok {
+		return
+	}
+	if _, list := adminPolicyLists[setting.Key]; list {
+		h.changeAdminPolicyList(w, r, actor, r.PathValue("policyID"), setting)
 		return
 	}
 	ctx := r.Context()

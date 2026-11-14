@@ -124,7 +124,7 @@ func adminUserPolicySetting(ctx context.Context, person views.AdminUserData, set
 		applied = found.Instance.Get(setting)
 		row.Note = i18n.T(ctx, "admin.user.policy.not_applied", "policy", resolved.Source.PolicyName, "value", adminPolicyValueLabel(ctx, setting, resolved.Value))
 	}
-	row.Value = adminPolicyValueLabel(ctx, setting, applied.Value)
+	row.Value = adminPolicyValueText(ctx, setting, applied.Value)
 	row.Enforced = applied.Source.Enforced
 	tab := adminPolicyTabOf(setting)
 	switch applied.Source.Kind {

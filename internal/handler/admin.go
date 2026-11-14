@@ -158,7 +158,7 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_mail_security_exceptions"), http.StatusInternalServerError)
 		return
 	}
-	if data.Allowlist, err = h.mailAllowlistAdminData(ctx, data.CSRFTokens); err != nil {
+	if data.Allowlist, err = h.mailAllowlistAdminData(ctx); err != nil {
 		log.Printf("admin mail security: load allowed mail lists: %v", err)
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_the_allowed_mail_lists"), http.StatusInternalServerError)
 		return
@@ -462,7 +462,7 @@ func (h *Handler) redirectAdminSecurityToVerify(w http.ResponseWriter, r *http.R
 func (h *Handler) adminSecurityTarget(r *http.Request, values url.Values) string {
 	if h.ownedMailbox != nil && strings.HasPrefix(r.URL.Path, "/admin/security/proxies") {
 		values.Set("tab", "proxies")
-	} else if h.ownedMailbox != nil && !strings.HasPrefix(r.URL.Path, adminMailAllowlistBase+"/") {
+	} else if h.ownedMailbox != nil {
 		values.Set("tab", "exceptions")
 	}
 	target := "/admin/security"

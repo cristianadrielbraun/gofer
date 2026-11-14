@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -332,5 +333,90 @@ func TestPoliciesAreCreatedOrderedAssignedAndDeleted(t *testing.T) {
 	}
 	if got := adminSecurityVerificationReturnTo(views.AdminPolicyAssignPath(contractors, "")); got != views.AdminPolicyAssignPath(contractors, "") {
 		t.Fatalf("verification back to the Assign dialog = %q", got)
+	}
+}
+
+func TestPoliciesEditTheAllowedMailListsOneEntryAtATime(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	addBulkPeople(t, db, "active", "ines-moreau")
+	servers := views.AdminPolicySettingPath("mail.allowed_servers")
+	providers := views.AdminPolicySettingPath("mail.allowed_providers")
+	post := func(path string, form url.Values) *httptest.ResponseRecorder {
+		t.Helper()
+		dialog := getSecuritySettingsPath(t, stack, path, sessionCookie).Body.String()
+		form.Set(auth.CSRFFormFieldName, csrfProofFromForm(t, dialog, path))
+		return postSecuritySettings(t, stack, path, form, sessionCookie)
+	}
+	saved := func(path string, form url.Values) {
+		t.Helper()
+		if response := post(path, form); response.Code != http.StatusSeeOther || response.Header().Get("Location") != path {
+			t.Fatalf("%s %v = %d %q %q", path, form, response.Code, response.Header().Get("Location"), response.Body.String())
+		}
+	}
+
+	mail := getSecuritySettingsPath(t, stack, views.AdminDefaultPolicyTabPath(views.AdminPolicyTabMail), sessionCookie).Body.String()
+	for _, want := range []string{`data-admin-policy-setting="mail.allowed_servers"`, `data-admin-policy-setting="mail.allowed_address_domains"`, `data-admin-policy-setting="mail.allowed_providers"`, ">No limit<", ">Neither<"} {
+		if !strings.Contains(mail, want) {
+			t.Fatalf("the Default policy's Mail tab missing %q: %q", want, mail)
+		}
+	}
+	saved(servers, url.Values{"op": {"add"}, "value": {"IMAP.Example.test"}})
+	saved(servers, url.Values{"op": {"add"}, "value": {"*.corp.test"}})
+	dialog := getSecuritySettingsPath(t, stack, servers, sessionCookie).Body.String()
+	if !strings.Contains(dialog, `data-admin-list-entry="imap.example.test"`) || !strings.Contains(dialog, `data-admin-list-entry="*.corp.test"`) ||
+		strings.Contains(dialog, "data-admin-policy-list-set") || !strings.Contains(dialog, `data-tui-dialog-open="true"`) {
+		t.Fatalf("servers dialog = %q", dialog)
+	}
+	if refused := post(servers, url.Values{"op": {"add"}, "value": {"not a host"}}); refused.Code != http.StatusBadRequest || !strings.Contains(refused.Body.String(), "data-admin-list-error") {
+		t.Fatalf("a server that isn't one = %d %q", refused.Code, refused.Body.String())
+	}
+	saved(providers, url.Values{"op": {"add"}, "value": {"outlook"}})
+	mail = getSecuritySettingsPath(t, stack, views.AdminDefaultPolicyTabPath(views.AdminPolicyTabMail), sessionCookie).Body.String()
+	if !strings.Contains(mail, "*.corp.test, imap.example.test") || !strings.Contains(mail, ">Outlook<") {
+		t.Fatalf("the Default policy's Mail tab after the changes = %q", mail)
+	}
+
+	// A named policy leaves the list to the others until it's set.
+	list := getSecuritySettingsPath(t, stack, views.AdminPoliciesPath, sessionCookie).Body.String()
+	created := postSecuritySettings(t, stack, views.AdminPoliciesPath, url.Values{"name": {"Field"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, list, views.AdminPoliciesPath)}}, sessionCookie)
+	field := strings.TrimPrefix(created.Header().Get("Location"), views.AdminPoliciesPath+"/")
+	domains := views.AdminNamedPolicySettingPath(field, "mail.allowed_address_domains")
+	if dialog := getSecuritySettingsPath(t, stack, domains, sessionCookie).Body.String(); !strings.Contains(dialog, "data-admin-policy-list-unset") || strings.Contains(dialog, "data-admin-list-add") {
+		t.Fatalf("an unset list's dialog = %q", dialog)
+	}
+	saved(domains, url.Values{"op": {"set"}})
+	if tab := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(field, views.AdminPolicyTabMail), sessionCookie).Body.String(); !strings.Contains(tab, ">No limit<") {
+		t.Fatalf("a set, empty list on Field = %q", tab)
+	}
+	saved(domains, url.Values{"op": {"add"}, "value": {"field.test"}})
+	if dialog := getSecuritySettingsPath(t, stack, domains, sessionCookie).Body.String(); !strings.Contains(dialog, `data-admin-list-entry="field.test"`) || !strings.Contains(dialog, "data-admin-policy-list-clear") {
+		t.Fatalf("Field's domains dialog = %q", dialog)
+	}
+
+	// Ines gets Field's domains, and the Default policy's servers.
+	list = getSecuritySettingsPath(t, stack, views.AdminPolicyAssignPath(field, ""), sessionCookie).Body.String()
+	assign := views.AdminPolicyPath(field, "assign")
+	if assigned := postSecuritySettings(t, stack, assign, url.Values{"target": {"user:ines-moreau"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, list, assign)}}, sessionCookie); assigned.Code != http.StatusSeeOther {
+		t.Fatalf("assign Field = %d %q", assigned.Code, assigned.Body.String())
+	}
+	person := getSecuritySettingsPath(t, stack, views.AdminUserPagePath("ines-moreau", views.AdminUserTabPolicy, ""), sessionCookie).Body.String()
+	for _, want := range []string{">field.test<", "From Field, assigned to them", "*.corp.test, imap.example.test", `data-admin-policy-setting="mail.allowed_servers"`} {
+		if !strings.Contains(person, want) {
+			t.Fatalf("Ines's Policy tab missing %q: %q", want, person)
+		}
+	}
+
+	saved(domains, url.Values{"op": {"clear"}})
+	if tab := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(field, views.AdminPolicyTabMail), sessionCookie).Body.String(); strings.Contains(tab, "field.test") {
+		t.Fatalf("a cleared list stays on Field = %q", tab)
+	}
+	for value, want := range map[string]string{
+		servers: servers,
+		domains: domains,
+		views.AdminNamedPolicySettingPath(field, "mail.nope"): "",
+	} {
+		if got := adminSecurityVerificationReturnTo(value); got != want {
+			t.Errorf("return to %q = %q, want %q", value, got, want)
+		}
 	}
 }

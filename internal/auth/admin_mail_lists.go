@@ -3,49 +3,64 @@ package auth
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-// The allowed mail lists are policy settings (internal/policy): Mail
-// security changes the Default policy's, and exempting someone assigns
-// them the exemption policy, which sets every list to nothing. Each change
-// is a policy change, recorded as one.
+// The allowed mail lists are policy settings (internal/policy), changed one
+// entry at a time on any policy: the Default policy's apply to everyone, and
+// a named policy's to the people it's assigned to, an empty one meaning no
+// limit for them. Each change is a policy change, recorded as one.
 
 // MailLists are the allowed mail lists as Mail security shows them: the
 // Default policy's, and the people the exemption policy is assigned to.
 type MailLists struct {
 	storage.MailAllowlist
-	// Exempt are the IDs of the people the exemption policy is assigned to
-	// directly, sorted.
-	Exempt []string
+	// Exemption is the exemption policy, nil when there's none, and Exempt
+	// the IDs of the people it's assigned to directly, sorted.
+	Exemption *policy.Policy
+	Exempt    []string
 }
 
 // ErrMailListProvider is a provider other than Gmail or Outlook.
 var ErrMailListProvider = errors.New("only Gmail and Outlook are let in by name")
 
-// MailListChange adds an entry to one of the Default policy's lists, or
-// takes one off.
+// MailListOp is what a change does to a list.
+type MailListOp string
+
+const (
+	// MailListAdd adds Value; on a policy that left the list to others, the
+	// list then holds Value alone.
+	MailListAdd MailListOp = "add"
+	// MailListRemove takes Value off.
+	MailListRemove MailListOp = "remove"
+	// MailListSet makes a named policy set the list, empty: no limit for
+	// the people it's assigned to.
+	MailListSet MailListOp = "set"
+	// MailListClear leaves the list to the policies after this one.
+	MailListClear MailListOp = "clear"
+)
+
+// MailListChange changes one of a policy's allowed mail lists.
 type MailListChange struct {
 	ActorUserID    string
 	ActorSessionID string
+	// PolicyID is the policy; the Default one when empty.
+	PolicyID string
 	// List is storage.MailAllowlistServer, MailAllowlistDomain or
 	// MailAllowlistProvider.
 	List  string
 	Value string
-	Add   bool
+	Op    MailListOp
 }
 
 // MailLists reads the Default policy's lists and who is exempt from them.
@@ -62,6 +77,11 @@ func (m *Manager) MailLists(ctx context.Context, actorUserID string) (*MailLists
 	if lists.MailAllowlist, err = policy.DefaultMailAllowlist(ctx, tx); err != nil {
 		return nil, err
 	}
+	if exemption, err := policy.Get(ctx, tx, policy.MailExemptionID); err == nil {
+		lists.Exemption = &exemption
+	} else if !errors.Is(err, policy.ErrNotFound) {
+		return nil, err
+	}
 	assignments, err := policy.Assignments(ctx, tx, policy.MailExemptionID)
 	if err != nil {
 		return nil, err
@@ -75,44 +95,70 @@ func (m *Manager) MailLists(ctx context.Context, actorUserID string) (*MailLists
 	return lists, nil
 }
 
-// ChangeMailList adds an entry to one of the Default policy's lists, or
-// takes one off, and returns it cleaned. Adding one that's there, or
-// taking off one that isn't, changes nothing.
+// ChangeMailList changes one of a policy's lists and returns the entry it
+// added or took off, cleaned. A change that changes nothing, such as adding
+// an entry that's there, isn't made. Emptying the Default policy's list
+// clears it, which is the same: no limit.
 func (m *Manager) ChangeMailList(ctx context.Context, change MailListChange) (string, error) {
 	setting, ok := policy.MailListSetting(change.List)
 	if !ok {
 		return "", fmt.Errorf("unknown allowed mail list %q", change.List)
 	}
-	value, err := cleanMailListEntry(change.List, change.Value)
-	if err != nil {
-		return "", err
+	policyID := strings.TrimSpace(change.PolicyID)
+	if policyID == "" {
+		policyID = policy.DefaultID
 	}
-	err = m.changePolicies(ctx, change.ActorUserID, change.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) error {
-		current, err := policy.Get(ctx, tx, policy.DefaultID)
+	var value string
+	switch change.Op {
+	case MailListAdd, MailListRemove:
+		var err error
+		if value, err = cleanMailListEntry(change.List, change.Value); err != nil {
+			return "", err
+		}
+	case MailListSet, MailListClear:
+	default:
+		return "", fmt.Errorf("unknown change %q to an allowed mail list", change.Op)
+	}
+	err := m.changePolicies(ctx, change.ActorUserID, change.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) error {
+		current, err := policy.Get(ctx, tx, policyID)
 		if err != nil {
 			return err
 		}
-		lists, err := policy.ForInstance(ctx, tx)
+		values, err := policy.Values(ctx, tx, policyID)
 		if err != nil {
 			return err
 		}
-		entries := slices.Clone(lists.Strings(setting))
+		entries, set := []string{}, false
+		for _, stored := range values {
+			if stored.Key != setting.Key {
+				continue
+			}
+			set = true
+			if decoded, err := setting.Decode(stored.JSON); err == nil {
+				entries = slices.Clone(decoded.([]string))
+			}
+		}
 		at := slices.Index(entries, value)
 		switch {
-		case change.Add && at < 0:
-			entries = append(entries, value)
-		case !change.Add && at >= 0:
+		case change.Op == MailListAdd && (at < 0 || !set):
+			if at < 0 {
+				entries = append(entries, value)
+			}
+		case change.Op == MailListRemove && set && at >= 0:
 			entries = slices.Delete(entries, at, at+1)
+		case change.Op == MailListSet && !set && !current.Default:
+		case change.Op == MailListClear && set:
+			entries = nil
 		default:
 			return nil
 		}
 		next := policy.ValueChange{Key: setting.Key}
-		if len(entries) > 0 {
+		if entries != nil && !(current.Default && len(entries) == 0) {
 			if next.JSON, err = setting.Encode(entries); err != nil {
 				return err
 			}
 		}
-		_, err = m.setPolicyValuesTx(ctx, tx, actorUserID, actorSessionID, now, policy.DefaultID, current.Version, []policy.ValueChange{next})
+		_, err = m.setPolicyValuesTx(ctx, tx, actorUserID, actorSessionID, now, policyID, current.Version, []policy.ValueChange{next})
 		return err
 	})
 	return value, err
@@ -127,81 +173,4 @@ func cleanMailListEntry(list, value string) (string, error) {
 		return provider, nil
 	}
 	return "", ErrMailListProvider
-}
-
-// SetMailListExemption exempts someone from the allowed mail lists, by
-// assigning them the exemption policy, or holds them to the lists again.
-// The policy is made, first in the order, the first time it's needed.
-func (m *Manager) SetMailListExemption(ctx context.Context, actorUserID, actorSessionID, userID string, exempt bool) (*PolicyAssignmentChange, error) {
-	var result *PolicyAssignmentChange
-	err := m.changePolicies(ctx, actorUserID, actorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) (err error) {
-		if _, err := policy.Get(ctx, tx, policy.MailExemptionID); errors.Is(err, policy.ErrNotFound) {
-			if !exempt {
-				result = &PolicyAssignmentChange{}
-				return nil
-			}
-			if err := m.createMailExemption(ctx, tx, actorUserID, actorSessionID, now); err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
-		}
-		result, err = m.changePolicyAssignmentsTx(ctx, tx, actorUserID, actorSessionID, now, policy.MailExemptionID,
-			[]policy.Target{{Kind: policy.TargetUser, ID: strings.TrimSpace(userID)}}, exempt)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// createMailExemption makes the exemption policy: every list set to
-// nothing, first in the order, so no other policy's list reaches the
-// people it's assigned to.
-func (m *Manager) createMailExemption(ctx context.Context, tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) error {
-	if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.PoliciesManageSecurity, now); err != nil {
-		return err
-	}
-	var created policy.Policy
-	var err error
-	for n := 1; ; n++ {
-		name := policy.MailExemptionName
-		if n > 1 {
-			name += " " + strconv.Itoa(n)
-		}
-		created, err = policy.Create(ctx, tx, policy.NewPolicy{ID: policy.MailExemptionID, Name: name, Description: policy.MailExemptionDescription, By: actorUserID, At: now})
-		if !errors.Is(err, policy.ErrNameTaken) {
-			break
-		}
-	}
-	if err != nil {
-		return err
-	}
-	order, err := policy.List(ctx, tx)
-	if err != nil {
-		return err
-	}
-	ids := []string{created.ID}
-	for _, item := range order {
-		if !item.Default && item.ID != created.ID {
-			ids = append(ids, item.ID)
-		}
-	}
-	if err := policy.Reorder(ctx, tx, ids); err != nil {
-		return err
-	}
-	changes := map[string]audit.Change{"name": {To: created.Name}, "description": {To: created.Description}}
-	var values []policy.ValueChange
-	for _, setting := range []*policy.Setting{policy.MailAllowedServers, policy.MailAllowedDomains, policy.MailAllowedProviders} {
-		values = append(values, policy.ValueChange{Key: setting.Key, JSON: json.RawMessage(`[]`)})
-		changes[setting.Key] = audit.Change{To: []string{}}
-	}
-	if created, err = policy.SetValues(ctx, tx, created.ID, created.Version, values, actorUserID, now); err != nil {
-		return err
-	}
-	return m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
-		Action: "policy.created", Target: policyAuditTarget(created), Changes: changes,
-		Metadata: map[string]any{"priority": 1},
-	})
 }

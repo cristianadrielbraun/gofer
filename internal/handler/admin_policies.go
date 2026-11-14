@@ -37,6 +37,9 @@ var adminPolicySettings = map[string]string{
 	policy.MFARequired.Key:           views.AdminPolicyDialogTwoFactor,
 	policy.OwnProxies.Key:            views.AdminPolicyDialogOwnProxies,
 	policy.SecurityRetentionDays.Key: views.AdminPolicyDialogRetention,
+	policy.MailAllowedServers.Key:    views.AdminPolicyDialogList,
+	policy.MailAllowedDomains.Key:    views.AdminPolicyDialogList,
+	policy.MailAllowedProviders.Key:  views.AdminPolicyDialogList,
 }
 
 func (h *Handler) registerAdminPolicyRoutes(adminRoute func(string, http.HandlerFunc)) {
@@ -72,9 +75,10 @@ func adminPolicySettingFor(key string) (*policy.Setting, bool) {
 // adminDefaultPolicyExtras are what the page shows over a tab: a setting's
 // dialog, and a change that was refused.
 type adminDefaultPolicyExtras struct {
-	status    int
-	dialog    *views.AdminPolicySettingDialog
-	pageError string
+	status     int
+	dialog     *views.AdminPolicySettingDialog
+	listDialog *views.AdminPolicyListDialog
+	pageError  string
 	// verify opens verification, leading back to the dialog.
 	verify bool
 }
@@ -93,6 +97,15 @@ func (h *Handler) handleDefaultPolicySettingDialog(w http.ResponseWriter, r *htt
 	}
 	actor, ok := h.adminActor(w, r)
 	if !ok {
+		return
+	}
+	if _, list := adminPolicyLists[setting.Key]; list {
+		dialog, err := h.adminDefaultPolicyListDialog(r.Context(), actor, setting, "", "")
+		if err != nil {
+			h.adminPolicyLoadFailed(w, r, err)
+			return
+		}
+		h.renderDefaultPolicy(w, r, adminPolicyTabOf(setting), adminDefaultPolicyExtras{listDialog: dialog})
 		return
 	}
 	dialog, err := h.adminPolicyDialog(r.Context(), actor, setting)
@@ -126,7 +139,7 @@ func (h *Handler) renderDefaultPolicy(w http.ResponseWriter, r *http.Request, ta
 		h.adminPolicyLoadFailed(w, r, err)
 		return
 	}
-	data := views.AdminDefaultPolicyData{Tab: tab, Dialog: extras.dialog}
+	data := views.AdminDefaultPolicyData{Tab: tab, Dialog: extras.dialog, ListDialog: extras.listDialog}
 	for _, candidate := range adminPolicyTabs {
 		shown := false
 		for _, setting := range policy.Settings() {
@@ -154,6 +167,9 @@ func (h *Handler) renderDefaultPolicy(w http.ResponseWriter, r *http.Request, ta
 	if extras.dialog != nil {
 		returnTo = views.AdminPolicySettingPath(extras.dialog.Key)
 	}
+	if extras.listDialog != nil {
+		returnTo = views.AdminPolicySettingPath(extras.listDialog.Key)
+	}
 	verification, stepUp, ok := h.adminStepUpVerification(w, r, returnTo, extras.verify)
 	if !ok {
 		return
@@ -173,6 +189,10 @@ func (h *Handler) adminPolicyRow(ctx context.Context, actor admin.Actor, setting
 		Key: setting.Key, Label: i18n.T(ctx, setting.Label), Help: i18n.T(ctx, setting.Help),
 		Enforced: resolved.Source.Enforced, EditPath: views.AdminPolicySettingPath(setting.Key),
 		Source: i18n.T(ctx, "admin.policies.source."+string(resolved.Source.Kind)),
+	}
+	if _, list := adminPolicyLists[setting.Key]; list {
+		row.Value = adminPolicyListText(ctx, setting, resolved.Value)
+		return row, nil
 	}
 	switch setting {
 	case policy.MFARequired:
@@ -272,6 +292,10 @@ func (h *Handler) handleSetDefaultPolicySetting(w http.ResponseWriter, r *http.R
 	}
 	actor, ok := h.adminActor(w, r)
 	if !ok {
+		return
+	}
+	if _, list := adminPolicyLists[setting.Key]; list {
+		h.changeAdminPolicyList(w, r, actor, policy.DefaultID, setting)
 		return
 	}
 	switch setting {

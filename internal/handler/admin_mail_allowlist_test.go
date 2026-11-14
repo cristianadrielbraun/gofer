@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 // setTestMailList sets one of the Default policy's allowed mail lists.
@@ -70,9 +73,9 @@ func inTestPolicyTx(t *testing.T, db *storage.DB, change func(context.Context, *
 	}
 }
 
-// The administrator limits the servers and domains mailboxes use: the page
-// lists the mailboxes outside the lists, those stop connecting, and a person
-// the lists don't apply to connects anywhere.
+// The administrator limits the servers and domains mailboxes use from the
+// Policies pages: Mail security lists the mailboxes outside the lists,
+// those stop connecting, and a person a policy exempts connects anywhere.
 func TestOwnedAdminMailAllowlist(t *testing.T) {
 	f := newOwnedAdminDiagnosticFixture(t)
 	if _, err := f.system.Write().Exec(`UPDATE users SET status='active' WHERE id='bob'; UPDATE sessions SET step_up_at=CURRENT_TIMESTAMP,step_up_method='totp' WHERE user_id='administrator'`); err != nil {
@@ -94,27 +97,33 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 			return err
 		})
 	}
-	post := func(path string, form url.Values) {
+	// change sends a list's dialog its change, as the Policies page does.
+	change := func(path string, form url.Values) *httptest.ResponseRecorder {
 		t.Helper()
-		page := f.request("/admin/security")
-		if page.Code != 200 {
-			t.Fatal(page.Code, page.Body.String())
+		dialog := f.request(path)
+		if dialog.Code != 200 {
+			t.Fatal(path, dialog.Code, dialog.Body.String())
 		}
-		response := ownedSecurityPost(t, f, page.Body.String(), path, form)
-		if response.Code != 303 || adminFlashFailed(t, response) {
-			t.Fatal(path, response.Code, response.Header())
+		return ownedSecurityPost(t, f, dialog.Body.String(), path, form)
+	}
+	changed := func(path string, form url.Values) {
+		t.Helper()
+		if response := change(path, form); response.Code != 303 || response.Header().Get("Location") != path || adminFlashFailed(t, response) {
+			t.Fatal(path, form, response.Code, response.Header(), response.Body.String())
 		}
 	}
+	servers := views.AdminPolicySettingPath(policy.MailAllowedServers.Key)
+	domains := views.AdminPolicySettingPath(policy.MailAllowedDomains.Key)
 
 	page := f.request("/admin/security")
-	if page.Code != 200 || !strings.Contains(page.Body.String(), "Allowed mail servers and domains") || !strings.Contains(page.Body.String(), "Nothing is limited.") {
-		t.Fatal("allowed mail page", page.Code, page.Body.String())
+	if body := page.Body.String(); page.Code != 200 || !strings.Contains(body, "Allowed mail servers and domains") || !strings.Contains(body, "Nothing is limited.") ||
+		strings.Contains(body, `action="/admin/security/allowlist`) || !strings.Contains(body, `href="/admin/policies/default/mail"`) {
+		t.Fatal("allowed mail page", page.Code, body)
 	}
-	post("/admin/security/allowlist/servers", url.Values{"value": {"*.Example.com"}})
+	changed(servers, url.Values{"op": {"add"}, "value": {"*.Example.com"}})
 	// Alice's contacts come from a CardDAV server on this address.
-	post("/admin/security/allowlist/servers", url.Values{"value": {"127.0.0.1"}})
-	page = f.request("/admin/security")
-	body := page.Body.String()
+	changed(servers, url.Values{"op": {"add"}, "value": {"127.0.0.1"}})
+	body := f.request("/admin/security").Body.String()
 	if !strings.Contains(body, "*.example.com") || !strings.Contains(body, "imap.elsewhere.test isn&#39;t an allowed server") || strings.Contains(body, "alice@example.com") {
 		i := strings.LastIndex(body, "Mailboxes outside the lists")
 		t.Fatal("refused mailboxes", body[i:i+1500])
@@ -126,7 +135,17 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 		t.Fatal("mailbox outside the lists connected:", err)
 	}
 
-	post("/admin/security/allowlist/exempt", url.Values{"user_id": {"bob"}, "exempt": {"true"}})
+	// Bob is exempted by a policy that sets every list to nothing.
+	exempt, err := f.manager.CreatePolicy(davTestContext(t), auth.CreatePolicyOptions{ActorUserID: "administrator", ActorSessionID: f.session.ID, Name: "No limits"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, setting := range []*policy.Setting{policy.MailAllowedServers, policy.MailAllowedDomains, policy.MailAllowedProviders} {
+		changed(views.AdminNamedPolicySettingPath(exempt.ID, setting.Key), url.Values{"op": {"set"}})
+	}
+	if _, err := f.manager.AssignPolicy(davTestContext(t), auth.ChangePolicyAssignmentsOptions{ActorUserID: "administrator", ActorSessionID: f.session.ID, PolicyID: exempt.ID, Targets: []policy.Target{{Kind: policy.TargetUser, ID: "bob"}}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := connects("bob"); err != nil {
 		t.Fatal("exempt person refused:", err)
 	}
@@ -134,38 +153,25 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 		t.Fatal("exempt person's mailbox still listed", body)
 	}
 
-	post("/admin/security/allowlist/domains", url.Values{"value": {"@example.org"}})
+	changed(domains, url.Values{"op": {"add"}, "value": {"@example.org"}})
 	if err := connects("alice"); !storage.IsMailAllowlistError(err) || !strings.Contains(err.Error(), "@example.com") {
 		t.Fatal("address outside the domains connected:", err)
 	}
 
-	page = f.request("/admin/security")
-	response := ownedSecurityPost(t, f, page.Body.String(), "/admin/security/allowlist/servers", url.Values{"value": {"imap.example.com:993"}})
-	if response.Code != 303 || !adminFlashFailed(t, response) {
-		t.Fatal("server with a port accepted", response.Code, response.Header())
+	refused := change(servers, url.Values{"op": {"add"}, "value": {"imap.example.com:993"}})
+	if body := refused.Body.String(); refused.Code != 400 || !strings.Contains(body, "Enter a host name or IP address") || !strings.Contains(body, `value="imap.example.com:993"`) {
+		t.Fatal("server with a port accepted", refused.Code, body)
 	}
-	lists, err := policy.DefaultMailAllowlist(davTestContext(t), f.system.Read())
-	if err != nil || len(lists.Servers) != 2 || len(lists.Domains) != 1 {
-		t.Fatal(lists, err)
+	for _, server := range []string{"*.example.com", "127.0.0.1"} {
+		changed(servers, url.Values{"op": {"remove"}, "value": {server}})
 	}
-	for _, server := range lists.Servers {
-		post("/admin/security/allowlist/servers/remove", url.Values{"value": {server}})
-	}
-	post("/admin/security/allowlist/domains/remove", url.Values{"value": {"example.org"}})
+	changed(domains, url.Values{"op": {"remove"}, "value": {"example.org"}})
 	if err := connects("alice"); err != nil {
 		t.Fatal("refused with empty lists:", err)
 	}
-	// Each change is a policy change: the Default policy's lists, and the
-	// exemption policy made for Bob.
-	var changed, created, assigned int
-	if err := f.system.Read().QueryRow(`SELECT
-		(SELECT COUNT(*) FROM audit_events WHERE action = 'policy.settings_changed' AND target_id = 'default'),
-		(SELECT COUNT(*) FROM audit_events WHERE action = 'policy.created' AND target_id = ?),
-		(SELECT COUNT(*) FROM audit_events WHERE action = 'policy.assigned' AND target_id = ?)`, policy.MailExemptionID, policy.MailExemptionID).Scan(&changed, &created, &assigned); err != nil || changed != 6 || created != 1 || assigned != 1 {
-		t.Fatalf("recorded = %d settings changes, %d created, %d assigned, %v", changed, created, assigned, err)
-	}
-	if exempt, err := policy.Assignments(davTestContext(t), f.system.Read(), policy.MailExemptionID); err != nil || len(exempt) != 1 || exempt[0].ID != "bob" {
-		t.Fatalf("exempt = %#v, %v", exempt, err)
+	var recorded int
+	if err := f.system.Read().QueryRow(`SELECT COUNT(*) FROM audit_events WHERE action = 'policy.settings_changed'`).Scan(&recorded); err != nil || recorded != 9 {
+		t.Fatalf("recorded %d settings changes, %v", recorded, err)
 	}
 }
 

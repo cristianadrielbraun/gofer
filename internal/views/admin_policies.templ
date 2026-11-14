@@ -60,6 +60,8 @@ type AdminDefaultPolicyData struct {
 	Tabs     []AdminPolicyTab
 	Settings []AdminPolicySetting
 	Dialog   *AdminPolicySettingDialog
+	// ListDialog is a list setting's dialog, when one is open.
+	ListDialog *AdminPolicyListDialog
 	// StepUpRequired is a session that must verify again before a change.
 	StepUpRequired bool
 }
@@ -173,6 +175,9 @@ templ AdminDefaultPolicyPage(data AdminDefaultPolicyData, verification ...AdminS
 				}
 				if data.Dialog != nil {
 					@adminPolicySettingDialog(*data.Dialog, data.StepUpRequired)
+				}
+				if data.ListDialog != nil {
+					@adminPolicyListDialog(*data.ListDialog, data.StepUpRequired)
 				}
 			</div>
 		</div>

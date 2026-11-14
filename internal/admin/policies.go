@@ -103,3 +103,12 @@ func (s *Service) PoliciesOfPerson(ctx context.Context, actor Actor, userID stri
 func (s *Service) ProtectedGroups(ctx context.Context, actor Actor) (map[string]bool, error) {
 	return s.auth.ProtectedGroups(ctx, actor.UserID)
 }
+
+// ChangeMailList changes one of a policy's allowed mail lists: op adds or
+// removes value, or sets a named policy's list or leaves it to the policies
+// after it.
+func (s *Service) ChangeMailList(ctx context.Context, actor Actor, policyID, list, value string, op auth.MailListOp) (string, error) {
+	return s.auth.ChangeMailList(ctx, auth.MailListChange{
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, PolicyID: policyID, List: list, Value: value, Op: op,
+	})
+}

@@ -67,27 +67,24 @@ func (data MailSecurityAdminData) ChangesDisabled() bool {
 }
 
 // MailAllowlistAdminData is the allowed mail lists on the administrator's
-// Mail security page.
+// Mail security page: the Default policy's.
 type MailAllowlistAdminData struct {
-	Servers []MailAllowlistAdminEntry
-	Domains []MailAllowlistAdminEntry
+	Servers []string
+	Domains []string
 	Gmail   bool
 	Outlook bool
-	// Exempt are the people the lists don't apply to, and Candidates the
-	// others who could be exempted.
-	Exempt     []AdminWebmailUserOption
-	Candidates []AdminWebmailUserOption
+	// Exempt are the people the exemption policy is assigned to; the
+	// policy exists when ExemptionPolicy is set.
+	Exempt              []AdminWebmailUserOption
+	ExemptionPolicy     bool
+	ExemptionPolicyID   string
+	ExemptionPolicyName string
 	// Limited says some policy's list limits someone. Refused are the
 	// mailboxes the lists stop from connecting, as worked out at
 	// RefusalsCheckedAt.
 	Limited           bool
 	Refused           []MailAllowlistRefusedAccount
 	RefusalsCheckedAt time.Time
-}
-
-// MailAllowlistAdminEntry is a server or domain on a list.
-type MailAllowlistAdminEntry struct {
-	Value string
 }
 
 type MailAllowlistRefusedAccount struct {

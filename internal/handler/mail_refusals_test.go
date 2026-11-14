@@ -50,7 +50,7 @@ func TestMailRefusalsFollowEveryChangeToTheRules(t *testing.T) {
 	// The Default policy limits servers: Bob's mailbox is outside them.
 	// Alice's contacts come from a CardDAV server on 127.0.0.1.
 	for _, server := range []string{"*.example.com", "127.0.0.1"} {
-		if _, err := f.manager.ChangeMailList(ctx, auth.MailListChange{ActorUserID: actor, ActorSessionID: session, List: storage.MailAllowlistServer, Value: server, Add: true}); err != nil {
+		if _, err := f.manager.ChangeMailList(ctx, auth.MailListChange{ActorUserID: actor, ActorSessionID: session, List: storage.MailAllowlistServer, Value: server, Op: auth.MailListAdd}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -84,14 +84,24 @@ func TestMailRefusalsFollowEveryChangeToTheRules(t *testing.T) {
 	}
 	check(nil, []string{alice})
 
-	// Exempting Bob lets him in again.
-	if _, err := f.manager.SetMailListExemption(ctx, actor, session, "bob", true); err != nil {
+	// A policy setting every list to nothing lets Bob in again.
+	exempt, err := f.manager.CreatePolicy(ctx, auth.CreatePolicyOptions{ActorUserID: actor, ActorSessionID: session, Name: "No limits"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, list := range []string{storage.MailAllowlistServer, storage.MailAllowlistDomain, storage.MailAllowlistProvider} {
+		if _, err := f.manager.ChangeMailList(ctx, auth.MailListChange{ActorUserID: actor, ActorSessionID: session, PolicyID: exempt.ID, List: list, Op: auth.MailListSet}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bobOnly := auth.ChangePolicyAssignmentsOptions{ActorUserID: actor, ActorSessionID: session, PolicyID: exempt.ID, Targets: []policy.Target{{Kind: policy.TargetUser, ID: "bob"}}}
+	if _, err := f.manager.AssignPolicy(ctx, bobOnly); err != nil {
 		t.Fatal(err)
 	}
 	check(nil, []string{bob})
 
 	// Mail security lists the last check, and when it was made.
-	if _, err := f.manager.SetMailListExemption(ctx, actor, session, "bob", false); err != nil {
+	if _, err := f.manager.UnassignPolicy(ctx, bobOnly); err != nil {
 		t.Fatal(err)
 	}
 	check([]string{bob}, nil)
