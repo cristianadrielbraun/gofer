@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
@@ -220,8 +221,8 @@ templ outboundProxyFields(id string, proxy models.OutboundProxyView, isDefault b
 	}
 }
 
-// outboundProxyPolicy lets an administrator let people add proxies for their
-// own accounts.
+// outboundProxyPolicy says whether people may add proxies for their own
+// accounts, which the Policies page changes.
 templ outboundProxyPolicy(data models.MailSecurityAdminData) {
 	<div class="mt-4 rounded-lg border border-border bg-background/45 p-4">
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -235,18 +236,10 @@ templ outboundProxyPolicy(data models.MailSecurityAdminData) {
 					}
 				</p>
 			</div>
-			<form method="post" data-step-up action={ templ.URL(data.ActionBase + "/proxies/policy") } class="shrink-0">
-				if action := data.ActionBase + "/proxies/policy"; data.CSRFTokens[action] != "" {
-					<input type="hidden" name="_csrf" value={ data.CSRFTokens[action] }/>
-				}
-				if data.PeopleMayAddProxies {
-					<input type="hidden" name="people_add" value="no"/>
-					<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.policy_disable") }</button>
-				} else {
-					<input type="hidden" name="people_add" value="yes"/>
-					<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.policy_enable") }</button>
-				}
-			</form>
+			// Whether people may is a policy setting.
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: AdminPolicySettingPath("mail.own_proxies"), Class: "shrink-0", Attributes: templ.Attributes{"data-admin-own-proxies-policy": ""}}) {
+				{ i18n.T(ctx, "admin.policies.change_in_policies") }
+			}
 		</div>
 	</div>
 }

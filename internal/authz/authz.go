@@ -40,6 +40,8 @@ const (
 	// GroupsManage creates, renames and deletes groups, and changes who is
 	// in them.
 	GroupsManage Permission = "groups.manage"
+	// PoliciesRead shows the policies and the settings they decide.
+	PoliciesRead Permission = "policies.read"
 	// InstancePolicy changes instance-wide sign-in rules.
 	InstancePolicy Permission = "instance.policy"
 	// SecurityRead shows mail security settings.
@@ -77,6 +79,7 @@ var catalog = map[Permission]Spec{
 	UsersExport:       {StepUp: true},
 	GroupsRead:        {},
 	GroupsManage:      {StepUp: true},
+	PoliciesRead:      {},
 	InstancePolicy:    {StepUp: true},
 	SecurityRead:      {},
 	SecurityChange:    {StepUp: true},

@@ -114,7 +114,6 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("GET "+views.AdminAuditActivityPath, h.handleAdminAuditActivity)
 	adminRoute("GET "+views.AdminAuditActivityPath+"/export", h.handleExportAdminAudit)
 	adminRoute("POST "+views.AdminAuditActivityPath+"/retention", h.handleSetAdminAuditRetention)
-	adminRoute("POST /admin/activity/retention", h.handleSetAuthenticationEventRetention)
 	for _, route := range adminUserActionDialogRoutes {
 		adminRoute("GET "+route.pattern, h.handleAdminUserActionDialog(route.action))
 	}
@@ -133,9 +132,6 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 		adminRoute("GET "+adminUsersBulkPath(action), h.handleAdminUsersBulkDialog(action))
 		adminRoute("POST "+adminUsersBulkPath(action), h.handleAdminUsersBulk(action))
 	}
-	adminRoute("GET "+views.AdminSignInPath, h.handleAdminSignIn)
-	adminRoute("GET "+views.AdminSignInTwoFactorPath, h.handleAdminSignInTwoFactorDialog)
-	adminRoute("POST "+views.AdminSignInTwoFactorPath, h.handleSetAdminSignInTwoFactor)
 	adminRoute("GET /admin/security", h.handleAdminSecurity)
 	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)
@@ -145,9 +141,9 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/security/proxies/{id}/delete", h.handleDeleteOutboundProxy)
 	adminRoute("POST /admin/security/proxies/{id}/everyone", h.handleSetOutboundProxyEveryone)
 	adminRoute("POST /admin/security/proxies/{id}/people", h.handleSetOutboundProxyPerson)
-	adminRoute("POST /admin/security/proxies/policy", h.handleSetOwnOutboundProxiesPolicy)
 	h.registerAdminMailAllowlistRoutes(adminRoute)
 	h.registerAdminGroupRoutes(adminRoute)
+	h.registerAdminPolicyRoutes(adminRoute)
 	adminRoute("GET /api/admin/events", h.handleSSE)
 	adminRoute("GET /api/admin/mail-operations/status", h.handleAdminMailOperationsStatus)
 	adminRoute("GET /api/system/processing", h.handleProcessingStatus)

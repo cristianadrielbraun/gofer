@@ -39,12 +39,9 @@ type AdminSecurityActivityData struct {
 	HasNext              bool
 	StepUpRequired       bool
 	ManagedMode          bool
-	RetentionDays        int
-	RetentionMinimumDays int
-	RetentionMaximumDays int
-	RetentionCSRFToken   string
-	// RetentionOpen reopens the settings after a refused value, to correct it.
-	RetentionOpen        bool
+	// RetentionDays is how long events are kept, changed on the Policies
+	// page.
+	RetentionDays int
 }
 
 func adminSecurityActivityPagePath(filter string, page int64) templ.SafeURL {
@@ -104,7 +101,6 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 						</div>
 					</div>
 				} else {
-					@AdminSecurityRetentionDialog(data)
 					<nav class="mt-6 flex flex-wrap gap-2" aria-label={ i18n.T(ctx, "admin.activity.filter_label") }>
 						@adminSecurityActivityFilterLink(data, "", i18n.T(ctx, "admin.activity.filter.all"))
 						@adminSecurityActivityFilterLink(data, "failures", i18n.T(ctx, "admin.activity.filter.failures"))
@@ -194,17 +190,8 @@ templ adminSecurityEventsTable(events []AdminSecurityActivityEventData) {
 	</div>
 }
 
-templ AdminSecurityRetentionDialog(data AdminSecurityActivityData) {
-	@adminRetentionDialog(adminRetentionSetting{
-		ID: "admin-security-retention-dialog", InputID: "admin-security-retention-days", FormAttribute: "data-admin-security-retention",
-		Action: "/admin/activity/retention", CSRFToken: data.RetentionCSRFToken,
-		Days: data.RetentionDays, Minimum: data.RetentionMinimumDays, Maximum: data.RetentionMaximumDays, Open: data.RetentionOpen,
-		Title: i18n.T(ctx, "admin.retention.title"), Current: i18n.N(ctx, "admin.retention.current", data.RetentionDays), Note: i18n.T(ctx, "admin.retention.note"),
-	})
-}
-
-// adminRetentionSetting is one of the Activity page's retention dialogs:
-// how long sign-in and security events, or administrative changes, are kept.
+// adminRetentionSetting is the Activity page's retention dialog: how long
+// administrative changes are kept.
 type adminRetentionSetting struct {
 	ID            string
 	InputID       string
@@ -265,8 +252,8 @@ templ adminRetentionDialog(setting adminRetentionSetting) {
 	}
 }
 
-// adminSecurityActivityHeaderActions counts the events and opens the
-// retention setting.
+// adminSecurityActivityHeaderActions counts the events and links to how
+// long they're kept, on the Policies page.
 templ adminSecurityActivityHeaderActions(data AdminSecurityActivityData) {
 	@adminBadge(adminToneNeutral) {
 		if data.Filter == "" {
@@ -276,11 +263,10 @@ templ adminSecurityActivityHeaderActions(data AdminSecurityActivityData) {
 		}
 	}
 	if data.ManagedMode && !data.StepUpRequired {
-		@dialog.Trigger(dialog.TriggerProps{For: "admin-security-retention-dialog"}) {
-			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"aria-haspopup": "dialog"}}) {
-				@icon.Settings(icon.Props{Class: "size-4"})
-				{ i18n.T(ctx, "admin.activity.settings") }
-			}
+		// How long they're kept is a policy setting.
+		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: AdminPolicySettingPath("audit.security_retention_days"), Attributes: templ.Attributes{"data-admin-security-retention": ""}}) {
+			@icon.Settings(icon.Props{Class: "size-4"})
+			{ i18n.N(ctx, "admin.activity.kept_for", data.RetentionDays, "count", i18n.Number(ctx, data.RetentionDays)) }
 		}
 	}
 }

@@ -43,12 +43,12 @@ func TestAdminRoutesRejectNonAdminUsers(t *testing.T) {
 		})
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/activity/retention", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/policies/default/settings/audit.security_retention_days", nil)
 	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "user", IsAdmin: false}))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("POST /admin/activity/retention status = %d, want 403", rec.Code)
+		t.Fatalf("POST a policy setting status = %d, want 403", rec.Code)
 	}
 }
 

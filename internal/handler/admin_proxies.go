@@ -48,9 +48,6 @@ func (h *Handler) addOutboundProxyData(ctx context.Context, data *models.MailSec
 			return err
 		}
 		users = scope.Users
-		for _, action := range []string{base + "/proxies/policy"} {
-			data.CSRFTokens[action] = auth.CSRFToken(ctx, http.MethodPost, action)
-		}
 	}
 	for _, p := range saved {
 		view := outboundProxyView(p)
@@ -145,42 +142,6 @@ func (h *Handler) handleSetOutboundProxyPerson(w http.ResponseWriter, r *http.Re
 	}
 	h.reconnectAllAccounts(ctx)
 	h.redirectAdminSecurity(w, r, i18n.T(ctx, "admin.proxies.people_saved"), "")
-}
-
-// handleSetOwnOutboundProxiesPolicy lets people add proxies of their own, or
-// stops them.
-func (h *Handler) handleSetOwnOutboundProxiesPolicy(w http.ResponseWriter, r *http.Request) {
-	// Only a managed installation has several people to choose from.
-	if h.ownedMailbox == nil {
-		http.NotFound(w, r)
-		return
-	}
-	ctx, cancel := h.ownedAdminDiagnosticContext(r.Context())
-	defer cancel()
-	r = r.WithContext(ctx)
-	if !h.prepareMailSecurityChange(w, r) {
-		return
-	}
-	allowed := r.FormValue("people_add") == "yes"
-	recorded := h.withAdminAudit(ctx, audit.Event{
-		Action:   "security.proxy_policy_changed",
-		Target:   audit.Target{Kind: auditTargetInstance},
-		Metadata: map[string]any{"people_may_add_proxies": allowed},
-	})
-	if err := h.db.SetPeopleMayAddOutboundProxies(recorded, allowed); err != nil {
-		log.Printf("mail security: set own proxies policy: %v", err)
-		h.redirectAdminSecurity(w, r, "", i18n.T(ctx, "admin.proxies.policy_failed"))
-		return
-	}
-	if !allowed {
-		// Accounts that used their owner's proxies go back to the default.
-		h.reconnectAllAccounts(ctx)
-	}
-	notice := "admin.proxies.policy_off"
-	if allowed {
-		notice = "admin.proxies.policy_on"
-	}
-	h.redirectAdminSecurity(w, r, i18n.T(ctx, notice), "")
 }
 
 func (h *Handler) redirectOutboundProxyError(w http.ResponseWriter, r *http.Request, err error) {

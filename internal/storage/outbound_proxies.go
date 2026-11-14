@@ -509,3 +509,13 @@ func (db *DB) SetAccountProxyChoice(ctx context.Context, userID, accountID, choi
 	}
 	return nil
 }
+
+// CountOwnOutboundProxies counts the proxies people saved for their own
+// accounts, and how many people saved them.
+func (db *DB) CountOwnOutboundProxies(ctx context.Context) (people, proxies int, err error) {
+	err = db.read.QueryRowContext(ctx, `SELECT COUNT(DISTINCT owner_user_id), COUNT(*) FROM outbound_proxies WHERE owner_user_id IS NOT NULL AND owner_user_id <> ''`).Scan(&people, &proxies)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count people's own proxies: %w", err)
+	}
+	return people, proxies, nil
+}

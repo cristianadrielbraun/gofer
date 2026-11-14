@@ -22,7 +22,7 @@ func TestOutboundProxiesPanelForAdministratorsAndPeople(t *testing.T) {
 	admin := renderForTest(t, func(out *bytes.Buffer) error {
 		return OutboundProxiesPanel(models.MailSecurityAdminData{ActionBase: "/admin/security", Proxies: proxies, ProxyPeople: true, CSRFTokens: map[string]string{}}).Render(context.Background(), out)
 	})
-	for _, want := range []string{`action="/admin/security/proxies/policy"`, "Let people add their own", `action="/admin/security/proxies/office/everyone"`,
+	for _, want := range []string{`data-admin-own-proxies-policy`, `href="/admin/policies/default/settings/mail.own_proxies"`, "Change in Policies", `action="/admin/security/proxies/office/everyone"`,
 		"For everyone", "Limit to chosen people", `action="/admin/security/proxies/lab/people"`, `name="chosen" value="false"`, ">ana<", "ben", `name="default"`} {
 		if !strings.Contains(admin, want) {
 			t.Fatalf("administrator's panel missing %q", want)
@@ -34,7 +34,7 @@ func TestOutboundProxiesPanelForAdministratorsAndPeople(t *testing.T) {
 	if !strings.Contains(own, "Your proxies") || !strings.Contains(own, `action="/settings/security/proxies"`) {
 		t.Fatal("a person's panel isn't theirs")
 	}
-	for _, unwanted := range []string{`name="default"`, "/proxies/policy", "/everyone", "/people"} {
+	for _, unwanted := range []string{`name="default"`, "data-admin-own-proxies-policy", "/everyone", "/people"} {
 		if strings.Contains(own, unwanted) {
 			t.Fatalf("a person's panel has %q", unwanted)
 		}

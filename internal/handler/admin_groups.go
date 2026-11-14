@@ -33,10 +33,10 @@ func (h *Handler) registerAdminGroupRoutes(adminRoute func(string, http.HandlerF
 	adminRoute("POST "+views.AdminGroupsPath+"/{groupID}/delete", h.handleDeleteAdminGroup)
 }
 
-// adminGroupVerification says whether the session must verify again before
-// a change, and the dialog that asks, leading back to returnTo. A session
+// adminStepUpVerification says whether the session must verify again before
+// a change on a console page, and the dialog that asks, leading back to returnTo. A session
 // that is no longer valid is sent to sign in, and ok is false.
-func (h *Handler) adminGroupVerification(w http.ResponseWriter, r *http.Request, returnTo string, open bool) (views.AdminSecurityVerificationData, bool, bool) {
+func (h *Handler) adminStepUpVerification(w http.ResponseWriter, r *http.Request, returnTo string, open bool) (views.AdminSecurityVerificationData, bool, bool) {
 	ctx := r.Context()
 	access, err := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
 	switch {
@@ -99,7 +99,7 @@ func (h *Handler) renderAdminGroups(w http.ResponseWriter, r *http.Request, extr
 			ID: group.ID, Name: group.Name, Description: group.Description, Members: group.MemberCount, UpdatedAt: group.UpdatedAt,
 		})
 	}
-	verification, stepUp, ok := h.adminGroupVerification(w, r, views.AdminGroupsPath, extras.pageError != "")
+	verification, stepUp, ok := h.adminStepUpVerification(w, r, views.AdminGroupsPath, extras.pageError != "")
 	if !ok {
 		return
 	}
@@ -261,7 +261,7 @@ func (h *Handler) renderAdminGroupPage(w http.ResponseWriter, r *http.Request, t
 	case extras.deleteOpen:
 		returnTo = views.AdminGroupPath(group.ID, "delete")
 	}
-	verification, stepUp, ok := h.adminGroupVerification(w, r, returnTo, extras.pageError != "")
+	verification, stepUp, ok := h.adminStepUpVerification(w, r, returnTo, extras.pageError != "")
 	if !ok {
 		return
 	}

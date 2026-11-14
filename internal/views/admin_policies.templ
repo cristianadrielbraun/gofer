@@ -1,0 +1,365 @@
+package views
+
+import (
+	"fmt"
+	"net/url"
+	"strconv"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/label"
+	"github.com/cristianadrielbraun/gofer/components/radio"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// The Policies section. Until named policies arrive, it is the Default
+// policy: the settings that apply to everyone.
+const (
+	AdminPoliciesPath      = "/admin/policies"
+	AdminDefaultPolicyPath = AdminPoliciesPath + "/default"
+)
+
+// The Default policy's tabs, one per category with settings. The first has
+// no address of its own.
+const (
+	AdminPolicyTabSignIn   = ""
+	AdminPolicyTabMail     = "mail"
+	AdminPolicyTabActivity = "activity"
+)
+
+// The settings' dialogs, by what they change.
+const (
+	AdminPolicyDialogTwoFactor  = "two_factor"
+	AdminPolicyDialogOwnProxies = "own_proxies"
+	AdminPolicyDialogRetention  = "retention"
+)
+
+// adminPolicySettingDialogID is the dialog that changes one setting.
+const adminPolicySettingDialogID = "admin-policy-setting"
+
+// AdminDefaultPolicyTabPath is one of the Default policy's tabs.
+func AdminDefaultPolicyTabPath(tab string) string {
+	if tab == AdminPolicyTabSignIn {
+		return AdminDefaultPolicyPath
+	}
+	return AdminDefaultPolicyPath + "/" + tab
+}
+
+// AdminPolicySettingPath opens the dialog that changes the setting with
+// key, and is where the change is sent.
+func AdminPolicySettingPath(key string) string {
+	return AdminDefaultPolicyPath + "/settings/" + url.PathEscape(key)
+}
+
+// AdminDefaultPolicyData is the Default policy's page: one tab of its
+// settings, and a setting's dialog when one is open.
+type AdminDefaultPolicyData struct {
+	Tab      string
+	Tabs     []AdminPolicyTab
+	Settings []AdminPolicySetting
+	Dialog   *AdminPolicySettingDialog
+	// StepUpRequired is a session that must verify again before a change.
+	StepUpRequired bool
+}
+
+// AdminPolicyTab is one of the page's tabs.
+type AdminPolicyTab struct {
+	Tab   string
+	Label string
+}
+
+// AdminPolicySetting is one setting's row: what it is, its value, and
+// where the value comes from.
+type AdminPolicySetting struct {
+	Key   string
+	Label string
+	Help  string
+	Value string
+	// Source says where the value comes from: the built-in default or the
+	// Default policy.
+	Source   string
+	Enforced bool
+	// Changed says when it was last changed, and by whom, when known.
+	Changed string
+	// Note is something to know about the value now, linking to Href when
+	// it has one.
+	Note     string
+	NoteHref string
+	EditPath string
+}
+
+// AdminPolicySettingDialog changes one setting, saying what the change
+// will do first.
+type AdminPolicySettingDialog struct {
+	Kind      string
+	Key       string
+	Title     string
+	Help      string
+	Action    string
+	CSRFToken string
+	// Two-factor sign-in: who it's required of now, and what requiring it
+	// of everyone does (the people without an app, the sessions it ends).
+	TwoFactor AdminSignInData
+	// People's own proxies: allowed now, and how many there are.
+	OwnProxiesAllowed bool
+	OwnProxyPeople    int
+	OwnProxies        int
+	// Retention: the days kept, the bounds, and once a shorter value was
+	// sent, what it removes and that it needs confirming.
+	Days        int
+	MinDays     int
+	MaxDays     int
+	DaysError   string
+	ConfirmDays int
+	Removes     int64
+}
+
+// AdminSignInData is what the two-factor dialog says about requiring it of
+// everyone.
+type AdminSignInData struct {
+	// Everyone: two-factor sign-in is required of everyone now.
+	Everyone bool
+	// WithoutApp names the first people without an authenticator app;
+	// WithoutAppTotal counts them all.
+	WithoutApp      []AdminSignInPerson
+	WithoutAppTotal int
+	// SessionsToEnd counts the working sessions that didn't use the app,
+	// which requiring it of everyone ends.
+	SessionsToEnd int
+}
+
+// AdminSignInPerson is someone the preview names.
+type AdminSignInPerson struct {
+	ID       string
+	Username string
+}
+
+func (person AdminSignInPerson) path() string {
+	return AdminUserPagePath(url.PathEscape(person.ID), AdminUserTabSignIn, "")
+}
+
+templ AdminDefaultPolicyPage(data AdminDefaultPolicyData, verification ...AdminSecurityVerificationData) {
+	<div
+		class="flex-1 flex flex-col min-w-0 overflow-hidden"
+		data-admin-default-policy
+		if adminSecurityVerificationValue(verification).Required {
+			hx-headers={ adminVerificationOnPageHeaders }
+		}
+	>
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-5xl px-6 py-8 lg:px-8 lg:py-10">
+				@adminPageHeader(adminPageHeaderProps{Title: i18n.T(ctx, "admin.nav.policies"), Description: i18n.T(ctx, "admin.policies.description")})
+				<div class="mt-6 rounded-lg border border-border bg-muted/35 px-4 py-3 text-sm text-muted-foreground" data-admin-policies-later>
+					<span class="font-semibold text-foreground">{ i18n.T(ctx, "admin.policies.default_title") }</span>
+					{ i18n.T(ctx, "admin.policies.default_detail") }
+				</div>
+				@linkTabs(i18n.T(ctx, "admin.policies.tabs")) {
+					for _, tab := range data.Tabs {
+						@linkTab(templ.SafeURL(AdminDefaultPolicyTabPath(tab.Tab)), tab.Label, data.Tab == tab.Tab, nil)
+					}
+				}
+				@adminSection(adminSectionProps{ID: "admin-policy-settings-heading", Title: adminPolicyTabLabel(data)}) {
+					<ul class="divide-y divide-border">
+						for _, setting := range data.Settings {
+							@adminPolicySettingRow(setting)
+						}
+					</ul>
+				}
+				if data.Dialog != nil {
+					@adminPolicySettingDialog(*data.Dialog, data.StepUpRequired)
+				}
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+func adminPolicyTabLabel(data AdminDefaultPolicyData) string {
+	for _, tab := range data.Tabs {
+		if tab.Tab == data.Tab {
+			return tab.Label
+		}
+	}
+	return ""
+}
+
+templ adminPolicySettingRow(setting AdminPolicySetting) {
+	<li class="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between" data-admin-policy-setting={ setting.Key }>
+		<div class="min-w-0 max-w-2xl">
+			<p class="text-sm font-semibold text-foreground">{ setting.Label }</p>
+			<p class="mt-1 text-xs leading-relaxed text-muted-foreground">{ setting.Help }</p>
+			<div class="mt-2 flex flex-wrap items-center gap-2">
+				@adminBadge(adminToneInfo, templ.Attributes{"data-admin-policy-value": ""}) {
+					{ setting.Value }
+				}
+				<span class="text-xs text-muted-foreground" data-admin-policy-source>{ setting.Source }</span>
+				if setting.Enforced {
+					@adminTag(adminToneWarning) {
+						{ i18n.T(ctx, "admin.policies.enforced") }
+					}
+				}
+			</div>
+			if setting.Note != "" {
+				<p class="mt-2 text-xs text-muted-foreground">
+					if setting.NoteHref != "" {
+						<a href={ templ.SafeURL(setting.NoteHref) } class="text-primary underline-offset-4 hover:underline">{ setting.Note }</a>
+					} else {
+						{ setting.Note }
+					}
+				</p>
+			}
+			if setting.Changed != "" {
+				<p class="mt-1 text-xs text-muted-foreground">{ setting.Changed }</p>
+			}
+		</div>
+		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: setting.EditPath, Attributes: templ.Attributes{"data-admin-policy-edit": setting.Key}}) {
+			{ i18n.T(ctx, "admin.policies.change") }
+		}
+	</li>
+}
+
+// adminPolicySettingDialog changes one setting. Verification, when the
+// session needs it, opens instead, and leads back here.
+templ adminPolicySettingDialog(d AdminPolicySettingDialog, stepUpRequired bool) {
+	@dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !stepUpRequired}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ d.Title }
+				}
+				@dialog.Description() {
+					{ d.Help }
+				}
+			}
+			<form method="post" action={ templ.SafeURL(d.Action) } class="space-y-4" data-step-up data-admin-policy-form={ d.Key }>
+				<input type="hidden" name="_csrf" value={ d.CSRFToken }/>
+				switch d.Kind {
+					case AdminPolicyDialogTwoFactor:
+						@adminPolicyTwoFactor(d.TwoFactor)
+					case AdminPolicyDialogOwnProxies:
+						@adminPolicyOwnProxies(d)
+					case AdminPolicyDialogRetention:
+						@adminPolicyRetention(d)
+				}
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: adminPolicySettingDialogID}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@adminPolicySubmit(d)
+				}
+			</form>
+		}
+	}
+}
+
+templ adminPolicySubmit(d AdminPolicySettingDialog) {
+	switch {
+		case d.Kind == AdminPolicyDialogTwoFactor && d.TwoFactor.Everyone:
+			@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"name": "value", "value": "false"}}) {
+				{ i18n.T(ctx, "admin.sign_in.two_factor.administrators_only") }
+			}
+		case d.Kind == AdminPolicyDialogTwoFactor:
+			@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "value", "value": "true"}}) {
+				{ i18n.T(ctx, "admin.sign_in.two_factor.require_everyone") }
+			}
+		case d.Kind == AdminPolicyDialogRetention && d.ConfirmDays > 0:
+			@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+				{ i18n.T(ctx, "admin.policies.retention.confirm_submit") }
+			}
+		default:
+			@button.Button(button.Props{Type: button.TypeSubmit}) {
+				{ i18n.T(ctx, "common.save") }
+			}
+	}
+}
+
+// adminPolicyTwoFactor says what changing who needs two-factor sign-in
+// does: who still has to set up the app, and the sessions it ends.
+templ adminPolicyTwoFactor(data AdminSignInData) {
+	<div class="space-y-3 text-sm" data-admin-two-factor-preview>
+		if data.Everyone {
+			<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.off_detail") }</p>
+		} else {
+			<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.on_detail") }</p>
+			if data.WithoutAppTotal == 0 {
+				<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.preview_all_ready") }</p>
+			} else {
+				<p class="text-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_without_app", data.WithoutAppTotal, "count", i18n.Number(ctx, data.WithoutAppTotal)) }</p>
+				<ul class="flex flex-wrap gap-x-3 gap-y-1">
+					for _, person := range data.WithoutApp {
+						<li><a href={ templ.URL(person.path()) } class="text-primary underline-offset-4 hover:underline">{ person.Username }</a></li>
+					}
+					if data.WithoutAppTotal > len(data.WithoutApp) {
+						<li class="text-muted-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_more", data.WithoutAppTotal-len(data.WithoutApp), "count", i18n.Number(ctx, data.WithoutAppTotal-len(data.WithoutApp))) }</li>
+					}
+				</ul>
+			}
+			<p class="text-foreground" data-admin-two-factor-sessions={ i18n.Number(ctx, data.SessionsToEnd) }>
+				if data.SessionsToEnd == 0 {
+					{ i18n.T(ctx, "admin.sign_in.two_factor.preview_no_sessions") }
+				} else {
+					{ i18n.N(ctx, "admin.sign_in.two_factor.preview_sessions", data.SessionsToEnd, "count", i18n.Number(ctx, data.SessionsToEnd)) }
+				}
+			</p>
+			<p class="text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.preview_passkey_note") }</p>
+		}
+	</div>
+}
+
+// adminPolicyOwnProxies allows people's own proxies or stops them, saying
+// how many there are.
+templ adminPolicyOwnProxies(d AdminPolicySettingDialog) {
+	<fieldset class="space-y-2" data-admin-policy-own-proxies>
+		<legend class="sr-only">{ d.Title }</legend>
+		@adminPolicyChoice("admin-policy-own-proxies-on", "true", i18n.T(ctx, "admin.policies.own_proxies.on"), i18n.T(ctx, "admin.proxies.policy_on_detail"), d.OwnProxiesAllowed)
+		@adminPolicyChoice("admin-policy-own-proxies-off", "false", i18n.T(ctx, "admin.policies.own_proxies.off"), i18n.T(ctx, "admin.proxies.policy_off_detail"), !d.OwnProxiesAllowed)
+	</fieldset>
+	<p class="rounded-md border border-border bg-muted/35 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground" data-admin-policy-own-proxies-count>
+		if d.OwnProxies == 0 {
+			{ i18n.T(ctx, "admin.policies.own_proxies.none") }
+		} else {
+			{ i18n.N(ctx, "admin.policies.own_proxies.count", d.OwnProxies, "count", i18n.Number(ctx, d.OwnProxies)) }
+		}
+	</p>
+}
+
+templ adminPolicyChoice(id, value, title, detail string, checked bool) {
+	<label for={ id } class="flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2.5 hover:bg-accent/35">
+		@radio.Radio(radio.Props{ID: id, Name: "value", Value: value, Checked: checked, Class: "mt-0.5"})
+		<span class="min-w-0 text-sm">
+			<span class="block font-semibold text-foreground">{ title }</span>
+			<span class="mt-0.5 block text-xs text-muted-foreground">{ detail }</span>
+		</span>
+	</label>
+}
+
+// adminPolicyRetention sets how many days sign-in and security events are
+// kept. A shorter value that removes events asks to be confirmed first.
+templ adminPolicyRetention(d AdminPolicySettingDialog) {
+	if d.ConfirmDays > 0 {
+		<input type="hidden" name="days" value={ strconv.Itoa(d.ConfirmDays) }/>
+		<input type="hidden" name="confirm" value="1"/>
+		<div class="rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-foreground" data-admin-policy-retention-confirm>
+			{ i18n.N(ctx, "admin.policies.retention.removes", int(d.Removes), "count", i18n.Number(ctx, int(d.Removes)), "days", i18n.Number(ctx, d.ConfirmDays)) }
+		</div>
+	} else {
+		<div>
+			@label.Label(label.Props{For: "admin-policy-retention-days", Class: "mb-1.5 block"}) {
+				{ i18n.T(ctx, "admin.retention.label") }
+			}
+			{{ attributes := templ.Attributes{"min": fmt.Sprint(d.MinDays), "max": fmt.Sprint(d.MaxDays), "aria-describedby": "admin-policy-retention-days-help"} }}
+			@input.Input(input.Props{
+				ID: "admin-policy-retention-days", Name: "days", Type: input.TypeNumber, Value: strconv.Itoa(d.Days), Required: true,
+				Class: "tabular-nums", HasError: d.DaysError != "", Attributes: attributes,
+			})
+			if d.DaysError != "" {
+				<p class="mt-2 text-xs font-medium text-destructive">{ d.DaysError }</p>
+			}
+			<p id="admin-policy-retention-days-help" class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.retention.help", "min", d.MinDays, "max", d.MaxDays) }</p>
+		</div>
+		<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "admin.retention.note") }</p>
+	}
+}

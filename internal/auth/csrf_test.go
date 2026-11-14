@@ -17,7 +17,7 @@ func TestSessionCSRFIncludesAdministratorUserMutations(t *testing.T) {
 	for _, path := range []string{
 		"/admin/users/invitations",
 		"/admin/users/person/role",
-		"/admin/activity/retention",
+		"/admin/policies/default/settings/auth.mfa_required",
 		"/admin/security/private-target",
 		"/admin/groups",
 		"/admin/groups/g-1/members",

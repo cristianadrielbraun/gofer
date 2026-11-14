@@ -83,6 +83,7 @@ func requiresSessionCSRF(r *http.Request) bool {
 		strings.HasPrefix(r.URL.Path, "/settings/security/") ||
 		strings.HasPrefix(r.URL.Path, "/admin/users/") ||
 		r.URL.Path == "/admin/groups" || strings.HasPrefix(r.URL.Path, "/admin/groups/") ||
+		strings.HasPrefix(r.URL.Path, "/admin/policies/") ||
 		strings.HasPrefix(r.URL.Path, "/admin/activity/") ||
 		strings.HasPrefix(r.URL.Path, "/admin/security/")
 }
