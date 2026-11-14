@@ -265,12 +265,23 @@ func openDB(path string, options ...string) (*sql.DB, error) {
 	return db, nil
 }
 
+// sqliteFileURL is the file: URI SQLite opens an absolute path by. A Windows
+// path such as C:/data/gofer.db needs a leading slash, or the URI reads
+// file://C:/... and SQLite takes the drive for a host.
+func sqliteFileURL(absolutePath string) url.URL {
+	path := filepath.ToSlash(absolutePath)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return url.URL{Scheme: "file", Path: path}
+}
+
 func openReadOnlyDB(path string, pragmas ...string) (*sql.DB, error) {
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve database path: %w", err)
 	}
-	databaseURL := url.URL{Scheme: "file", Path: filepath.ToSlash(absolutePath)}
+	databaseURL := sqliteFileURL(absolutePath)
 	query := databaseURL.Query()
 	query.Set("mode", "ro")
 	query.Add("_pragma", "foreign_keys(1)")
