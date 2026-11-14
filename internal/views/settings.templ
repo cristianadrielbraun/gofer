@@ -1634,6 +1634,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 }
 
 templ UnifiedFolderSettingRow(folder unifiedFolderOption, accounts []models.AccountSyncStatus, uiSettings map[string]string) {
+	{{ folder.Name = i18n.FolderName(ctx, folder.ID, folder.Name) }}
 	{{ key := unifiedFolderSettingKey(folder.ID) }}
 	{{ enabled := uiSettingGet(uiSettings, key, "true") != "false" }}
 	{{ masterEnabled := uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" }}
@@ -1729,7 +1730,7 @@ templ syncFolderPillToggle(f models.FolderSyncStatus) {
 	<button type="button" data-sync-pill-toggle class="inline-flex min-w-0 items-center gap-1.5">
 		{{ folderIcon := icon.Icon(f.Icon) }}
 		@folderIcon(icon.Props{Class: "size-3 shrink-0"})
-		<span class="truncate">{ syncFolderShortName(f) }</span>
+		<span class="truncate">{ syncFolderLabel(ctx, f) }</span>
 	</button>
 }
 
@@ -1781,7 +1782,7 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 			data-role={ f.Role }
 			data-account-id={ accountID }
 			data-interval={ strconv.Itoa(interval) }
-			data-folder-name={ syncFolderDisplayName(f) }
+			data-folder-name={ syncFolderTitle(ctx, f) }
 			data-configured-idle={ strconv.FormatBool(f.IsIDLE) }
 			data-effective-idle={ strconv.FormatBool(syncFolderUsesEffectiveIDLE(f)) }
 			data-idle-fallback-reason={ f.IDLEFallbackReason }
@@ -1794,7 +1795,7 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 			}
 			style="height:26px"
 		>
-			if syncFolderNeedsFullName(f) {
+			if syncFolderNeedsFullName(ctx, f) {
 				// The full path, for a name shortened or too long for the pill.
 				@tooltip.Tooltip() {
 					@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex min-w-0"}) {
@@ -1843,7 +1844,7 @@ func idleFallbackTooltip(ctx context.Context, f models.FolderSyncStatus) string 
 		return ""
 	}
 	reason := i18n.Stored(ctx, "sync.fallback_reason.", strings.TrimSuffix(strings.TrimSpace(f.IDLEFallbackReason), "."))
-	message := i18n.T(ctx, "js.settings.sync.fallback", "folder", syncFolderDisplayName(f), "reason", reason)
+	message := i18n.T(ctx, "js.settings.sync.fallback", "folder", syncFolderTitle(ctx, f), "reason", reason)
 	if retryAt, err := time.Parse(time.RFC3339, f.IDLERetryAt); err == nil && retryAt.After(time.Now()) {
 		remaining := time.Until(retryAt)
 		minutes := max(1, int((remaining+time.Minute-1)/time.Minute))
@@ -6036,11 +6037,29 @@ func syncFolderShortName(f models.FolderSyncStatus) string {
 	return top + separator + "…" + separator + name
 }
 
-// syncFolderNeedsFullName reports whether the pill shortens the folder's
-// name, or may cut it off, so its tooltip gives the whole path.
-func syncFolderNeedsFullName(f models.FolderSyncStatus) bool {
+// syncFolderNeedsFullName reports whether the pill shows something other than
+// the folder's whole path, or may cut it off, so its tooltip gives the path.
+func syncFolderNeedsFullName(ctx context.Context, f models.FolderSyncStatus) bool {
 	full := syncFolderDisplayName(f)
-	return syncFolderShortName(f) != full || len([]rune(full)) > 32
+	return syncFolderLabel(ctx, f) != full || len([]rune(full)) > 32
+}
+
+// syncFolderTitle names a folder in sentences: a special folder by its name
+// in the page's language, like the sidebar, and any other by its path.
+func syncFolderTitle(ctx context.Context, f models.FolderSyncStatus) string {
+	if name, ok := i18n.DefaultFolderName(ctx, f.Role, strings.TrimSpace(f.FolderName)); ok {
+		return name
+	}
+	return syncFolderDisplayName(f)
+}
+
+// syncFolderLabel is the text on a folder's pill: a special folder's name in
+// the page's language, or the shortened path of any other.
+func syncFolderLabel(ctx context.Context, f models.FolderSyncStatus) string {
+	if name, ok := i18n.DefaultFolderName(ctx, f.Role, strings.TrimSpace(f.FolderName)); ok {
+		return name
+	}
+	return syncFolderShortName(f)
 }
 
 func syncSettingsHasConfigurableFolderModes(settings models.SyncSettings) bool {
