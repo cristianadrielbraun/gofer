@@ -258,6 +258,12 @@ templ adminGroupCreateDialog(data AdminGroupsData) {
 // adminGroupFields are a group's name and description, for a new group and
 // for its settings.
 templ adminGroupFields(prefix string, form AdminGroupForm) {
+	@adminNameFields(prefix, form, i18n.T(ctx, "admin.groups.description_help"))
+}
+
+// adminNameFields are a name and a description, as groups and policies
+// have, with what the description is for.
+templ adminNameFields(prefix string, form AdminGroupForm, help string) {
 	<div class="space-y-1.5">
 		<label for={ prefix + "-name" } class="block text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.groups.name") }</label>
 		{{ nameAttributes := templ.Attributes{"maxlength": "100", "required": true, "autocomplete": "off"} }}
@@ -279,7 +285,7 @@ templ adminGroupFields(prefix string, form AdminGroupForm) {
 		if form.DescriptionError != "" {
 			<p id={ prefix + "-description-error" } class="text-xs font-medium text-destructive">{ form.DescriptionError }</p>
 		} else {
-			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.groups.description_help") }</p>
+			<p class="text-xs text-muted-foreground">{ help }</p>
 		}
 	</div>
 }

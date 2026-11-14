@@ -40,8 +40,6 @@ var adminPolicySettings = map[string]string{
 }
 
 func (h *Handler) registerAdminPolicyRoutes(adminRoute func(string, http.HandlerFunc)) {
-	adminRoute("GET "+views.AdminPoliciesPath, redirectAdminPage(views.AdminDefaultPolicyPath))
-	adminRoute("GET "+views.AdminPoliciesPath+"/{$}", redirectAdminPage(views.AdminDefaultPolicyPath))
 	adminRoute("GET "+views.AdminDefaultPolicyPath, h.handleDefaultPolicy(views.AdminPolicyTabSignIn))
 	for _, tab := range []string{views.AdminPolicyTabMail, views.AdminPolicyTabActivity} {
 		adminRoute("GET "+views.AdminDefaultPolicyTabPath(tab), h.handleDefaultPolicy(tab))
@@ -462,11 +460,27 @@ func (h *Handler) setDefaultPolicyOwnProxies(w http.ResponseWriter, r *http.Requ
 	redirectAdmin(w, r, views.AdminDefaultPolicyTabPath(adminPolicyTabOf(setting)))
 }
 
-// adminPolicyAddress is a Policies page verification can lead back to: a
-// tab of the Default policy, or a setting's dialog.
+// adminPolicyAddress is a Policies page verification can lead back to: the
+// list, a tab of a policy, or one of its dialogs.
 func adminPolicyAddress(path string) bool {
-	if path == views.AdminDefaultPolicyPath {
+	if path == views.AdminPoliciesPath || path == views.AdminDefaultPolicyPath {
 		return true
+	}
+	if rest, ok := strings.CutPrefix(path, views.AdminPoliciesPath+"/"); ok && !strings.HasPrefix(rest, policy.DefaultID+"/") {
+		id, tab, _ := strings.Cut(rest, "/")
+		if id == "" || !adminUserActionTargetID(id) {
+			return false
+		}
+		switch tab {
+		case "", views.AdminPolicyTabMail, views.AdminNamedPolicyTabAssigned, views.AdminNamedPolicyTabDetails, "assign", "delete":
+			return true
+		}
+		key, ok := strings.CutPrefix(tab, "settings/")
+		if !ok {
+			return false
+		}
+		_, shown := adminNamedPolicySettingFor(key)
+		return shown
 	}
 	rest, ok := strings.CutPrefix(path, views.AdminDefaultPolicyPath+"/")
 	if !ok {

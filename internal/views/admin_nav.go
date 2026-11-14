@@ -105,7 +105,7 @@ var adminNavigation = []adminNavGroup{
 		{section: AdminSectionAdministrators, path: AdminAdministratorsPath, label: "admin.nav.administrators", icon: icon.ShieldUser},
 	}},
 	{items: []adminNavItem{
-		{section: AdminSectionPolicies, path: AdminDefaultPolicyPath, label: "admin.nav.policies", icon: icon.SlidersHorizontal},
+		{section: AdminSectionPolicies, path: AdminPoliciesPath, label: "admin.nav.policies", icon: icon.SlidersHorizontal},
 	}},
 	{label: "admin.nav.group.security", items: []adminNavItem{
 		{section: AdminSectionMailSecurity, path: "/admin/security", label: "admin.nav.security", icon: icon.ShieldAlert},

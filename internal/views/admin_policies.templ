@@ -7,14 +7,15 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/label"
 	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
-// The Policies section. Until named policies arrive, it is the Default
-// policy: the settings that apply to everyone.
+// The Policies section: the named policies in order, and the Default
+// policy, which applies to everyone after them.
 const (
 	AdminPoliciesPath      = "/admin/policies"
 	AdminDefaultPolicyPath = AdminPoliciesPath + "/default"
@@ -149,11 +150,11 @@ templ AdminDefaultPolicyPage(data AdminDefaultPolicyData, verification ...AdminS
 	>
 		<div class="flex-1 overflow-y-auto">
 			<div class="max-w-5xl px-6 py-8 lg:px-8 lg:py-10">
-				@adminPageHeader(adminPageHeaderProps{Title: i18n.T(ctx, "admin.nav.policies"), Description: i18n.T(ctx, "admin.policies.description")})
-				<div class="mt-6 rounded-lg border border-border bg-muted/35 px-4 py-3 text-sm text-muted-foreground" data-admin-policies-later>
-					<span class="font-semibold text-foreground">{ i18n.T(ctx, "admin.policies.default_title") }</span>
-					{ i18n.T(ctx, "admin.policies.default_detail") }
-				</div>
+				<a href={ templ.SafeURL(AdminPoliciesPath) } class="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground" data-admin-policy-back>
+					@icon.ArrowLeft(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "admin.nav.policies") }
+				</a>
+				@adminPageHeader(adminPageHeaderProps{Title: i18n.T(ctx, "admin.policies.default_name"), Description: i18n.T(ctx, "admin.policies.default_description")})
 				@linkTabs(i18n.T(ctx, "admin.policies.tabs")) {
 					for _, tab := range data.Tabs {
 						@linkTab(templ.SafeURL(AdminDefaultPolicyTabPath(tab.Tab)), tab.Label, data.Tab == tab.Tab, nil)
