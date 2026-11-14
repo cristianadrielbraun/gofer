@@ -1100,7 +1100,23 @@ templ MailCardLayoutDialog() {
 				<span class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.08)]">{ i18n.T(ctx, "mail.card_layout.sample_label") }</span>
 			</span>
 		</div>
-		<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status"></div>
+		<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status">
+			<span data-mail-card-field="readAction" class="mail-card-action-btn">
+				@icon.MailOpen(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="archiveAction" class="mail-card-action-btn">
+				@icon.Archive(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="deleteAction" class="mail-card-action-btn">
+				@icon.Trash2(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="labelsAction" class="mail-card-action-btn">
+				@icon.Tag(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="spamAction" class="mail-card-action-btn">
+				@icon.ShieldAlert(icon.Props{Class: "size-3.5"})
+			</span>
+		</div>
 		<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner" data-mail-card-layout-zone-items="corner" data-mail-card-layout-dropzone="corner">
 			<span data-mail-card-field="starred">
 				@icon.Star(icon.Props{Class: "size-3.5 shrink-0 fill-amber-500 text-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
@@ -1351,7 +1367,9 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 					</span>
 				}
 			</div>
-			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>
+			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status">
+				@mailCardActionButtons(email)
+			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner">
 				if email.IsStarred {
 					<button class="star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred" aria-label={ i18n.T(ctx, "mail.actions.unstar") }>
@@ -1366,6 +1384,40 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			<div class="hidden" data-mail-card-zone="hidden"></div>
 		</a>
 	</div>
+}
+
+// mailCardActionButtons are the card fields that act on the card's message;
+// app.js runs them. They start in the status zone, and the card layout moves
+// them, or hides them, as it does the other fields. Labels that depend on the
+// folder (Archive in Archive, Delete in Trash, Spam in Spam) are set by app.js.
+templ mailCardActionButtons(email models.Email) {
+	if email.IsRead {
+		@mailCardActionButton("readAction", "read", i18n.T(ctx, "mail.actions.mark_unread")) {
+			@icon.Mail(icon.Props{Class: "size-3.5"})
+		}
+	} else {
+		@mailCardActionButton("readAction", "read", i18n.T(ctx, "mail.actions.mark_read")) {
+			@icon.MailOpen(icon.Props{Class: "size-3.5"})
+		}
+	}
+	@mailCardActionButton("archiveAction", "archive", i18n.T(ctx, "mail.card_action.archive")) {
+		@icon.Archive(icon.Props{Class: "size-3.5"})
+	}
+	@mailCardActionButton("deleteAction", "delete", i18n.T(ctx, "mail.card_action.delete")) {
+		@icon.Trash2(icon.Props{Class: "size-3.5"})
+	}
+	@mailCardActionButton("labelsAction", "labels", i18n.T(ctx, "mail.actions.labels_short")) {
+		@icon.Tag(icon.Props{Class: "size-3.5"})
+	}
+	@mailCardActionButton("spamAction", "spam", i18n.T(ctx, "mail.actions.report_spam")) {
+		@icon.ShieldAlert(icon.Props{Class: "size-3.5"})
+	}
+}
+
+templ mailCardActionButton(field string, action string, label string) {
+	<button type="button" class="mail-card-action-btn shrink-0" data-mail-card-field={ field } data-mail-card-action={ action } aria-label={ label } title={ label }>
+		{ children... }
+	</button>
 }
 
 templ MailListTableItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {

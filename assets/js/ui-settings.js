@@ -499,7 +499,9 @@ var GoferSettings;
   }
 
   var MAIL_CARD = cardLayoutModel({
-    fields: ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread"],
+    // The *Action fields are buttons that act on the card's message, hidden
+    // until the layout shows them.
+    fields: ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread", "readAction", "archiveAction", "deleteAction", "labelsAction", "spamAction"],
     defaultFields: "avatar,thread,from,account,to,attachment,date,subject,preview,labels,starred",
     zones: ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner", "hidden"],
     defaultLayout: "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
@@ -513,7 +515,7 @@ var GoferSettings;
     ],
     legacySplitBody: true,
     legacyRail: legacyRailZone,
-    iconFields: { avatar: true, thread: true, accountMarker: true, attachment: true, starred: true, unread: true },
+    iconFields: { avatar: true, thread: true, accountMarker: true, attachment: true, starred: true, unread: true, readAction: true, archiveAction: true, deleteAction: true, labelsAction: true, spamAction: true },
     sideZones: ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"],
     centerZones: ["header", "body", "bodyBottom", "footer"],
     // How many fields a zone holds. The middle is two lines, body and
@@ -534,6 +536,11 @@ var GoferSettings;
       preview: "footer",
       labels: "footer",
       starred: "corner",
+      readAction: "status",
+      archiveAction: "status",
+      deleteAction: "status",
+      labelsAction: "status",
+      spamAction: "status",
     },
     fallbackZone: "body",
     fallbackField: "subject",

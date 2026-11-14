@@ -2974,6 +2974,34 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   align-items: center;
 }
 
+/* A card's action buttons (Read, Archive, Delete, Labels, Spam): quiet
+   icons that light up under the pointer, Delete in red. */
+.mail-card-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  border-radius: 0.25rem;
+  color: var(--color-muted-foreground);
+  opacity: 0.8;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.mail-list-card button.mail-card-action-btn:hover,
+.mail-list-card button.mail-card-action-btn:focus-visible {
+  color: var(--color-foreground);
+  background: color-mix(in srgb, var(--color-foreground) 8%, transparent);
+  opacity: 1;
+}
+
+.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:hover,
+.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:focus-visible {
+  color: var(--color-destructive);
+}
+
 .mail-list-card-empty-icon-slot {
   display: inline-flex;
   width: 1rem;
@@ -3183,19 +3211,19 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   column-gap: 0.25em;
 }
 
-.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="thread"]) {
+.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) {
   min-width: 1.75rem;
   justify-content: center;
   padding-inline: 0;
 }
 
-.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"]) {
+.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) {
   width: 1.75rem;
 }
 
 /* The editor's card is enlarged on purpose, so its small icons grow too. */
-.mail-card-layout-drag-layer :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"]) > svg,
-.mail-card-layout-preview-card :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"]) > svg {
+.mail-card-layout-drag-layer :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) > svg,
+.mail-card-layout-preview-card :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) > svg {
   width: 1rem;
   height: 1rem;
 }
@@ -3426,7 +3454,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="account"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="accountMarker"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="to"],
-#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="cc"] {
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="cc"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="readAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="archiveAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="deleteAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="labelsAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="spamAction"] {
   display: none !important;
 }
 
@@ -3443,7 +3476,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #mail-list-scroll[data-mail-card-hidden~="labels"] [data-mail-card-field="labels"],
 #mail-list-scroll[data-mail-card-hidden~="attachment"] [data-mail-card-field="attachment"],
 #mail-list-scroll[data-mail-card-hidden~="starred"] [data-mail-card-field="starred"],
-#mail-list-scroll[data-mail-card-hidden~="unread"] [data-mail-card-field="unread"] {
+#mail-list-scroll[data-mail-card-hidden~="unread"] [data-mail-card-field="unread"],
+#mail-list-scroll[data-mail-card-hidden~="readAction"] [data-mail-card-field="readAction"],
+#mail-list-scroll[data-mail-card-hidden~="archiveAction"] [data-mail-card-field="archiveAction"],
+#mail-list-scroll[data-mail-card-hidden~="deleteAction"] [data-mail-card-field="deleteAction"],
+#mail-list-scroll[data-mail-card-hidden~="labelsAction"] [data-mail-card-field="labelsAction"],
+#mail-list-scroll[data-mail-card-hidden~="spamAction"] [data-mail-card-field="spamAction"] {
   display: none !important;
 }
 
@@ -5596,6 +5634,7 @@ body.mail-list-column-resizing {
   /* While selecting, a tap anywhere on a card selects it: its star and thread
      toggle don't take the tap. */
   #mail-list[data-mail-selecting] #mail-list-scroll .star-btn,
+  #mail-list[data-mail-selecting] #mail-list-scroll [data-mail-card-action],
   #mail-list[data-mail-selecting] #mail-list-scroll [data-thread-toggle] {
     pointer-events: none;
   }

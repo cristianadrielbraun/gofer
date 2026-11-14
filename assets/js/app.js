@@ -2190,6 +2190,7 @@ document.addEventListener("DOMContentLoaded", function () {
     setupMailTouchSelection()
     setupMailPullToRefresh()
     setupMailSwipeActions()
+    setupMailCardActionLabels()
 
     // With no reading pane, a click selects a message, and a double click
     // opens it in the list's place (a single click does, with that setting on).
@@ -2200,7 +2201,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (Date.now() < suppressMailRowClickUntil) return
       if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
       var link = e.target.closest && e.target.closest("#mail-list-scroll :is(.mail-list-item[data-email-id], .thread-sub-item) > a")
-      if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+      if (!link || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action]")) return
       e.preventDefault()
       e.stopPropagation()
       var singleClickOpen = window.GoferSettings && GoferSettings.get("mail_single_click_open") === "true"
@@ -2250,10 +2251,18 @@ document.addEventListener("DOMContentLoaded", function () {
         if (toggleList) toggleList.toggleThreadExpand(threadToggle.dataset.threadToggle, { select: false })
         return
       }
+      // A card's action button acts on its message and leaves the row as it is.
+      var cardAction = e.target.closest && e.target.closest("#mail-list-scroll [data-mail-card-action]")
+      if (cardAction) {
+        e.preventDefault()
+        e.stopPropagation()
+        runMailCardAction(cardAction)
+        return
+      }
       // While selecting, or with Ctrl/Cmd, a thread's message picks itself
       // instead of opening.
       var subLink = e.target.closest && e.target.closest("#mail-list-scroll .thread-sub-item[data-sub-email-id] > a")
-      if (subLink && (e.metaKey || e.ctrlKey || mailSelectionModeActive()) && !e.target.closest(".star-btn")) {
+      if (subLink && (e.metaKey || e.ctrlKey || mailSelectionModeActive()) && !e.target.closest(".star-btn, [data-mail-card-action]")) {
         e.preventDefault()
         e.stopPropagation()
         toggleMailThreadSubSelected(subLink.parentElement)
@@ -2834,7 +2843,7 @@ document.addEventListener("DOMContentLoaded", function () {
         start = null
         if (!mobile.matches || e.touches.length !== 1 || mailSelectionModeActive()) return
         var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
-        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        if (!link || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action]")) return
         start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
         row = link.parentElement
         anchor = link
@@ -2893,7 +2902,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function setupMailTouchSelection() {
-      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle]", function (link) {
+      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle], [data-mail-card-action]", function (link) {
         var row = link.closest(".mail-list-item[data-email-id]")
         if (!row || !row.isConnected) return false
         if (!mailSelectionModeActive()) {
@@ -3163,6 +3172,60 @@ document.addEventListener("DOMContentLoaded", function () {
       // The rest are the toolbar's actions, which follow its read and star state.
       var button = document.querySelector('.mail-list-toolbar button[data-mail-selection-action="' + action + '"]')
       performMailSelectionAction(button ? mailSelectionActionName(button) : action, target ? mailRowById(target.id) : null)
+    }
+
+    // A card's action buttons (mailCardActionButtons) act on that card's
+    // message alone, or its whole thread when the card stands for one, like
+    // the context menu does on the row it opened on.
+    function runMailCardAction(button) {
+      var row = button.closest(".mail-list-item[data-email-id]")
+      if (!row || !row.dataset.emailId) return
+      var action = mailCardActionName(button, row)
+      selectedMailIds.clear()
+      setMailSelected(row.dataset.emailId, true)
+      lastSelectedMailId = row.dataset.emailId
+      syncMailSelectionControls()
+      performMailSelectionAction(action, button)
+    }
+
+    // What a card button does here: Read follows the message's state, Spam
+    // undoes in Spam. Archive and Delete follow the folder in
+    // performMailSelectionAction.
+    function mailCardActionName(button, row) {
+      var action = button.getAttribute("data-mail-card-action")
+      if (action === "read") return row.dataset.isRead === "true" ? "unread" : "read"
+      if (action === "spam" && mailFolderIsSpam(currentMailListFolderID())) return "not-spam"
+      return action
+    }
+
+    // A card button's label says what it will do, which depends on the folder
+    // and, for Read, on the message's state since the card was drawn.
+    function syncMailCardActionLabel(button) {
+      var row = button.closest(".mail-list-item[data-email-id]")
+      if (!row) return
+      var folderID = currentMailListFolderID()
+      var action = mailCardActionName(button, row)
+      var label = ""
+      if (action === "read") label = goferT("js.mail.action.mark_read")
+      else if (action === "unread") label = goferT("js.mail.action.mark_unread")
+      else if (action === "archive") label = mailFolderIsArchive(folderID) ? goferT("js.mail.action.move_to_inbox") : goferT("js.mail.action.archive")
+      else if (action === "delete") label = mailFolderIsTrash(folderID) ? goferT("js.mail.action.delete_permanently") : goferT("js.mail.action.delete")
+      else if (action === "spam") label = goferT("js.mail.action.report_spam")
+      else if (action === "not-spam") label = goferT("js.mail.action.not_spam")
+      if (!label) return
+      button.setAttribute("aria-label", label)
+      button.title = label
+    }
+
+    function setupMailCardActionLabels() {
+      if (document.body._goferMailCardActionLabelsBound) return
+      document.body._goferMailCardActionLabelsBound = true
+      var sync = function (e) {
+        var button = e.target.closest && e.target.closest("#mail-list-scroll [data-mail-card-action]")
+        if (button) syncMailCardActionLabel(button)
+      }
+      document.addEventListener("mouseover", sync, { passive: true })
+      document.addEventListener("focusin", sync)
     }
 
     // Right-clicking a folder in the sidebar offers what applies to the whole
@@ -8060,7 +8123,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (e.pointerType !== "touch" && e.pointerType !== "pen") return
       clearTouchPrefetch()
       var row = e.target && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id]")
-      if (!row || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-row-check]")) return
+      if (!row || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action], [data-mail-row-check]")) return
       touchPrefetchRow = row
       touchPrefetchTimer = setTimeout(function () {
         clearTouchPrefetch()
