@@ -3,7 +3,12 @@ const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
-const slice = (start, end) => source.slice(source.indexOf(start), source.indexOf(end))
+const slice = (start, end) => {
+  const from = source.indexOf(start)
+  const to = source.indexOf(end, from)
+  assert.ok(from >= 0 && to > from, `app.js has no "${start}" … "${end}"`)
+  return source.slice(from, to)
+}
 
 // A page is a list of elements in document order. Each element names the
 // selectors it sits inside; closest() answers from those.
