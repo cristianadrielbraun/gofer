@@ -11,6 +11,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 )
 
 // AdminAuditActivityPath is the Activity page's administration tab.
@@ -18,7 +19,7 @@ const AdminAuditActivityPath = "/admin/activity/administration"
 
 // AdminAuditKinds are the administration tab's filters: each keeps the
 // actions that start with it and a dot.
-var AdminAuditKinds = []string{"user", "group", "invitation", "security", "instance", "audit", "access"}
+var AdminAuditKinds = []string{"user", "group", "policy", "invitation", "security", "instance", "audit", "access"}
 
 // AdminAuditActivityData is the administration tab of the Activity page.
 type AdminAuditActivityData struct {
@@ -100,6 +101,26 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 			}
 		}
 		return i18n.N(ctx, key, count, "target", target, "count", i18n.Number(ctx, count))
+	case "policy.renamed":
+		change := record.Changes["name"]
+		args = append(args, "from", fmt.Sprint(change.From), "to", fmt.Sprint(change.To))
+	case "policy.settings_changed":
+		// One setting is named; more are counted.
+		if len(record.Changes) == 1 {
+			for settingKey := range record.Changes {
+				return i18n.T(ctx, key+"_one", "target", target, "setting", adminPolicySettingLabel(ctx, settingKey))
+			}
+		}
+		return i18n.N(ctx, key, len(record.Changes), "target", target, "count", i18n.Number(ctx, len(record.Changes)))
+	case "policy.assigned", "policy.unassigned":
+		// One group or person is named; more are counted.
+		count, _ := adminAuditCount(record.Metadata["count"])
+		if targets, ok := record.Metadata["targets"].([]any); ok && count == 1 && len(targets) == 1 {
+			if assigned, ok := targets[0].(map[string]any); ok {
+				return i18n.T(ctx, key+"_one", "target", target, "name", fmt.Sprint(assigned["name"]))
+			}
+		}
+		return i18n.N(ctx, key, count, "target", target, "count", i18n.Number(ctx, count))
 	case "audit.exported":
 		args = append(args, "format", strings.ToUpper(fmt.Sprint(record.Metadata["format"])))
 	case "user.mfa_required":
@@ -155,6 +176,15 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 		return record.Action
 	}
 	return i18n.T(ctx, key, args...)
+}
+
+// adminPolicySettingLabel names a setting in the reader's language, or by
+// its key when it's no longer declared.
+func adminPolicySettingLabel(ctx context.Context, key string) string {
+	if setting, ok := policy.Lookup(key); ok {
+		return i18n.T(ctx, setting.Label)
+	}
+	return key
 }
 
 // adminAuditActor names who made a change: an administrator by the name

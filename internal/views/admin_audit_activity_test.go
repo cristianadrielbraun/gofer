@@ -125,6 +125,15 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 		{Event: audit.Event{Action: "security.proxy_policy_changed", Metadata: map[string]any{"people_may_add_proxies": false}}},
 		{Event: audit.Event{Action: "access.denied", Target: audit.Target{Kind: "permission", ID: "users.delete"}, Metadata: map[string]any{"reason": "verification_required"}}},
 		{Event: audit.Event{Action: "access.denied", Target: audit.Target{Kind: "permission", ID: "users.delete"}, Metadata: map[string]any{"reason": "forbidden"}}},
+		{Event: audit.Event{Action: "policy.created"}},
+		{Event: audit.Event{Action: "policy.updated"}},
+		{Event: audit.Event{Action: "policy.renamed", Changes: map[string]audit.Change{"name": {From: "Temps", To: "Contractors"}}}},
+		{Event: audit.Event{Action: "policy.deleted"}},
+		{Event: audit.Event{Action: "policy.reordered"}},
+		{Event: audit.Event{Action: "policy.settings_changed", Changes: map[string]audit.Change{"auth.mfa_required": {To: true}, "mail.own_proxies": {To: false}}}},
+		{Event: audit.Event{Action: "policy.settings_changed", Changes: map[string]audit.Change{"mail.removed_setting": {To: true}}}},
+		{Event: audit.Event{Action: "policy.assigned", Metadata: map[string]any{"count": float64(3)}}},
+		{Event: audit.Event{Action: "policy.unassigned", Metadata: map[string]any{"count": float64(3)}}},
 		{Event: audit.Event{Action: "group.created"}},
 		{Event: audit.Event{Action: "group.updated"}},
 		{Event: audit.Event{Action: "group.renamed", Changes: map[string]audit.Change{"name": {From: "Field team", To: "Field crew"}}}},
@@ -139,6 +148,22 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}}); got != "Required two-factor sign-in for everyone instead of administrators" {
 		t.Errorf("policy sentence = %q", got)
+	}
+	contractors := audit.Target{Kind: "policy", ID: "p-1", Label: "Contractors"}
+	for _, test := range []struct {
+		record audit.Record
+		want   string
+	}{
+		{audit.Record{Event: audit.Event{Action: "policy.settings_changed", Target: contractors, Changes: map[string]audit.Change{"auth.mfa_required": {To: true}}}}, "Changed Two-factor sign-in on the policy Contractors"},
+		{audit.Record{Event: audit.Event{Action: "policy.settings_changed", Target: contractors, Changes: map[string]audit.Change{"auth.mfa_required": {To: true}, "mail.own_proxies": {To: true}}}}, "Changed 2 settings on the policy Contractors"},
+		{audit.Record{Event: audit.Event{Action: "policy.assigned", Target: contractors, Metadata: map[string]any{
+			"count": float64(1), "targets": []any{map[string]any{"kind": "group", "id": "g-1", "name": "Field team"}},
+		}}}, "Assigned the policy Contractors to Field team"},
+		{audit.Record{Event: audit.Event{Action: "policy.unassigned", Target: contractors, Metadata: map[string]any{"count": float64(2)}}}, "Took the policy Contractors away from 2 groups and people"},
+	} {
+		if got := adminAuditSentence(ctx, test.record); got != test.want {
+			t.Errorf("%s sentence = %q, want %q", test.record.Action, got, test.want)
+		}
 	}
 	field := audit.Target{Kind: "group", ID: "g-1", Label: "Field team"}
 	for _, test := range []struct {

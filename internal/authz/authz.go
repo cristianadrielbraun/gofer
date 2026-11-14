@@ -42,6 +42,13 @@ const (
 	GroupsManage Permission = "groups.manage"
 	// PoliciesRead shows the policies and the settings they decide.
 	PoliciesRead Permission = "policies.read"
+	// PoliciesManage creates, renames, orders and deletes policies, assigns
+	// them, and changes their settings outside the security category.
+	PoliciesManage Permission = "policies.manage"
+	// PoliciesManageSecurity changes security settings on a policy, and
+	// assigns a policy that sets any, since that changes how people sign
+	// in and what their mailboxes may reach.
+	PoliciesManageSecurity Permission = "policies.manage_security"
 	// InstancePolicy changes instance-wide sign-in rules.
 	InstancePolicy Permission = "instance.policy"
 	// SecurityRead shows mail security settings.
@@ -70,24 +77,26 @@ type Spec struct {
 }
 
 var catalog = map[Permission]Spec{
-	UsersRead:         {},
-	UsersInvite:       {StepUp: true},
-	UsersAccess:       {StepUp: true},
-	UsersCredentials:  {StepUp: true},
-	UsersMFAPolicy:    {StepUp: true},
-	UsersDelete:       {StepUp: true},
-	UsersExport:       {StepUp: true},
-	GroupsRead:        {},
-	GroupsManage:      {StepUp: true},
-	PoliciesRead:      {},
-	InstancePolicy:    {StepUp: true},
-	SecurityRead:      {},
-	SecurityChange:    {StepUp: true},
-	ActivityRead:      {StepUp: true},
-	ActivityRetention: {StepUp: true},
-	ActivityExport:    {StepUp: true},
-	DiagnosticsRead:   {},
-	AdminsManage:      {StepUp: true},
+	UsersRead:              {},
+	UsersInvite:            {StepUp: true},
+	UsersAccess:            {StepUp: true},
+	UsersCredentials:       {StepUp: true},
+	UsersMFAPolicy:         {StepUp: true},
+	UsersDelete:            {StepUp: true},
+	UsersExport:            {StepUp: true},
+	GroupsRead:             {},
+	GroupsManage:           {StepUp: true},
+	PoliciesRead:           {},
+	PoliciesManage:         {StepUp: true},
+	PoliciesManageSecurity: {StepUp: true},
+	InstancePolicy:         {StepUp: true},
+	SecurityRead:           {},
+	SecurityChange:         {StepUp: true},
+	ActivityRead:           {StepUp: true},
+	ActivityRetention:      {StepUp: true},
+	ActivityExport:         {StepUp: true},
+	DiagnosticsRead:        {},
+	AdminsManage:           {StepUp: true},
 }
 
 // ErrForbidden means the person may not use the permission.

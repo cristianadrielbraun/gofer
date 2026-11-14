@@ -14,6 +14,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 	"github.com/cristianadrielbraun/gofer/internal/directory"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 )
 
 // Actor is the administrator asking for a change, and the session they
@@ -55,7 +56,7 @@ const (
 	// CodeNeedsAuthenticator: the change needs an authenticator app set
 	// up first.
 	CodeNeedsAuthenticator Code = "needs_authenticator"
-	// CodeNameTaken: another group already has the name.
+	// CodeNameTaken: another group or policy already has the name.
 	CodeNameTaken Code = "name_taken"
 	// CodeStale: the change was made from an outdated copy; load it again.
 	CodeStale Code = "stale"
@@ -77,11 +78,15 @@ func CodeOf(err error) Code {
 		return CodeVerificationRequired
 	case errors.As(err, &validation), errors.Is(err, auth.ErrAdministratorUserStatusInvalid),
 		errors.Is(err, errBulkActionInvalid), errors.Is(err, errBulkNobody), errors.Is(err, errBulkNeedsGroup),
-		errors.Is(err, directory.ErrNameInvalid), errors.Is(err, directory.ErrDescriptionLong):
+		errors.Is(err, directory.ErrNameInvalid), errors.Is(err, directory.ErrDescriptionLong),
+		errors.Is(err, policy.ErrNameInvalid), errors.Is(err, policy.ErrDescriptionLong), errors.Is(err, policy.ErrValueInvalid),
+		errors.Is(err, policy.ErrKeyInvalid), errors.Is(err, policy.ErrUnknownSetting), errors.Is(err, policy.ErrInstanceOnly),
+		errors.Is(err, policy.ErrAdapted), errors.Is(err, policy.ErrEnforcedOutsideDefault), errors.Is(err, policy.ErrOrderInvalid),
+		errors.Is(err, policy.ErrDefaultPolicy):
 		return CodeInvalid
-	case errors.Is(err, directory.ErrNameTaken):
+	case errors.Is(err, directory.ErrNameTaken), errors.Is(err, policy.ErrNameTaken):
 		return CodeNameTaken
-	case errors.Is(err, directory.ErrStale):
+	case errors.Is(err, directory.ErrStale), errors.Is(err, policy.ErrStale):
 		return CodeStale
 	case errors.Is(err, errBulkTooMany):
 		return CodeTooMany
@@ -102,6 +107,7 @@ func CodeOf(err error) Code {
 		errors.Is(err, auth.ErrAdministratorUserSessionGone),
 		errors.Is(err, errCredentialResetTarget),
 		errors.Is(err, directory.ErrNotFound), errors.Is(err, directory.ErrPersonNotFound),
+		errors.Is(err, policy.ErrNotFound), errors.Is(err, policy.ErrTargetNotFound),
 		errors.Is(err, auth.ErrGroupMemberInvalid):
 		return CodeUnavailable
 	}
