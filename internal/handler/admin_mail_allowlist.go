@@ -63,11 +63,19 @@ func (h *Handler) mailAllowlistAdminData(ctx context.Context, tokens map[string]
 	for _, action := range adminMailAllowlistActions {
 		tokens[action] = auth.CSRFToken(ctx, http.MethodPost, action)
 	}
-	users, refused, err := h.mailAllowlistRefusals(ctx)
+	scope, err := h.adminWebmailScope(ctx, "")
 	if err != nil {
 		return nil, err
 	}
-	for _, user := range users {
+	refused, checkedAt, err := h.currentMailRefusals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data.RefusalsCheckedAt = checkedAt
+	if data.Limited, err = policy.MailListsLimitAnyone(ctx, h.db.Read()); err != nil {
+		return nil, err
+	}
+	for _, user := range scope.Users {
 		if _, ok := slicesIndex(lists.Exempt, user.ID); ok {
 			data.Exempt = append(data.Exempt, user)
 		} else {
@@ -90,41 +98,6 @@ type mailAllowlistRefusal struct {
 	owner string
 }
 
-// mailAllowlistRefusals lists every webmail user, and the mailboxes the lists
-// stop from connecting, by address. Each person is held to the lists their
-// policies give them.
-func (h *Handler) mailAllowlistRefusals(ctx context.Context) ([]models.AdminWebmailUserOption, []mailAllowlistRefusal, error) {
-	limited, err := policy.MailListsLimitAnyone(ctx, h.db.Read())
-	if err != nil {
-		return nil, nil, err
-	}
-	if !limited {
-		scope, err := h.adminWebmailScope(ctx, "")
-		return scope.Users, nil, err
-	}
-	var refused []mailAllowlistRefusal
-	scope, err := h.eachUserDiagnostic(ctx, "", storage.UserDiagnosticsTransports, func(_ context.Context, owner models.AdminWebmailUserOption, data storage.UserDiagnostics, _ storage.DiagnosticsActor) error {
-		list, err := policy.MailAllowlistForUser(ctx, h.db, owner.ID)
-		if err != nil || !list.Limited() {
-			return err
-		}
-		for _, account := range data.Transports {
-			if err := list.CheckMailboxTransports(account); err != nil {
-				refused = append(refused, mailAllowlistRefusal{owner: owner.ID, MailAllowlistRefusedAccount: models.MailAllowlistRefusedAccount{
-					ID: account.ID, Email: account.Email, Username: owner.Username, Reason: mailAllowlistRefusalReason(ctx, err)}})
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	sort.SliceStable(refused, func(i, j int) bool {
-		return strings.ToLower(refused[i].Email) < strings.ToLower(refused[j].Email)
-	})
-	return scope.Users, refused, nil
-}
-
 // mailAllowlistRefusalReason says, for the administrator, which rule a
 // mailbox breaks.
 func mailAllowlistRefusalReason(ctx context.Context, err error) string {
@@ -144,7 +117,7 @@ func mailAllowlistRefusalReason(ctx context.Context, err error) string {
 
 // changeMailAllowlist makes one change to the lists, then stops the mailboxes
 // it refuses and reconnects the ones it lets in again, so neither waits for
-// its next check.
+// its next connection.
 func (h *Handler) changeMailAllowlist(w http.ResponseWriter, r *http.Request, change func(ctx context.Context, actor admin.Actor) (notice string, err error)) {
 	if h.ownedMailbox == nil {
 		http.NotFound(w, r)
@@ -165,48 +138,17 @@ func (h *Handler) changeMailAllowlist(w http.ResponseWriter, r *http.Request, ch
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.access_lost"))
 		return
 	}
-	_, before, err := h.mailAllowlistRefusals(ctx)
-	if err != nil {
-		log.Printf("allowed mail lists: list refused mailboxes: %v", err)
-		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.allowlist.check_failed"))
-		return
-	}
 	notice, err := change(ctx, actor)
 	if err != nil {
 		h.redirectAdminSecurity(w, r, "", err.Error())
 		return
 	}
-	_, after, err := h.mailAllowlistRefusals(ctx)
-	if err != nil {
-		log.Printf("allowed mail lists: list refused mailboxes after a change: %v", err)
-		if h.ownedMailbox.userIMAP != nil {
-			h.ownedMailbox.userIMAP.StopMailSecuritySessions()
-		}
-	} else {
-		h.applyMailAllowlistChange(ctx, before, after)
+	// The mailboxes the change refuses stop now, and the ones it lets in
+	// reconnect; when that can't be told, every mail session ends.
+	if _, _, err := h.checkMailRefusals(ctx); err != nil {
+		log.Printf("allowed mail lists: check refused mailboxes after a change: %v", err)
 	}
 	h.redirectAdminSecurity(w, r, notice, "")
-}
-
-func (h *Handler) applyMailAllowlistChange(ctx context.Context, before, after []mailAllowlistRefusal) {
-	wasRefused := make(map[string]bool, len(before))
-	for _, account := range before {
-		wasRefused[account.ID] = true
-	}
-	for _, account := range after {
-		if !wasRefused[account.ID] {
-			h.stopMailSecurityAccount(account.ID)
-		}
-		delete(wasRefused, account.ID)
-	}
-	if h.ownedMailbox.userIMAP == nil {
-		return
-	}
-	for id := range wasRefused {
-		if err := h.ownedMailbox.userIMAP.RestartAccount(ctx, id); err != nil {
-			log.Printf("allowed mail lists: reconnect account %s: %v", id, err)
-		}
-	}
 }
 
 // mailAllowlistChangeFailed is what the page says about a change the

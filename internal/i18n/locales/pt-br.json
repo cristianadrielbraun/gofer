@@ -114,6 +114,7 @@
   "admin.allowlist.allowed": "Permitido",
   "admin.allowlist.allowed_unlimited": "Permitido enquanto os servidores não estiverem limitados",
   "admin.allowlist.apply": "Aplicar as listas",
+  "admin.allowlist.checked": "Verificado em {when}",
   "admin.allowlist.choose_user": "Escolha um usuário do webmail",
   "admin.allowlist.description": "Limite a onde as caixas de correio podem se conectar. Enquanto uma lista tiver entradas, as caixas de correio só podem usar o que estiver nela; uma lista vazia permite tudo. Cada entrada corresponde exatamente, e *.example.org corresponde aos nomes abaixo de example.org, mas não ao próprio example.org. As caixas de correio fora das listas deixam de se conectar, e os donos delas veem o motivo.",
   "admin.allowlist.domains": "Domínios dos endereços das caixas de correio",

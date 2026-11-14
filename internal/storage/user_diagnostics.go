@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -138,6 +139,36 @@ func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor Diagnost
 		return UserDiagnostics{}, err
 	}
 	return result, nil
+}
+
+// ReadMailboxTransports reads how owner's mailboxes connect, for checking
+// them against the allowed mail lists after the rules change. It needs no
+// administrator, opens only a store that exists, and reads nothing for
+// someone who can't have mail or is being deleted. A known mailbox owner
+// whose store is missing is an error.
+func (r *AccountRouting) ReadMailboxTransports(ctx context.Context, owner string) ([]DiagnosticTransportAccount, error) {
+	var allowed bool
+	if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=? AND user_type='webmail'
+  AND is_admin=0 AND deletion_pending=0)`, owner).Scan(&allowed); err != nil || !allowed {
+		return nil, err
+	}
+	if _, err := os.Lstat(r.stores.userPath(owner)); errors.Is(err, os.ErrNotExist) {
+		var accounts bool
+		if err := r.System().Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gofer_account_directory WHERE user_id=? AND state='active')`, owner).Scan(&accounts); err != nil {
+			return nil, err
+		}
+		if !accounts {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%w: %w", ErrAccountRoute, err)
+	}
+	var transports []DiagnosticTransportAccount
+	err := r.withUserStore(ctx, owner, true, func(db *DB) error {
+		var err error
+		transports, err = db.listDiagnosticTransports(ctx, owner)
+		return err
+	})
+	return transports, err
 }
 
 func (db *DB) listDiagnosticTransports(ctx context.Context, owner string) ([]DiagnosticTransportAccount, error) {

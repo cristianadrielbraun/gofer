@@ -114,6 +114,7 @@
   "admin.allowlist.allowed": "Allowed",
   "admin.allowlist.allowed_unlimited": "Allowed while the servers aren't limited",
   "admin.allowlist.apply": "Apply the lists",
+  "admin.allowlist.checked": "Checked {when}",
   "admin.allowlist.choose_user": "Choose a webmail user",
   "admin.allowlist.description": "Limit where mailboxes may connect. While a list has entries, mailboxes can only use what is on it; an empty list allows everything. An entry matches exactly, and *.example.org matches the names below example.org, not example.org itself. Mailboxes outside the lists stop connecting, and their owners see why.",
   "admin.allowlist.domains": "Mailbox address domains",

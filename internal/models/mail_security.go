@@ -77,8 +77,12 @@ type MailAllowlistAdminData struct {
 	// others who could be exempted.
 	Exempt     []AdminWebmailUserOption
 	Candidates []AdminWebmailUserOption
-	// Refused are the mailboxes the lists stop from connecting.
-	Refused []MailAllowlistRefusedAccount
+	// Limited says some policy's list limits someone. Refused are the
+	// mailboxes the lists stop from connecting, as worked out at
+	// RefusalsCheckedAt.
+	Limited           bool
+	Refused           []MailAllowlistRefusedAccount
+	RefusalsCheckedAt time.Time
 }
 
 // MailAllowlistAdminEntry is a server or domain on a list.

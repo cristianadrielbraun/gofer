@@ -99,10 +99,6 @@ func mailAllowlistServersLimited(list models.MailAllowlistAdminData) bool {
 	return len(list.Servers) > 0 || list.Gmail || list.Outlook
 }
 
-func mailAllowlistLimited(list models.MailAllowlistAdminData) bool {
-	return mailAllowlistServersLimited(list) || len(list.Domains) > 0
-}
-
 // adminPeoplePickerProps describes a list of chosen people, each with a
 // button that takes them off it, and a picker that adds one. Each change
 // posts to Action with user_id and Field set to "true" (added) or "false"
@@ -225,12 +221,15 @@ templ MailAllowlistPanel(data models.MailSecurityAdminData, list models.MailAllo
 			<div class="min-w-0 rounded-lg border border-border bg-background/45 p-4">
 				<div class="flex items-center justify-between gap-3">
 					<div class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.allowlist.refused") }</div>
-					if mailAllowlistLimited(list) {
+					if list.Limited {
 						<span class="text-xs font-semibold tabular-nums text-muted-foreground">{ i18n.Number(ctx, len(list.Refused)) }</span>
 					}
 				</div>
 				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.allowlist.refused_detail") }</p>
-				if !mailAllowlistLimited(list) {
+				if list.Limited && !list.RefusalsCheckedAt.IsZero() {
+					<p class="mt-1 text-xs text-muted-foreground" data-admin-allowlist-checked>{ i18n.T(ctx, "admin.allowlist.checked", "when", adminTime(ctx, list.RefusalsCheckedAt)) }</p>
+				}
+				if !list.Limited {
 					<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "admin.allowlist.unlimited") }</div>
 				} else if len(list.Refused) == 0 {
 					<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "admin.allowlist.all_within") }</div>

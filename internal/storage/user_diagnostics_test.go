@@ -123,3 +123,37 @@ func TestUserDiagnosticsRechecksAdministratorAfterStoreOpen(t *testing.T) {
 		t.Fatal("diagnostics did not drain")
 	}
 }
+
+// Checking mailboxes against the allowed mail lists needs no administrator,
+// reads a disabled owner's mailboxes, and never creates a store.
+func TestMailboxTransportsAreReadWithoutAnAdministratorOrNewStores(t *testing.T) {
+	system, stores, routing := newAccountRoutingTest(t, 1)
+	createRoutingTestAccount(t, routing, "alice")
+	if _, err := system.Write().Exec(`UPDATE users SET status='disabled' WHERE id='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	if transports, err := routing.ReadMailboxTransports(t.Context(), "alice"); err != nil || len(transports) != 1 {
+		t.Fatal("disabled owner's mailboxes", transports, err)
+	}
+	if transports, err := routing.ReadMailboxTransports(t.Context(), "admin"); err != nil || transports != nil {
+		t.Fatal("an administrator's mailboxes", transports, err)
+	}
+	if transports, err := routing.ReadMailboxTransports(t.Context(), "bob"); err != nil || transports != nil {
+		t.Fatal("an owner with no store", transports, err)
+	}
+	if _, err := os.Stat(stores.userPath("bob")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a store was made", err)
+	}
+	if err := os.Remove(stores.userPath("alice")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routing.ReadMailboxTransports(t.Context(), "alice"); !errors.Is(err, ErrAccountRoute) {
+		t.Fatal("missing populated store accepted", err)
+	}
+	if _, err := system.Write().Exec(`UPDATE users SET deletion_pending=1 WHERE id='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	if transports, err := routing.ReadMailboxTransports(t.Context(), "alice"); err != nil || transports != nil {
+		t.Fatal("an owner being deleted", transports, err)
+	}
+}

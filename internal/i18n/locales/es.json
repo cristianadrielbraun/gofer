@@ -114,6 +114,7 @@
   "admin.allowlist.allowed": "Permitido",
   "admin.allowlist.allowed_unlimited": "Permitido mientras los servidores no estén limitados",
   "admin.allowlist.apply": "Aplicar las listas",
+  "admin.allowlist.checked": "Comprobado el {when}",
   "admin.allowlist.choose_user": "Elige un usuario del webmail",
   "admin.allowlist.description": "Limita a dónde pueden conectarse los buzones. Mientras una lista tenga entradas, los buzones solo pueden usar lo que esté en ella; una lista vacía lo permite todo. Cada entrada coincide exactamente, y *.example.org coincide con los nombres que hay bajo example.org, pero no con example.org. Los buzones que quedan fuera de las listas dejan de conectarse, y sus dueños ven por qué.",
   "admin.allowlist.domains": "Dominios de las direcciones de los buzones",

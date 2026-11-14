@@ -172,6 +172,7 @@ func newManagedApplication(parent context.Context, path string, maxOpen int) (re
 		return nil, err
 	}
 	app.mailbox.StartAuthenticationEventRetentionWorker(ctx)
+	app.mailbox.StartMailRefusalWorker(ctx)
 	app.auth.StartSessionCleanup(ctx)
 	app.flows.StartCleanup(ctx)
 	app.notifications.Start(ctx)
@@ -215,6 +216,7 @@ func (app *managedApplication) Close() error {
 		app.mailbox.WaitUserMailRetention()
 		app.mailbox.WaitAvatarWorkers()
 		app.mailbox.WaitAuthenticationEventRetention()
+		app.mailbox.WaitMailRefusalWorker()
 	}
 	if app.auth != nil {
 		app.auth.WaitSessionCleanup()

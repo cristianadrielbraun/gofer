@@ -156,8 +156,12 @@ type Handler struct {
 	mailTransfers             *mailJobManager[*mailTransferJob]
 	authEventRetentionWake    chan struct{}
 	authEventRetentionWorkers sync.WaitGroup
-	smtpProfileMu             sync.RWMutex
-	smtpProfile               smtpDeliveryProfileState
+	// mailRefusals is the last check of which mailboxes the allowed mail
+	// lists refuse, and mailRefusalWorkers the worker that repeats it.
+	mailRefusals       mailRefusalState
+	mailRefusalWorkers sync.WaitGroup
+	smtpProfileMu      sync.RWMutex
+	smtpProfile        smtpDeliveryProfileState
 
 	// calendarListRead is when each account's calendar list was last read
 	// in the background.

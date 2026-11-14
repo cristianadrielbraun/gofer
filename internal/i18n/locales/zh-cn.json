@@ -114,6 +114,7 @@
   "admin.allowlist.allowed": "已允许",
   "admin.allowlist.allowed_unlimited": "服务器不受限制时允许",
   "admin.allowlist.apply": "应用列表",
+  "admin.allowlist.checked": "检查于 {when}",
   "admin.allowlist.choose_user": "选择邮箱用户",
   "admin.allowlist.description": "限制邮箱可以连接的位置。列表中有条目时，邮箱只能使用列表中的项目；空列表则不作任何限制。条目须完全匹配，*.example.org 匹配 example.org 下级的名称，但不包括 example.org 本身。不在列表范围内的邮箱将停止连接，其所有者会看到原因。",
   "admin.allowlist.domains": "邮箱地址域名",

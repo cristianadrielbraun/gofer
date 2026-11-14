@@ -132,3 +132,10 @@ func readRevisions(ctx context.Context, q Querier) (revisions, error) {
 	}
 	return current, rows.Err()
 }
+
+// CurrentRevisions reads the policy and membership revisions, which move
+// on with every change to what a person's settings could be.
+func CurrentRevisions(ctx context.Context, q Querier) (policyRevision, membershipRevision int64, err error) {
+	current, err := readRevisions(ctx, q)
+	return current.policy, current.membership, err
+}
