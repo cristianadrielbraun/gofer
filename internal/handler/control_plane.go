@@ -110,6 +110,7 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/users/{userID}/"+views.AdminUserTabMailboxes, h.handleAdminUserPage(views.AdminUserTabMailboxes))
 	adminRoute("GET /admin/users/{userID}/"+views.AdminUserTabActivity, h.handleAdminUserPage(views.AdminUserTabActivity))
 	adminRoute("POST /admin/users/{userID}/sessions/{reference}/sign-out", h.handleSignOutAdminUserSession)
+	h.registerAdminUserPolicyRoutes(adminRoute)
 	adminRoute("GET /admin/activity", h.handleAdminSecurityActivity)
 	adminRoute("GET "+views.AdminAuditActivityPath, h.handleAdminAuditActivity)
 	adminRoute("GET "+views.AdminAuditActivityPath+"/export", h.handleExportAdminAudit)

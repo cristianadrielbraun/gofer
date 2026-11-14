@@ -19,9 +19,14 @@ const (
 	AdminUserTabOverview = ""
 	AdminUserTabSignIn   = "sign-in"
 	AdminUserTabSessions  = "sessions"
+	AdminUserTabPolicy    = "policy"
 	AdminUserTabMailboxes = "mailboxes"
 	AdminUserTabActivity  = "activity"
 )
+
+// AdminUserPolicyAssign is the address below a person's page that opens
+// the dialog assigning them a policy, and where it's sent.
+const AdminUserPolicyAssign = AdminUserTabPolicy + "/assign"
 
 // AdminUserPagePath is tab of the person with userID's page. list is the
 // Users list it was opened from, which its way back returns to.
@@ -80,6 +85,8 @@ type AdminUserPageData struct {
 	StepUpRequired bool
 	// Groups are the groups they're in; administrators can't be in one.
 	Groups []AdminGroupRef
+	// Policy is the Policy tab.
+	Policy AdminUserPolicyData
 }
 
 // AdminUserMailboxData is one mail account the person added.
@@ -165,6 +172,7 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabOverview, data.ListPath)), i18n.T(ctx, "admin.user.tab.overview"), data.Tab == AdminUserTabOverview, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSignIn, data.ListPath)), i18n.T(ctx, "admin.user.tab.sign_in"), data.Tab == AdminUserTabSignIn, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSessions, data.ListPath)), i18n.T(ctx, "admin.user.tab.sessions"), data.Tab == AdminUserTabSessions, nil)
+					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabPolicy, data.ListPath)), i18n.T(ctx, "admin.user.tab.policy"), data.Tab == AdminUserTabPolicy, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabMailboxes, data.ListPath)), i18n.T(ctx, "admin.user.tab.mailboxes"), data.Tab == AdminUserTabMailboxes, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabActivity, data.ListPath)), i18n.T(ctx, "admin.user.tab.activity"), data.Tab == AdminUserTabActivity, nil)
 				}
@@ -184,6 +192,8 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 						@adminUserSignInTab(data)
 					case AdminUserTabSessions:
 						@adminUserSessionsTab(data)
+					case AdminUserTabPolicy:
+						@adminUserPolicyTab(data)
 					case AdminUserTabMailboxes:
 						@adminUserMailboxesTab(data)
 					case AdminUserTabActivity:

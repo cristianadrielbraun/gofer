@@ -12,6 +12,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/directory"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
@@ -19,12 +20,19 @@ import (
 // offers at once; a search narrows them.
 const adminGroupCandidatesShown = 30
 
+// adminGroupPolicyRemove is where a group's page takes a policy away.
+const adminGroupPolicyRemove = views.AdminGroupTabPolicies + "/remove"
+
 func (h *Handler) registerAdminGroupRoutes(adminRoute func(string, http.HandlerFunc)) {
 	adminRoute("GET "+views.AdminGroupsPath, h.handleAdminGroups)
 	adminRoute("GET "+views.AdminGroupsPath+"/{$}", h.handleAdminGroups)
 	adminRoute("POST "+views.AdminGroupsPath, h.handleCreateAdminGroup)
 	adminRoute("GET "+views.AdminGroupsPath+"/{groupID}", h.handleAdminGroupPage(views.AdminGroupTabMembers, adminGroupExtras{}))
 	adminRoute("GET "+views.AdminGroupsPath+"/{groupID}/"+views.AdminGroupTabSettings, h.handleAdminGroupPage(views.AdminGroupTabSettings, adminGroupExtras{}))
+	adminRoute("GET "+views.AdminGroupsPath+"/{groupID}/"+views.AdminGroupTabPolicies, h.handleAdminGroupPage(views.AdminGroupTabPolicies, adminGroupExtras{}))
+	adminRoute("GET "+views.AdminGroupsPath+"/{groupID}/"+views.AdminGroupPolicyAssign, h.handleAdminGroupPage(views.AdminGroupTabPolicies, adminGroupExtras{policyAssignOpen: true}))
+	adminRoute("POST "+views.AdminGroupsPath+"/{groupID}/"+views.AdminGroupPolicyAssign, h.handleChangeAdminGroupPolicy(true))
+	adminRoute("POST "+views.AdminGroupsPath+"/{groupID}/"+adminGroupPolicyRemove, h.handleChangeAdminGroupPolicy(false))
 	adminRoute("GET "+views.AdminGroupsPath+"/{groupID}/add", h.handleAdminGroupPage(views.AdminGroupTabMembers, adminGroupExtras{addOpen: true}))
 	adminRoute("GET "+views.AdminGroupsPath+"/{groupID}/delete", h.handleAdminGroupPage(views.AdminGroupTabSettings, adminGroupExtras{deleteOpen: true}))
 	adminRoute("POST "+views.AdminGroupsPath+"/{groupID}/"+views.AdminGroupTabSettings, h.handleUpdateAdminGroup)
@@ -90,6 +98,12 @@ func (h *Handler) renderAdminGroups(w http.ResponseWriter, r *http.Request, extr
 		Form: extras.form, CreateOpen: extras.createOpen,
 		CSRFToken: auth.CSRFToken(ctx, http.MethodPost, views.AdminGroupsPath),
 	}
+	protected, err := h.adminService().ProtectedGroups(ctx, actor)
+	if err != nil && admin.CodeOf(err) != admin.CodeForbidden {
+		log.Printf("find the protected groups: %v", err)
+		http.Error(w, i18n.T(ctx, "server.error.failed_to_load_groups"), http.StatusInternalServerError)
+		return
+	}
 	search := strings.ToLower(data.Search)
 	for _, group := range groups {
 		if search != "" && !strings.Contains(strings.ToLower(group.Name), search) && !strings.Contains(strings.ToLower(group.Description), search) {
@@ -97,6 +111,7 @@ func (h *Handler) renderAdminGroups(w http.ResponseWriter, r *http.Request, extr
 		}
 		data.Groups = append(data.Groups, views.AdminGroupRow{
 			ID: group.ID, Name: group.Name, Description: group.Description, Members: group.MemberCount, UpdatedAt: group.UpdatedAt,
+			Protected: protected[group.ID],
 		})
 	}
 	verification, stepUp, ok := h.adminStepUpVerification(w, r, views.AdminGroupsPath, extras.pageError != "")
@@ -174,11 +189,12 @@ func adminGroupRefusal(ctx context.Context, err error, doing string) (int, strin
 // adminGroupExtras are what a group's page shows over its tab: a dialog
 // open, the settings as they were sent, and a change that was refused.
 type adminGroupExtras struct {
-	status     int
-	addOpen    bool
-	deleteOpen bool
-	settings   *views.AdminGroupForm
-	pageError  string
+	status           int
+	addOpen          bool
+	deleteOpen       bool
+	policyAssignOpen bool
+	settings         *views.AdminGroupForm
+	pageError        string
 }
 
 func (h *Handler) handleAdminGroupPage(tab string, extras adminGroupExtras) http.HandlerFunc {
@@ -238,6 +254,11 @@ func (h *Handler) renderAdminGroupPage(w http.ResponseWriter, r *http.Request, t
 			AddedAt: member.AddedAt, AddedBy: member.AddedByUsername,
 		})
 	}
+	if err := h.loadAdminGroupPolicies(ctx, actor, group.ID, group.Name, extras.policyAssignOpen, &data); err != nil {
+		log.Printf("load group %q policies: %v", group.ID, err)
+		http.Error(w, i18n.T(ctx, "server.error.failed_to_load_groups"), http.StatusInternalServerError)
+		return
+	}
 	if data.AddOpen {
 		data.AddSearch = strings.TrimSpace(r.URL.Query().Get("q"))
 		page, err := h.auth.ListAdministratorUserPage(ctx, actor.UserID, actor.SessionID, auth.AdministratorUserQuery{
@@ -260,6 +281,8 @@ func (h *Handler) renderAdminGroupPage(w http.ResponseWriter, r *http.Request, t
 		returnTo = views.AdminGroupAddPath(group.ID, "")
 	case extras.deleteOpen:
 		returnTo = views.AdminGroupPath(group.ID, "delete")
+	case extras.policyAssignOpen:
+		returnTo = views.AdminGroupPath(group.ID, views.AdminGroupPolicyAssign)
 	}
 	verification, stepUp, ok := h.adminStepUpVerification(w, r, returnTo, extras.pageError != "")
 	if !ok {
@@ -271,6 +294,58 @@ func (h *Handler) renderAdminGroupPage(w http.ResponseWriter, r *http.Request, t
 		Content: views.AdminGroupPage(data, verification),
 		Toasts:  adminErrorToasts(extras.pageError),
 	})
+}
+
+// loadAdminGroupPolicies reads the policies assigned to a group into data,
+// and the ones the Assign dialog offers when it's open. An administrator
+// who can't see policies sees none.
+func (h *Handler) loadAdminGroupPolicies(ctx context.Context, actor admin.Actor, groupID, name string, assignOpen bool, data *views.AdminGroupPageData) error {
+	policies, err := h.adminService().PoliciesOfGroup(ctx, actor, groupID)
+	if admin.CodeOf(err) == admin.CodeForbidden {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	assignPath := views.AdminGroupPath(groupID, views.AdminGroupPolicyAssign)
+	removePath := views.AdminGroupPath(groupID, adminGroupPolicyRemove)
+	data.Policies = views.AdminTargetPolicies{
+		Name: name, Policies: adminTargetPolicyViews(ctx, policies), CanAssign: true, AssignOpen: assignOpen,
+		AssignPath: assignPath, AssignCSRF: auth.CSRFToken(ctx, http.MethodPost, assignPath),
+		RemovePath: removePath, RemoveCSRF: auth.CSRFToken(ctx, http.MethodPost, removePath),
+	}
+	assigned := map[string]bool{}
+	for _, item := range policies {
+		assigned[item.ID] = true
+		data.Protected = data.Protected || item.Security
+	}
+	if !assignOpen {
+		return nil
+	}
+	return h.adminTargetPolicyChoices(ctx, actor, assigned, &data.Policies)
+}
+
+// handleChangeAdminGroupPolicy assigns a group the policy the form names,
+// or takes it away.
+func (h *Handler) handleChangeAdminGroupPolicy(assign bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := h.adminActor(w, r)
+		if !ok {
+			return
+		}
+		ctx := r.Context()
+		groupID := r.PathValue("groupID")
+		change, err := h.adminChangeTargetPolicy(r, actor, policy.Target{Kind: policy.TargetGroup, ID: groupID}, assign)
+		if err != nil {
+			status, message := adminTargetPolicyRefusal(ctx, err)
+			h.renderAdminGroupPage(w, r, views.AdminGroupTabPolicies, adminGroupExtras{
+				status: status, pageError: message, policyAssignOpen: assign && admin.CodeOf(err) != admin.CodeForbidden,
+			})
+			return
+		}
+		h.setAdminFlashSuccess(w, adminPolicyAssignmentMessage(ctx, assign, change))
+		redirectAdmin(w, r, views.AdminGroupPath(groupID, views.AdminGroupTabPolicies))
+	}
 }
 
 // adminUsername names an administrator for a group's details; someone
@@ -408,7 +483,7 @@ func adminGroupAddress(path string) bool {
 		return false
 	}
 	switch tab {
-	case "", views.AdminGroupTabSettings, "add", "delete":
+	case "", views.AdminGroupTabSettings, views.AdminGroupTabPolicies, views.AdminGroupPolicyAssign, "add", "delete":
 		return true
 	}
 	return false

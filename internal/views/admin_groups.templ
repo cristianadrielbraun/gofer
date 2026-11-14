@@ -3,6 +3,7 @@ package views
 import (
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -17,11 +18,17 @@ import (
 // AdminGroupsPath lists the groups of people.
 const AdminGroupsPath = "/admin/groups"
 
-// A group's page has a tab for its members and one for its settings.
+// A group's page has a tab for its members, one for its policies and one
+// for its settings.
 const (
 	AdminGroupTabMembers  = ""
+	AdminGroupTabPolicies = "policies"
 	AdminGroupTabSettings = "settings"
 )
+
+// AdminGroupPolicyAssign is the address below a group's page that opens
+// the dialog assigning it a policy, and where it's sent.
+const AdminGroupPolicyAssign = AdminGroupTabPolicies + "/assign"
 
 // The dialogs of the Groups pages.
 const (
@@ -78,6 +85,8 @@ type AdminGroupRow struct {
 	Description string
 	Members     int
 	UpdatedAt   time.Time
+	// Protected: a policy assigned to it sets security settings.
+	Protected bool
 }
 
 // AdminGroupPageData is one group's page.
@@ -104,6 +113,10 @@ type AdminGroupPageData struct {
 	DeleteOpen     bool
 	CSRF           AdminGroupCSRF
 	StepUpRequired bool
+	// Policies are the policies assigned to it, and the Assign dialog.
+	// Protected: one of them sets security settings.
+	Policies  AdminTargetPolicies
+	Protected bool
 }
 
 // AdminGroupCSRF are the page's forms' tokens.
@@ -193,7 +206,14 @@ templ AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerific
 										for _, group := range data.Groups {
 											<tr class="bg-background/35 align-top hover:bg-accent/35" data-admin-group-row>
 												<td class="px-4 py-3">
-													<a href={ templ.SafeURL(AdminGroupPath(group.ID, AdminGroupTabMembers)) } class="font-semibold text-foreground hover:underline">{ group.Name }</a>
+													<span class="inline-flex flex-wrap items-center gap-2">
+														<a href={ templ.SafeURL(AdminGroupPath(group.ID, AdminGroupTabMembers)) } class="font-semibold text-foreground hover:underline">{ group.Name }</a>
+														if group.Protected {
+															@adminTag(adminToneWarning) {
+																{ i18n.T(ctx, "admin.group.protected") }
+															}
+														}
+													</span>
 													if group.Description != "" {
 														<p class="mt-1 line-clamp-2 max-w-xl text-xs text-muted-foreground">{ group.Description }</p>
 													}
@@ -305,14 +325,28 @@ templ AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerif
 					{ i18n.T(ctx, "admin.nav.groups") }
 				</a>
 				@adminPageHeader(adminPageHeaderProps{Title: data.Name, Description: data.Description})
+				if data.Protected {
+					<div class="mt-2 flex flex-wrap items-center gap-2" data-admin-group-protected>
+						@adminBadge(adminToneWarning) {
+							@icon.ShieldCheck(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "admin.group.protected") }
+						}
+						<span class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.group.protected_detail") }</span>
+					</div>
+				}
 				@linkTabs(i18n.T(ctx, "admin.group.tabs")) {
 					@linkTab(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabMembers)), i18n.T(ctx, "admin.group.tab.members"), data.Tab == AdminGroupTabMembers, nil)
+					@linkTab(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabPolicies)), i18n.T(ctx, "admin.group.tab.policies"), data.Tab == AdminGroupTabPolicies, nil)
 					@linkTab(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabSettings)), i18n.T(ctx, "admin.group.tab.settings"), data.Tab == AdminGroupTabSettings, nil)
 				}
-				if data.Tab == AdminGroupTabSettings {
-					@adminGroupSettingsTab(data)
-				} else {
-					@adminGroupMembersTab(data)
+				switch data.Tab {
+					case AdminGroupTabSettings:
+						@adminGroupSettingsTab(data)
+					case AdminGroupTabPolicies:
+						@adminTargetPolicyAssignDialog(data.Policies, data.StepUpRequired)
+						@adminTargetPoliciesSection(data.Policies)
+					default:
+						@adminGroupMembersTab(data)
 				}
 			</div>
 		</div>
@@ -505,6 +539,15 @@ templ adminGroupSettingsTab(data AdminGroupPageData) {
 	@adminGroupDeleteDialog(data)
 }
 
+// adminTargetPolicyNames lists policies by name.
+func adminTargetPolicyNames(policies []AdminTargetPolicy) string {
+	names := make([]string, len(policies))
+	for i, item := range policies {
+		names[i] = item.Name
+	}
+	return strings.Join(names, ", ")
+}
+
 templ adminGroupWhen(at time.Time, by string) {
 	if by != "" {
 		{ i18n.T(ctx, "admin.group.when_by", "when", adminTime(ctx, at), "user", by) }
@@ -532,7 +575,18 @@ templ adminGroupDeleteDialog(data AdminGroupPageData) {
 				} else {
 					<p class="text-foreground">{ i18n.N(ctx, "admin.group.delete_members", len(data.Members), "count", i18n.Number(ctx, len(data.Members))) }</p>
 				}
-				<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.group.delete_note") }</p>
+				if len(data.Policies.Policies) > 0 {
+					<p class="mt-2 text-foreground" data-admin-group-delete-policies>
+						{ i18n.N(ctx, "admin.group.delete_policies", len(data.Policies.Policies), "count", i18n.Number(ctx, len(data.Policies.Policies)), "policies", adminTargetPolicyNames(data.Policies.Policies)) }
+					</p>
+				}
+				<p class="mt-2 text-xs text-muted-foreground">
+					if len(data.Policies.Policies) > 0 {
+						{ i18n.T(ctx, "admin.group.delete_note_policies") }
+					} else {
+						{ i18n.T(ctx, "admin.group.delete_note") }
+					}
+				</p>
 			</div>
 			<form method="post" action={ templ.SafeURL(adminGroupDeletePath(data.ID)) } data-step-up class="mt-5">
 				<input type="hidden" name="_csrf" value={ data.CSRF.Delete }/>

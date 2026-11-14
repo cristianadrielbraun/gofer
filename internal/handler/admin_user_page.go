@@ -18,7 +18,7 @@ import (
 
 // adminUserPageTabs are the tabs of a person's page, each an address below
 // it.
-var adminUserPageTabs = []string{views.AdminUserTabOverview, views.AdminUserTabSignIn, views.AdminUserTabSessions, views.AdminUserTabMailboxes, views.AdminUserTabActivity}
+var adminUserPageTabs = []string{views.AdminUserTabOverview, views.AdminUserTabSignIn, views.AdminUserTabSessions, views.AdminUserTabPolicy, views.AdminUserTabMailboxes, views.AdminUserTabActivity}
 
 // adminUserPageAddress is the person's page path names, rebuilt from what it
 // understands: a plausible user ID, one of the tabs, and the Users list it
@@ -42,7 +42,9 @@ func adminUserPageParts(parsed *url.URL) (userID, tab, list string, ok bool) {
 	if !adminUserActionTargetID(userID) || userID == "export" || userID == "bulk" || userID == "invitations" {
 		return "", "", "", false
 	}
-	known := false
+	// The Assign dialog has an address of its own, which verification
+	// leads back to.
+	known := tab == views.AdminUserPolicyAssign
 	for _, candidate := range adminUserPageTabs {
 		if tab == candidate {
 			known = true
@@ -85,6 +87,12 @@ type adminUserPageExtras struct {
 	// returnTo is where verification leads back to; the page itself when
 	// empty.
 	returnTo string
+	// policyAssignOpen opens the Policy tab's Assign dialog.
+	policyAssignOpen bool
+	// pageError is a change that was refused, and verify opens
+	// verification for it.
+	pageError string
+	verify    bool
 }
 
 // handleAdminUserPage answers tab of a person's page.
@@ -172,6 +180,13 @@ func (h *Handler) renderAdminUserPage(w http.ResponseWriter, r *http.Request, us
 		}
 		data.Sessions = adminUserSessionsViewData(ctx, sessions, row, h.auth.OIDCLoginName())
 	}
+	if tab == views.AdminUserTabPolicy {
+		if err := h.loadAdminUserPolicy(ctx, admin.Actor{UserID: user.ID, SessionID: session.ID}, detail.AdministratorUserSummary, row, list, extras.policyAssignOpen, &data); err != nil {
+			log.Printf("load administrator user %q policy: %v", detail.ID, err)
+			http.Error(w, i18n.T(ctx, "server.error.failed_to_load_policies"), http.StatusInternalServerError)
+			return
+		}
+	}
 	if tab == views.AdminUserTabMailboxes {
 		if data.Mailboxes, data.HasMailboxes, err = h.adminUserMailboxes(ctx, user, detail.AdministratorUserSummary); err != nil {
 			log.Printf("load administrator user %q mailboxes: %v", detail.ID, err)
@@ -183,12 +198,15 @@ func (h *Handler) renderAdminUserPage(w http.ResponseWriter, r *http.Request, us
 	if returnTo == "" {
 		returnTo = pagePath
 	}
+	if extras.policyAssignOpen {
+		returnTo = views.AdminUserPagePath(detail.ID, views.AdminUserPolicyAssign, list)
+	}
 	verification := views.AdminSecurityVerificationData{}
 	access, err := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
 	switch {
 	case err == nil:
 		if data.StepUpRequired = !access.StepUpFresh; data.StepUpRequired {
-			verification = adminSecurityVerificationViewData(ctx, access, returnTo, r.URL.Query().Get("verification_required") == "1")
+			verification = adminSecurityVerificationViewData(ctx, access, returnTo, extras.verify || r.URL.Query().Get("verification_required") == "1")
 		}
 	case errors.Is(err, auth.ErrSecuritySessionInvalid):
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
@@ -221,6 +239,7 @@ func (h *Handler) renderAdminUserPage(w http.ResponseWriter, r *http.Request, us
 	h.renderAdminPage(w, r, status, views.AdminShellPage{
 		Section: views.AdminSectionUsers,
 		Content: views.AdminUserPage(data, verification),
+		Toasts:  adminErrorToasts(extras.pageError),
 	})
 }
 

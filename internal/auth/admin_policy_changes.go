@@ -17,11 +17,14 @@ import (
 // auditTargetPolicy is what the administration audit log calls a policy.
 const auditTargetPolicy = "policy"
 
-// PolicySummary is a policy on the Policies list: how many settings it
-// sets and how many groups and people it's assigned to.
+// PolicySummary is a policy on the Policies list: the settings it sets,
+// whether any is a security setting, and how many groups and people it's
+// assigned to.
 type PolicySummary struct {
 	policy.Policy
 	Settings int
+	Keys     []string
+	Security bool
 	Groups   int
 	People   int
 }
@@ -97,13 +100,20 @@ func (m *Manager) ListPolicies(ctx context.Context, actorUserID string) ([]Polic
 		}
 		for _, item := range policies {
 			summary := PolicySummary{Policy: item}
+			values, err := policy.Values(ctx, tx, item.ID)
+			if err != nil {
+				return err
+			}
+			summary.Settings, summary.Security = len(values), policy.SetsSecurity(values)
+			for _, value := range values {
+				summary.Keys = append(summary.Keys, value.Key)
+			}
 			if err := tx.QueryRowContext(ctx, `
-				SELECT (SELECT COUNT(*) FROM policy_values WHERE policy_id = ?),
-				       (SELECT COUNT(*) FROM policy_assignments WHERE policy_id = ? AND target_kind = 'group'),
+				SELECT (SELECT COUNT(*) FROM policy_assignments WHERE policy_id = ? AND target_kind = 'group'),
 				       (SELECT COUNT(*) FROM policy_assignments WHERE policy_id = ? AND target_kind = 'user')`,
-				item.ID, item.ID, item.ID,
-			).Scan(&summary.Settings, &summary.Groups, &summary.People); err != nil {
-				return fmt.Errorf("count what a policy sets: %w", err)
+				item.ID, item.ID,
+			).Scan(&summary.Groups, &summary.People); err != nil {
+				return fmt.Errorf("count who a policy is assigned to: %w", err)
 			}
 			summaries = append(summaries, summary)
 		}
@@ -234,7 +244,7 @@ func (m *Manager) DeletePolicy(ctx context.Context, actorUserID, actorSessionID,
 		if err != nil {
 			return err
 		}
-		if len(assignments) > 0 && setsSecurity(values) {
+		if len(assignments) > 0 && policy.SetsSecurity(values) {
 			if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.PoliciesManageSecurity, now); err != nil {
 				return err
 			}
@@ -361,7 +371,7 @@ func (m *Manager) changePolicyAssignments(ctx context.Context, options ChangePol
 		if err != nil {
 			return err
 		}
-		if setsSecurity(values) {
+		if policy.SetsSecurity(values) {
 			if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.PoliciesManageSecurity, now); err != nil {
 				return err
 			}
@@ -444,16 +454,6 @@ func namePolicyAssignment(ctx context.Context, tx *sql.Tx, target policy.Target)
 		return named, fmt.Errorf("name a policy's %s: %w", target.Kind, err)
 	}
 	return named, nil
-}
-
-// setsSecurity reports whether values set any security setting.
-func setsSecurity(values []policy.Value) bool {
-	for _, value := range values {
-		if setting, ok := policy.Lookup(value.Key); ok && setting.Kind == policy.KindSecurity {
-			return true
-		}
-	}
-	return false
 }
 
 func decodeAuditValue(raw json.RawMessage) any {

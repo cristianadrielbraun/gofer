@@ -56,6 +56,7 @@ type adminPoliciesExtras struct {
 	status     int
 	form       views.AdminGroupForm
 	createOpen bool
+	lookupOpen bool
 	pageError  string
 }
 
@@ -75,8 +76,14 @@ func (h *Handler) renderAdminPolicies(w http.ResponseWriter, r *http.Request, ex
 		return
 	}
 	data := views.AdminPoliciesData{
-		Form: extras.form, CreateOpen: extras.createOpen,
+		Form: extras.form, CreateOpen: extras.createOpen, LookupOpen: extras.lookupOpen,
 		CreateCSRF: auth.CSRFToken(ctx, http.MethodPost, views.AdminPoliciesPath),
+	}
+	if data.LookupOpen {
+		if err := h.adminPolicyLookupPeople(ctx, actor, r.URL.Query().Get("q"), &data); err != nil {
+			h.adminPolicyLoadFailed(w, r, err)
+			return
+		}
 	}
 	named := 0
 	for _, summary := range summaries {

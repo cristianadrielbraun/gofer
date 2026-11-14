@@ -86,3 +86,20 @@ func checkPolicyTargets(targets []policy.Target) error {
 	}
 	return nil
 }
+
+// PoliciesOfGroup returns the policies assigned to a group, in order.
+func (s *Service) PoliciesOfGroup(ctx context.Context, actor Actor, groupID string) ([]auth.TargetPolicy, error) {
+	return s.auth.PoliciesOfGroup(ctx, actor.UserID, groupID)
+}
+
+// PoliciesOfPerson works out every setting's value for someone, and the
+// policies that apply to them.
+func (s *Service) PoliciesOfPerson(ctx context.Context, actor Actor, userID string) (*auth.PersonPolicies, error) {
+	return s.auth.PoliciesOfPerson(ctx, actor.UserID, userID)
+}
+
+// ProtectedGroups returns the IDs of the groups a policy sets security
+// settings for.
+func (s *Service) ProtectedGroups(ctx context.Context, actor Actor) (map[string]bool, error) {
+	return s.auth.ProtectedGroups(ctx, actor.UserID)
+}

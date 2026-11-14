@@ -1,0 +1,269 @@
+package views
+
+import (
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/radio"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// adminTargetPolicyAssignDialogID is the dialog that assigns a policy
+// from a group's or person's page.
+const adminTargetPolicyAssignDialogID = "admin-target-policy-assign"
+
+// AdminTargetPolicy is a policy assigned to a group or person, as their
+// page lists it.
+type AdminTargetPolicy struct {
+	ID          string
+	Name        string
+	Description string
+	Priority    int
+	// Sets names the settings it sets.
+	Sets     []string
+	Security bool
+	// Direct: it's assigned to the group or person itself, when and by
+	// whom, and Remove takes it away.
+	Direct  bool
+	AddedAt time.Time
+	AddedBy string
+	// Groups are the person's groups it reaches them through.
+	Groups []AdminGroupRef
+}
+
+// AdminTargetPolicies is the policies section of a group's or person's
+// page, and its Assign dialog.
+type AdminTargetPolicies struct {
+	// Person: the page is a person's, whose policies can also come from
+	// their groups.
+	Person   bool
+	Name     string
+	Policies []AdminTargetPolicy
+	// CanAssign offers Assign and Remove.
+	CanAssign  bool
+	AssignPath string
+	AssignCSRF string
+	RemovePath string
+	RemoveCSRF string
+	// List is the Users list a person's page was opened from, which a
+	// change keeps.
+	List string
+	// The Assign dialog: open, and the policies it offers. HasPolicies says
+	// whether any policy exists at all.
+	AssignOpen  bool
+	Choices     []AdminTargetPolicy
+	HasPolicies bool
+}
+
+templ adminTargetPoliciesSection(data AdminTargetPolicies) {
+	@adminSection(adminSectionProps{ID: "admin-target-policies-heading", Title: i18n.T(ctx, "admin.target_policies.heading"), Aside: adminTargetPoliciesActions(data)}) {
+		if len(data.Policies) == 0 {
+			if data.Person {
+				@adminEmptyState(i18n.T(ctx, "admin.target_policies.none_person"))
+			} else {
+				@adminEmptyState(i18n.T(ctx, "admin.target_policies.none_group"))
+			}
+		} else {
+			<ol class="divide-y divide-border">
+				for _, item := range data.Policies {
+					@adminTargetPolicyRow(data, item)
+				}
+			</ol>
+		}
+	}
+	<p class="mt-4 text-xs leading-relaxed text-muted-foreground">
+		{ i18n.T(ctx, "admin.target_policies.order_note") }
+		<a href={ templ.SafeURL(AdminPoliciesPath) } class="font-medium text-primary underline-offset-4 hover:underline">{ i18n.T(ctx, "admin.target_policies.order_link") }</a>
+	</p>
+}
+
+templ adminTargetPoliciesActions(data AdminTargetPolicies) {
+	if data.CanAssign {
+		@button.Button(button.Props{Size: button.SizeSm, Href: data.AssignPath, Attributes: templ.Attributes{"data-admin-target-policy-assign": ""}}) {
+			@icon.Plus(icon.Props{Class: "size-4"})
+			{ i18n.T(ctx, "admin.target_policies.assign") }
+		}
+	}
+}
+
+templ adminTargetPolicyRow(data AdminTargetPolicies, item AdminTargetPolicy) {
+	<li class="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between" data-admin-target-policy={ item.ID }>
+		<div class="flex min-w-0 items-start gap-3">
+			<span class="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold tabular-nums text-muted-foreground" title={ i18n.T(ctx, "admin.policies.priority", "priority", i18n.Number(ctx, item.Priority)) }>
+				{ strconv.Itoa(item.Priority) }
+			</span>
+			<div class="min-w-0">
+				<div class="flex flex-wrap items-center gap-2">
+					<a href={ templ.SafeURL(AdminPolicyPath(item.ID, "")) } class="font-semibold text-foreground hover:underline">{ item.Name }</a>
+					if item.Security {
+						@adminTag(adminToneWarning) {
+							{ i18n.T(ctx, "admin.target_policies.security") }
+						}
+					}
+				</div>
+				if item.Description != "" {
+					<p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{ item.Description }</p>
+				}
+				<p class="mt-1 text-xs text-muted-foreground" data-admin-target-policy-sets>
+					if len(item.Sets) == 0 {
+						{ i18n.T(ctx, "admin.target_policies.sets_nothing") }
+					} else {
+						{ i18n.T(ctx, "admin.target_policies.sets", "settings", strings.Join(item.Sets, ", ")) }
+					}
+				</p>
+				<div class="mt-1 space-y-0.5 text-xs text-muted-foreground" data-admin-target-policy-reach>
+					if item.Direct {
+						{{ key := "admin.target_policies.assigned" }}
+						if data.Person {
+							{{ key = "admin.target_policies.direct" }}
+						}
+						<p>
+							if item.AddedBy != "" {
+								{ i18n.T(ctx, key+"_by", "when", adminTime(ctx, item.AddedAt), "user", item.AddedBy) }
+							} else {
+								{ i18n.T(ctx, key+"_at", "when", adminTime(ctx, item.AddedAt)) }
+							}
+						</p>
+					}
+					if len(item.Groups) > 0 {
+						<p>
+							{ i18n.N(ctx, "admin.target_policies.through", len(item.Groups)) }
+							for index, group := range item.Groups {
+								if index > 0 {
+									{ ", " }
+								}
+								<a href={ templ.SafeURL(AdminGroupPath(group.ID, AdminGroupTabPolicies)) } class="font-medium text-foreground hover:underline">{ group.Name }</a>
+							}
+						</p>
+					}
+				</div>
+			</div>
+		</div>
+		if data.CanAssign && item.Direct {
+			<form method="post" action={ templ.SafeURL(data.RemovePath) } class="shrink-0" data-step-up data-admin-target-policy-remove={ item.ID }>
+				<input type="hidden" name="_csrf" value={ data.RemoveCSRF }/>
+				<input type="hidden" name="policy_id" value={ item.ID }/>
+				if data.List != "" {
+					<input type="hidden" name="list" value={ data.List }/>
+				}
+				@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.target_policies.remove_label", "policy", item.Name)}}) {
+					@icon.X(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "admin.target_policies.remove") }
+				}
+			</form>
+		}
+	</li>
+}
+
+// adminTargetPolicyAssignDialog picks one policy to assign.
+templ adminTargetPolicyAssignDialog(data AdminTargetPolicies, stepUpRequired bool) {
+	@dialog.Dialog(dialog.Props{ID: adminTargetPolicyAssignDialogID, Open: data.AssignOpen && !stepUpRequired}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.target_policies.assign_title", "name", data.Name) }
+				}
+				@dialog.Description() {
+					if data.Person {
+						{ i18n.T(ctx, "admin.target_policies.assign_detail_person") }
+					} else {
+						{ i18n.T(ctx, "admin.target_policies.assign_detail_group") }
+					}
+				}
+			}
+			<form method="post" action={ templ.SafeURL(data.AssignPath) } data-step-up>
+				<input type="hidden" name="_csrf" value={ data.AssignCSRF }/>
+				if data.List != "" {
+					<input type="hidden" name="list" value={ data.List }/>
+				}
+				if len(data.Choices) == 0 {
+					<p class="rounded-md border border-border px-3 py-6 text-center text-sm text-muted-foreground" data-admin-target-policy-no-choices>
+						if data.HasPolicies {
+							{ i18n.T(ctx, "admin.target_policies.all_assigned") }
+						} else {
+							{ i18n.T(ctx, "admin.target_policies.no_policies") }
+							<a href={ templ.SafeURL(AdminPoliciesPath) } class="font-medium text-primary underline-offset-4 hover:underline">{ i18n.T(ctx, "admin.target_policies.create_one") }</a>
+						}
+					</p>
+				} else {
+					<fieldset class="max-h-72 space-y-2 overflow-y-auto">
+						<legend class="sr-only">{ i18n.T(ctx, "admin.target_policies.assign") }</legend>
+						for index, choice := range data.Choices {
+							<label for={ "admin-target-policy-choice-" + choice.ID } class="flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2.5 hover:bg-accent/35" data-admin-target-policy-choice={ choice.ID }>
+								@radio.Radio(radio.Props{ID: "admin-target-policy-choice-" + choice.ID, Name: "policy_id", Value: choice.ID, Checked: index == 0, Class: "mt-0.5"})
+								<span class="min-w-0 flex-1 text-sm">
+									<span class="flex flex-wrap items-center gap-2">
+										<span class="font-semibold text-foreground">{ choice.Name }</span>
+										if choice.Security {
+											@adminTag(adminToneWarning) {
+												{ i18n.T(ctx, "admin.target_policies.security") }
+											}
+										}
+									</span>
+									<span class="mt-0.5 block text-xs text-muted-foreground">
+										{ i18n.T(ctx, "admin.policies.priority", "priority", i18n.Number(ctx, choice.Priority)) }
+										·
+										if len(choice.Sets) == 0 {
+											{ i18n.T(ctx, "admin.target_policies.sets_nothing") }
+										} else {
+											{ i18n.T(ctx, "admin.target_policies.sets", "settings", strings.Join(choice.Sets, ", ")) }
+										}
+									</span>
+								</span>
+							</label>
+						}
+					</fieldset>
+				}
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: adminTargetPolicyAssignDialogID}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					if len(data.Choices) > 0 {
+						@button.Button(button.Props{Type: button.TypeSubmit}) {
+							{ i18n.T(ctx, "admin.target_policies.assign_submit") }
+						}
+					}
+				}
+			</form>
+		}
+	}
+}
+
+// AdminUserPolicyData is a person's Policy tab: each setting's value for
+// them and where it comes from, and the policies that apply to them.
+type AdminUserPolicyData struct {
+	// Applies is false for administrators, whom policies don't reach.
+	Applies  bool
+	Settings []AdminPolicySetting
+	Policies AdminTargetPolicies
+}
+
+templ adminUserPolicyTab(data AdminUserPageData) {
+	if !data.Policy.Applies {
+		@adminSection(adminSectionProps{ID: "admin-user-policy-heading", Title: i18n.T(ctx, "admin.user.policy.settings")}) {
+			@adminEmptyState(i18n.T(ctx, "admin.user.policy.administrator"))
+		}
+	} else {
+		@adminTargetPolicyAssignDialog(data.Policy.Policies, data.StepUpRequired)
+		@adminSection(adminSectionProps{ID: "admin-user-policy-heading", Title: i18n.T(ctx, "admin.user.policy.settings"), Aside: adminSectionNote(i18n.T(ctx, "admin.user.policy.settings_detail"))}) {
+			<ul class="divide-y divide-border">
+				for _, setting := range data.Policy.Settings {
+					@adminPolicySettingRow(setting)
+				}
+			</ul>
+		}
+		@adminTargetPoliciesSection(data.Policy.Policies)
+	}
+}
+
+// AdminUserPolicyPath is a person's Policy tab, opened from list.
+func AdminUserPolicyPath(userID, list string) string {
+	return AdminUserPagePath(url.PathEscape(userID), AdminUserTabPolicy, list)
+}

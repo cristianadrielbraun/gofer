@@ -77,16 +77,20 @@ type AdminPolicySetting struct {
 	Label string
 	Help  string
 	Value string
-	// Source says where the value comes from: the built-in default or the
-	// Default policy.
-	Source   string
-	Enforced bool
+	// Source says where the value comes from: the built-in default, the
+	// Default policy, or a policy assigned to the person; SourceHref leads
+	// to that policy.
+	Source     string
+	SourceHref string
+	Enforced   bool
 	// Changed says when it was last changed, and by whom, when known.
 	Changed string
 	// Note is something to know about the value now, linking to Href when
 	// it has one.
 	Note     string
 	NoteHref string
+	// EditPath opens the dialog that changes it; a row without one only
+	// shows the value.
 	EditPath string
 }
 
@@ -194,7 +198,11 @@ templ adminPolicySettingRow(setting AdminPolicySetting) {
 				@adminBadge(adminToneInfo, templ.Attributes{"data-admin-policy-value": ""}) {
 					{ setting.Value }
 				}
-				<span class="text-xs text-muted-foreground" data-admin-policy-source>{ setting.Source }</span>
+				if setting.SourceHref != "" {
+					<a href={ templ.SafeURL(setting.SourceHref) } class="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" data-admin-policy-source>{ setting.Source }</a>
+				} else {
+					<span class="text-xs text-muted-foreground" data-admin-policy-source>{ setting.Source }</span>
+				}
 				if setting.Enforced {
 					@adminTag(adminToneWarning) {
 						{ i18n.T(ctx, "admin.policies.enforced") }
@@ -214,8 +222,10 @@ templ adminPolicySettingRow(setting AdminPolicySetting) {
 				<p class="mt-1 text-xs text-muted-foreground">{ setting.Changed }</p>
 			}
 		</div>
-		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: setting.EditPath, Attributes: templ.Attributes{"data-admin-policy-edit": setting.Key}}) {
-			{ i18n.T(ctx, "admin.policies.change") }
+		if setting.EditPath != "" {
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: setting.EditPath, Attributes: templ.Attributes{"data-admin-policy-edit": setting.Key}}) {
+				{ i18n.T(ctx, "admin.policies.change") }
+			}
 		}
 	</li>
 }
