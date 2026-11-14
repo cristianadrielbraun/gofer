@@ -11,6 +11,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
+	"github.com/cristianadrielbraun/gofer/internal/directory"
 )
 
 const (
@@ -163,6 +164,10 @@ func (m *Manager) SetAuthenticationEventRetention(
 		}
 		if rowsAffected != 1 {
 			return errors.New("authentication event retention changed concurrently")
+		}
+		// The Default policy reads this value (internal/policy).
+		if err := directory.Bump(ctx, tx, directory.RevisionPolicy); err != nil {
+			return err
 		}
 
 		metadata, err := json.Marshal(struct {

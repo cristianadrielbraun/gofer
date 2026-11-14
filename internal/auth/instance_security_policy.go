@@ -11,6 +11,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
+	"github.com/cristianadrielbraun/gofer/internal/directory"
 )
 
 type InstanceMFAPolicy string
@@ -180,6 +181,10 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 		}
 		if rowsAffected != 1 {
 			return fmt.Errorf("instance MFA policy changed concurrently")
+		}
+		// The Default policy reads this value (internal/policy).
+		if err := directory.Bump(ctx, tx, directory.RevisionPolicy); err != nil {
+			return err
 		}
 
 		if options.Policy.RequiresAllUsers() {

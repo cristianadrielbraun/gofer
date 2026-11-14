@@ -89,3 +89,31 @@ func TestMigrateV150ToV151AddsPolicies(t *testing.T) {
 		t.Fatalf("Default policy after a second run = %q, %v", description, err)
 	}
 }
+
+// The Default policy reads whether people may add proxies from its old
+// switch, so changing the switch moves the policy revision on.
+func TestOwnProxySwitchMovesThePolicyRevision(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	revision := func() int {
+		var value int
+		if err := db.Read().QueryRow(`SELECT COALESCE((SELECT revision FROM admin_revisions WHERE name = 'policy'), 0)`).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	for i, step := range []struct {
+		allowed bool
+		want    int
+	}{{true, 1}, {true, 1}, {false, 2}} {
+		if err := db.SetPeopleMayAddOutboundProxies(t.Context(), step.allowed); err != nil {
+			t.Fatal(err)
+		}
+		if got := revision(); got != step.want {
+			t.Fatalf("step %d: revision = %d, want %d", i, got, step.want)
+		}
+	}
+}

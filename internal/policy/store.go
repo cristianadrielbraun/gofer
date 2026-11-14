@@ -58,10 +58,13 @@ var (
 	ErrOrderInvalid   = errors.New("the order must name every policy once")
 	ErrTargetNotFound = errors.New("the group or person doesn't exist, or can't have a policy")
 	ErrKeyInvalid     = errors.New("the setting key is empty, too long or has unexpected characters")
-	ErrValueInvalid   = errors.New("the setting value isn't JSON")
-	errMissingID      = errors.New("a policy needs an ID")
-	errMissingTime    = errors.New("a change needs a time")
-	errUnknownKind    = errors.New("unknown assignment target")
+	// ErrAdapted is a value saved to the Default policy for a setting that
+	// lives elsewhere, which is changed where it lives.
+	ErrAdapted      = errors.New("this setting is changed where it lives, not on the Default policy")
+	ErrValueInvalid = errors.New("the setting value isn't JSON")
+	errMissingID    = errors.New("a policy needs an ID")
+	errMissingTime  = errors.New("a change needs a time")
+	errUnknownKind  = errors.New("unknown assignment target")
 )
 
 // Querier reads: a *sql.DB or a *sql.Tx.
@@ -362,7 +365,9 @@ func Values(ctx context.Context, q Querier, id string) ([]Value, error) {
 }
 
 // SetValues saves changes to a policy's settings, from the version that
-// was loaded, as one change. Saving to the Default policy makes its row
+// was loaded, as one change. Each must be a declared setting with a value
+// that checks; whole-server settings go on the Default policy only, and
+// settings that live elsewhere are changed there, not on it. Saving to the Default policy makes its row
 // the first time. A change that changes nothing keeps the version.
 func SetValues(ctx context.Context, tx *sql.Tx, id string, version int64, changes []ValueChange, by string, at time.Time) (Policy, error) {
 	if at.IsZero() {
@@ -379,11 +384,24 @@ func SetValues(ctx context.Context, tx *sql.Tx, id string, version int64, change
 		if !validKey(change.Key) {
 			return Policy{}, ErrKeyInvalid
 		}
-		if change.JSON != nil && !json.Valid(change.JSON) {
-			return Policy{}, ErrValueInvalid
-		}
-		if change.Enforced && !current.Default {
+		setting, declared := Lookup(change.Key)
+		switch {
+		case !declared:
+			return Policy{}, ErrUnknownSetting
+		case setting.InstanceOnly && !current.Default:
+			return Policy{}, ErrInstanceOnly
+		case setting.Adapted() && current.Default:
+			return Policy{}, ErrAdapted
+		case change.Enforced && !current.Default:
 			return Policy{}, ErrEnforcedOutsideDefault
+		}
+		if change.JSON != nil {
+			if !json.Valid(change.JSON) {
+				return Policy{}, ErrValueInvalid
+			}
+			if _, err := setting.Decode(change.JSON); err != nil {
+				return Policy{}, err
+			}
 		}
 	}
 	at = at.UTC()

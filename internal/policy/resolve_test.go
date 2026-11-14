@@ -9,6 +9,8 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+
+	"github.com/cristianadrielbraun/gofer/internal/directory"
 )
 
 // Test settings, declared without joining the registry.
@@ -76,7 +78,9 @@ func TestSettingsCheckTheirValues(t *testing.T) {
 func TestTheDeclaredSettingsKeepTodaysBehaviour(t *testing.T) {
 	keys := []string{}
 	for _, setting := range Settings() {
-		keys = append(keys, setting.Key)
+		if !strings.HasPrefix(setting.Key, "test.") {
+			keys = append(keys, setting.Key)
+		}
 	}
 	if got := strings.Join(keys, " "); got != "audit.security_retention_days auth.mfa_required mail.own_proxies" {
 		t.Fatalf("declared settings = %s", got)
@@ -343,7 +347,8 @@ func TestForUserReadsWhatAppliesFromTheDatabase(t *testing.T) {
 		if _, err := SetValues(ctx, tx, "p-direct", 1, []ValueChange{{Key: MFARequired.Key, JSON: json.RawMessage(`false`)}}, "u-admin", monday); err != nil {
 			return nil, err
 		}
-		_, err := SetValues(ctx, tx, DefaultID, 0, []ValueChange{{Key: SecurityRetentionDays.Key, JSON: json.RawMessage(`90`)}}, "u-admin", monday)
+		// Retention lives in the instance's sign-in state.
+		_, err := tx.ExecContext(ctx, `INSERT INTO auth_system_state (id, initialized, auth_event_retention_days) VALUES (1, 1, 90)`)
 		return nil, err
 	}); err != nil {
 		t.Fatal(err)
@@ -375,11 +380,143 @@ func TestForUserReadsWhatAppliesFromTheDatabase(t *testing.T) {
 
 	// The instance only reads the Default policy.
 	instance, err := ForInstance(ctx, db.Read())
-	if err != nil || instance.Bool(OwnProxies) || instance.Int(SecurityRetentionDays) != 90 || instance.Get(MFARequired).Source.Kind != SourceBuiltin {
+	if err != nil || instance.Bool(OwnProxies) || instance.Int(SecurityRetentionDays) != 90 || instance.Get(MFARequired).Source.Kind != SourceDefault || instance.Bool(MFARequired) {
 		t.Fatalf("instance = %v:\n%s", err, instance.describe())
 	}
 	// Someone in no group, with nothing assigned, gets the same.
 	if pavel, err := ForUser(ctx, db.Read(), "u-pavel"); err != nil || pavel.describe() != instance.describe() {
 		t.Fatalf("someone with no policy = %v:\n%s", err, pavel.describe())
+	}
+}
+
+// The three settings that existed before policies keep living where they
+// did: the Default policy reads them there, and they're changed there.
+func TestSettingsThatLiveElsewhereAreReadWhereTheyLive(t *testing.T) {
+	db := newStore(t)
+	ctx := t.Context()
+	create(t, db, "p-relaxed", "Relaxed")
+	if _, err := db.Write().Exec(`INSERT INTO directory_group_members (group_id, user_id, added_at) VALUES ('g-field', 'u-ines', CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (any, error) {
+		if _, err := Assign(ctx, tx, "p-relaxed", []Target{{TargetGroup, "g-field"}}, "u-admin", monday); err != nil {
+			return nil, err
+		}
+		return SetValues(ctx, tx, "p-relaxed", 1, []ValueChange{{Key: MFARequired.Key, JSON: json.RawMessage(`false`)}}, "u-admin", monday)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, setting := range []*Setting{MFARequired, SecurityRetentionDays, OwnProxies} {
+		if _, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (Policy, error) {
+			return SetValues(ctx, tx, DefaultID, 0, []ValueChange{{Key: setting.Key, JSON: json.RawMessage(`true`)}}, "u-admin", monday)
+		}); !errors.Is(err, ErrAdapted) && !errors.Is(err, ErrValueInvalid) {
+			t.Fatalf("saving %s to the Default policy = %v", setting.Key, err)
+		}
+	}
+
+	// Before setup, nothing is stored anywhere: the built-in defaults.
+	instance, err := ForInstance(ctx, db.Read())
+	if err != nil || instance.Get(MFARequired).Source.Kind != SourceBuiltin || instance.Int(SecurityRetentionDays) != 180 {
+		t.Fatalf("before setup = %v:\n%s", err, instance.describe())
+	}
+
+	for _, statement := range []string{
+		`INSERT INTO auth_system_state (id, initialized, mfa_policy, auth_event_retention_days) VALUES (1, 1, 'administrators', 30)`,
+		`INSERT INTO outbound_proxy_policy (singleton, people_add) VALUES (1, 1)`,
+	} {
+		if _, err := db.Write().Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ines, err := ForUser(ctx, db.Read(), "u-ines")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ines.Get(MFARequired); got.Value != false || got.Source.PolicyID != "p-relaxed" {
+		t.Fatalf("two-factor for administrators only = %+v", got)
+	}
+	if got := ines.Get(OwnProxies); got.Value != true || got.Source.Kind != SourceDefault || got.Locked {
+		t.Fatalf("own proxies = %+v", got)
+	}
+	if ines.Int(SecurityRetentionDays) != 30 {
+		t.Fatalf("retention = %d", ines.Int(SecurityRetentionDays))
+	}
+
+	// Requiring it of everyone can't be turned off by a policy.
+	if _, err := db.Write().Exec(`UPDATE auth_system_state SET mfa_policy = 'all_users' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if ines, err = ForUser(ctx, db.Read(), "u-ines"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ines.Get(MFARequired); got.Value != true || got.Source.Kind != SourceDefault || !got.Source.Enforced || !got.Locked {
+		t.Fatalf("two-factor for everyone = %+v", got)
+	}
+}
+
+func TestTheCacheWorksSettingsOutAgainAfterAChange(t *testing.T) {
+	db := newStore(t)
+	ctx := t.Context()
+	create(t, db, "p-field", "Field rules")
+	if _, err := db.Write().Exec(`INSERT INTO auth_system_state (id, initialized) VALUES (1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (any, error) {
+		if _, err := Assign(ctx, tx, "p-field", []Target{{TargetGroup, "g-field"}}, "u-admin", monday); err != nil {
+			return nil, err
+		}
+		return SetValues(ctx, tx, "p-field", 1, []ValueChange{{Key: OwnProxies.Key, JSON: json.RawMessage(`true`)}}, "u-admin", monday)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var logged []string
+	cache := NewCache(db.Read(), 2)
+	cache.Logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+
+	first, err := cache.ForUser(ctx, "u-ines")
+	if err != nil || first.Bool(OwnProxies) {
+		t.Fatalf("Ines outside the group = %v, %v", first.Bool(OwnProxies), err)
+	}
+	if again, _ := cache.ForUser(ctx, "u-ines"); again != first {
+		t.Fatal("nothing changed, but the settings were worked out again")
+	}
+
+	// Joining the group moves the membership revision.
+	if _, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) ([]string, error) {
+		return directory.AddMembers(ctx, tx, "g-field", []string{"u-ines"}, "u-admin", monday)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if joined, err := cache.ForUser(ctx, "u-ines"); err != nil || !joined.Bool(OwnProxies) {
+		t.Fatalf("Ines in the group = %v, %v", joined.Bool(OwnProxies), err)
+	}
+
+	// A value that no longer checks is skipped, and logged once.
+	if _, err := db.Write().Exec(`UPDATE policy_values SET value_json = '"sometimes"' WHERE policy_id = 'p-field'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (any, error) {
+		return nil, directory.Bump(ctx, tx, directory.RevisionPolicy)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if skipped, err := cache.ForUser(ctx, "u-ines"); err != nil || skipped.Bool(OwnProxies) {
+			t.Fatalf("a value that doesn't check = %v, %v", skipped.Bool(OwnProxies), err)
+		}
+		if _, err := cache.ForUser(ctx, "u-pavel"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "mail.own_proxies on policy p-field") {
+		t.Fatalf("logged = %q", logged)
+	}
+
+	// Two people fit; a third pushes out whoever was asked for longest ago.
+	if _, err := cache.ForInstance(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(cache.entries) != 2 || cache.entries["u-ines"] != nil {
+		t.Fatalf("cache holds %d, Ines still in: %v", len(cache.entries), cache.entries["u-ines"] != nil)
 	}
 }

@@ -17,6 +17,15 @@ import (
 
 var monday = time.Date(2026, time.March, 2, 9, 30, 0, 0, time.UTC)
 
+// Settings the store tests save, registered under "test." so they don't
+// pass for real ones.
+var (
+	storeFlag     = Bool(Spec{Key: "test.flag", Category: CategoryData, Kind: KindCapability, Label: "x"}, true)
+	storeLanguage = Enum(Spec{Key: "test.language", Category: CategoryPreferences, Kind: KindPreference, Label: "x"}, "auto", "auto", "en", "pt-br")
+	storeCount    = Int(Spec{Key: "test.count", Category: CategoryMail, Kind: KindLimit, Label: "x"}, 0, 0, 50)
+	storeServer   = Bool(Spec{Key: "test.server_wide", Category: CategoryData, Kind: KindPrivacy, InstanceOnly: true, Label: "x"}, false)
+)
+
 func newStore(t *testing.T) *storage.DB {
 	t.Helper()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
@@ -126,7 +135,7 @@ func TestTheDefaultPolicyIsAlwaysThereAndLast(t *testing.T) {
 
 	// Its row is made the first time a value is saved to it.
 	saved, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (Policy, error) {
-		return SetValues(ctx, tx, DefaultID, 0, []ValueChange{{Key: "mail.export", JSON: json.RawMessage(`false`), Enforced: true}}, "u-admin", monday)
+		return SetValues(ctx, tx, DefaultID, 0, []ValueChange{{Key: "test.flag", JSON: json.RawMessage(`false`), Enforced: true}}, "u-admin", monday)
 	})
 	if err != nil || saved.Version != 1 || !saved.Default || saved.CreatedBy != "u-admin" {
 		t.Fatalf("saved Default policy = %#v, %v", saved, err)
@@ -135,7 +144,7 @@ func TestTheDefaultPolicyIsAlwaysThereAndLast(t *testing.T) {
 		t.Fatalf("policies after saving the Default one = %v", got)
 	}
 	if _, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (Policy, error) {
-		return SetValues(ctx, tx, DefaultID, 0, []ValueChange{{Key: "mail.export", JSON: json.RawMessage(`true`)}}, "u-admin", monday)
+		return SetValues(ctx, tx, DefaultID, 0, []ValueChange{{Key: "test.flag", JSON: json.RawMessage(`true`)}}, "u-admin", monday)
 	}); !errors.Is(err, ErrStale) {
 		t.Fatalf("save from before the Default policy was saved = %v", err)
 	}
@@ -218,28 +227,28 @@ func TestValuesAreSavedAsOneChangeFromTheVersionLoaded(t *testing.T) {
 	later := monday.Add(time.Hour)
 	saved, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (Policy, error) {
 		return SetValues(ctx, tx, "p-contractors", 1, []ValueChange{
-			{Key: "mail.export", JSON: json.RawMessage(`false`)},
-			{Key: "preferences.language", JSON: json.RawMessage(` "pt-br" `), Locked: true},
-			{Key: "mail.unset", JSON: nil},
+			{Key: "test.flag", JSON: json.RawMessage(`false`)},
+			{Key: "test.language", JSON: json.RawMessage(` "pt-br" `), Locked: true},
+			{Key: "test.count", JSON: nil},
 		}, "u-admin", later)
 	})
 	if err != nil || saved.Version != 2 || !saved.UpdatedAt.Equal(later) || revision(t, db) != 1 {
 		t.Fatalf("saved = %#v, %v, revision %d", saved, err, revision(t, db))
 	}
 	values, err := Values(t.Context(), db.Read(), "p-contractors")
-	if err != nil || len(values) != 2 || values[0].Key != "mail.export" || string(values[0].JSON) != "false" ||
-		values[1].Key != "preferences.language" || !values[1].Locked || values[1].Enforced {
+	if err != nil || len(values) != 2 || values[0].Key != "test.flag" || string(values[0].JSON) != "false" ||
+		values[1].Key != "test.language" || !values[1].Locked || values[1].Enforced {
 		t.Fatalf("values = %#v, %v", values, err)
 	}
 	// The same values, spaced differently, change nothing.
 	same, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (Policy, error) {
-		return SetValues(ctx, tx, "p-contractors", 2, []ValueChange{{Key: "preferences.language", JSON: json.RawMessage(`"pt-br"`), Locked: true}}, "u-admin", later.Add(time.Hour))
+		return SetValues(ctx, tx, "p-contractors", 2, []ValueChange{{Key: "test.language", JSON: json.RawMessage(`"pt-br"`), Locked: true}}, "u-admin", later.Add(time.Hour))
 	})
 	if err != nil || same.Version != 2 || revision(t, db) != 1 {
 		t.Fatalf("unchanged = %#v, %v, revision %d", same, err, revision(t, db))
 	}
 	cleared, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (Policy, error) {
-		return SetValues(ctx, tx, "p-contractors", 2, []ValueChange{{Key: "mail.export"}}, "u-admin", later)
+		return SetValues(ctx, tx, "p-contractors", 2, []ValueChange{{Key: "test.flag"}}, "u-admin", later)
 	})
 	if values, _ := Values(t.Context(), db.Read(), "p-contractors"); err != nil || cleared.Version != 3 || len(values) != 1 {
 		t.Fatalf("cleared = %#v, %v, %#v", cleared, err, values)
@@ -248,10 +257,15 @@ func TestValuesAreSavedAsOneChangeFromTheVersionLoaded(t *testing.T) {
 		change ValueChange
 		want   error
 	}{
-		{ValueChange{Key: "mail.export", JSON: json.RawMessage(`false`), Enforced: true}, ErrEnforcedOutsideDefault},
+		{ValueChange{Key: "test.flag", JSON: json.RawMessage(`false`), Enforced: true}, ErrEnforcedOutsideDefault},
 		{ValueChange{Key: "Mail Export", JSON: json.RawMessage(`false`)}, ErrKeyInvalid},
 		{ValueChange{Key: "mail..export", JSON: json.RawMessage(`false`)}, ErrKeyInvalid},
-		{ValueChange{Key: "mail.export", JSON: json.RawMessage(`{nope`)}, ErrValueInvalid},
+		{ValueChange{Key: "test.flag", JSON: json.RawMessage(`{nope`)}, ErrValueInvalid},
+		{ValueChange{Key: "test.flag", JSON: json.RawMessage(`"yes"`)}, ErrValueInvalid},
+		{ValueChange{Key: "test.count", JSON: json.RawMessage(`51`)}, ErrValueInvalid},
+		{ValueChange{Key: "test.language", JSON: json.RawMessage(`"fr"`)}, ErrValueInvalid},
+		{ValueChange{Key: "test.not_declared", JSON: json.RawMessage(`true`)}, ErrUnknownSetting},
+		{ValueChange{Key: "test.server_wide", JSON: json.RawMessage(`true`)}, ErrInstanceOnly},
 	} {
 		if _, err := inTx(t, db, func(ctx context.Context, tx *sql.Tx) (Policy, error) {
 			return SetValues(ctx, tx, "p-contractors", 3, []ValueChange{test.change}, "u-admin", later)

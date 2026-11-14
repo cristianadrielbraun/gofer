@@ -390,7 +390,18 @@ func (db *DB) SetPeopleMayAddOutboundProxies(ctx context.Context, allowed bool) 
 		if err != nil {
 			return false, err
 		}
-		return rowsChanged(result)
+		changed, err := rowsChanged(result)
+		if err != nil || !changed {
+			return changed, err
+		}
+		// The Default policy reads this switch (internal/policy): what was
+		// worked out from it is out of date. Storage can't import
+		// internal/directory, whose tests import storage.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO admin_revisions (name, revision) VALUES ('policy', 1)
+			ON CONFLICT (name) DO UPDATE SET revision = revision + 1`); err != nil {
+			return false, fmt.Errorf("bump the policy revision: %w", err)
+		}
+		return true, nil
 	})
 }
 

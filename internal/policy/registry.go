@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,9 +56,28 @@ type Setting struct {
 	Spec
 	builtin any
 	decode  func(json.RawMessage) (any, error)
+	// adapter reads the Default policy's value from where the setting
+	// lived before policies; nil for a setting policies store themselves.
+	adapter Adapter
 	// Min and Max bound a number; Options are an enum's choices.
 	Min, Max int
 	Options  []string
+}
+
+// Adapter reads a setting's Default policy value from where it lived
+// before policies, so it doesn't move: the stored value, and whether no
+// other policy may change it. ok is false when nothing is stored there.
+type Adapter func(ctx context.Context, q Querier) (raw json.RawMessage, enforced, ok bool, err error)
+
+// Adapted reports whether the setting's Default policy value lives
+// elsewhere: it's changed where it lives, not by saving it to the Default
+// policy.
+func (setting *Setting) Adapted() bool { return setting.adapter != nil }
+
+// adapt gives setting its adapter.
+func (setting *Setting) adapt(adapter Adapter) *Setting {
+	setting.adapter = adapter
+	return setting
 }
 
 // Default is the value the setting has when no policy sets it.

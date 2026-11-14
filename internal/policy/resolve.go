@@ -241,6 +241,26 @@ func load(ctx context.Context, q Querier, userID string) (resolveInput, error) {
 	if err := rows.Err(); err != nil {
 		return in, err
 	}
+	// Adapted settings' Default values are read where they live.
+	for _, setting := range in.settings {
+		if !setting.Adapted() {
+			continue
+		}
+		kept := in.values[DefaultID][:0:0]
+		for _, stored := range in.values[DefaultID] {
+			if stored.Key != setting.Key {
+				kept = append(kept, stored)
+			}
+		}
+		raw, enforced, ok, err := setting.adapter(ctx, q)
+		if err != nil {
+			return in, err
+		}
+		if ok {
+			kept = append(kept, Value{Key: setting.Key, JSON: raw, Enforced: enforced})
+		}
+		in.values[DefaultID] = kept
+	}
 	if userID == "" {
 		return in, nil
 	}
