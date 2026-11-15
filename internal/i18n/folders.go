@@ -17,14 +17,24 @@ var folderRoleNames = map[string]string{
 // folder that still has the English name sync gave it is translated; any
 // other name, such as one the user or the server chose, is kept as it is.
 func FolderName(ctx context.Context, role, name string) string {
-	role = strings.ToLower(strings.TrimSpace(role))
-	if english, ok := folderRoleNames[role]; ok && name == english {
-		if role == "junk" {
-			role = "spam"
-		}
-		return T(ctx, "folder."+role)
+	if translated, ok := DefaultFolderName(ctx, role, name); ok {
+		return translated
 	}
 	return name
+}
+
+// DefaultFolderName is the translated name of a special folder that still has
+// the English name sync gave it, and false for any other folder.
+func DefaultFolderName(ctx context.Context, role, name string) (string, bool) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	english, ok := folderRoleNames[role]
+	if !ok || name != english {
+		return "", false
+	}
+	if role == "junk" {
+		role = "spam"
+	}
+	return T(ctx, "folder."+role), true
 }
 
 // LocalFoldersName is the English name Gofer gives each user's Local folders
