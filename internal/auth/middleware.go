@@ -245,6 +245,10 @@ func isPublicPath(path string) bool {
 			return true
 		}
 	}
+	// The MCP server checks its own bearer tokens.
+	if httpguard.IsTokenAuthenticated(path) {
+		return true
+	}
 	// Signed message-file links carry their own proof of access: the frame
 	// showing a message can't send the session cookie with its image requests.
 	return strings.HasPrefix(path, "/api/message-file/")

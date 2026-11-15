@@ -98,6 +98,10 @@ func New(dbPath string) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := ensureMCPTokenSchema(db.write); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := repairFolderThreadTriggers(db.write); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("repair conversation summary triggers: %w", err)

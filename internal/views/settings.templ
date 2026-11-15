@@ -986,6 +986,7 @@ func weekStartLabel(ctx context.Context, day time.Weekday) string {
 templ SettingsAdvancedTab(uiSettings map[string]string) {
 	<div class="mt-6 space-y-6">
 		@SharedMailboxSettingsCard(uiSettings)
+		@MCPSettingsCard()
 		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.advanced.title") }</h3>

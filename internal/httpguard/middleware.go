@@ -26,7 +26,7 @@ func (c *Config) Middleware(next http.Handler) http.Handler {
 			handleScriptPolicyReport(w, r)
 			return
 		}
-		if c.isOutlookWebhook(r.URL.Path) {
+		if c.isOutlookWebhook(r.URL.Path) || isTokenAuthenticated(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -80,6 +80,7 @@ func requiresSessionCSRF(r *http.Request) bool {
 		return false
 	}
 	return r.URL.Path == "/auth/logout" || r.URL.Path == RequiredPasswordChangePath ||
+		r.URL.Path == "/oauth/authorize" ||
 		strings.HasPrefix(r.URL.Path, "/settings/security/") ||
 		strings.HasPrefix(r.URL.Path, "/admin/users/") ||
 		r.URL.Path == "/admin/groups" || strings.HasPrefix(r.URL.Path, "/admin/groups/") ||

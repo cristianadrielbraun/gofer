@@ -1,0 +1,221 @@
+package views
+
+import (
+	"context"
+	"fmt"
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/copybutton"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"strings"
+)
+
+// MCPSettingsCard holds Settings > Advanced > AI access, loaded after the
+// page.
+templ MCPSettingsCard() {
+	<div class="settings-card bg-card rounded-lg border p-6 space-y-5" data-mcp-settings>
+		<div>
+			<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.mcp.title") }</h3>
+			<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "settings.mcp.description") }</p>
+		</div>
+		<div hx-get="/api/settings/mcp" hx-trigger="load" hx-swap="outerHTML">
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.mcp.loading") }</p>
+		</div>
+	</div>
+}
+
+templ MCPSettingsPanel(data MCPSettingsData) {
+	<div id="mcp-settings-panel" class="space-y-5">
+		if !data.Enabled {
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.mcp.unavailable") }</p>
+		} else {
+			<div class="settings-row border-t border-border/60 pt-5 space-y-2">
+				<label for="mcp-endpoint" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.endpoint") }</label>
+				<div class="flex items-center gap-2">
+					<div class="min-w-0 flex-1">
+						@input.Input(input.Props{ID: "mcp-endpoint", Readonly: true, Value: data.Endpoint, Class: "font-mono text-xs"})
+					</div>
+					@copybutton.CopyButton(copybutton.Props{TargetID: "mcp-endpoint", Attrs: templ.Attributes{"aria-label": i18n.T(ctx, "settings.mcp.copy_endpoint")}})
+				</div>
+				<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "settings.mcp.endpoint_description_oauth") }</p>
+			</div>
+			if data.Error != "" {
+				<p class="text-xs text-destructive" role="alert" data-mcp-error>{ data.Error }</p>
+			}
+			if data.NewToken != "" {
+				<div class="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-2" data-mcp-new-token>
+					<p class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.new_token_title") }</p>
+					<div class="flex items-center gap-2">
+						<div class="min-w-0 flex-1">
+							@input.Input(input.Props{ID: "mcp-new-token", Readonly: true, Value: data.NewToken, Class: "font-mono text-xs"})
+						</div>
+						@copybutton.CopyButton(copybutton.Props{TargetID: "mcp-new-token", Attrs: templ.Attributes{"aria-label": i18n.T(ctx, "settings.mcp.copy_token")}})
+					</div>
+					<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "settings.mcp.new_token_description") }</p>
+				</div>
+			}
+			<form
+				class="settings-row border-t border-border/60 pt-5 space-y-3"
+				hx-post="/api/settings/mcp/tokens"
+				hx-target="#mcp-settings-panel"
+				hx-swap="outerHTML"
+				data-mcp-create
+			>
+				<div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+					<div class="min-w-0 flex-1 space-y-1">
+						<label for="mcp-token-name" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.token_name") }</label>
+						@input.Input(input.Props{ID: "mcp-token-name", Name: "name", Required: true, Placeholder: i18n.T(ctx, "settings.mcp.token_name_placeholder"), Attributes: templ.Attributes{"maxlength": "80"}})
+					</div>
+					<div class="space-y-1 sm:w-40">
+						<span id="mcp-token-expires-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.expires") }</span>
+						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{ID: "mcp-token-expires", Name: "expires_days", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-labelledby": "mcp-token-expires-label"}}) {
+								@selectbox.Value(selectbox.ValueProps{}) {
+									{ mcpExpiryLabel(ctx, "90") }
+								}
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+								for _, days := range []string{"30", "90", "365", "0"} {
+									@selectbox.Item(selectbox.ItemProps{Value: days, Selected: days == "90"}) {
+										{ mcpExpiryLabel(ctx, days) }
+									}
+								}
+							}
+						}
+					</div>
+				</div>
+				<fieldset class="space-y-2">
+					<legend class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.scopes") }</legend>
+					for _, scope := range data.Scopes {
+						<label class="flex cursor-pointer items-start gap-2 text-sm">
+							@checkbox.Checkbox(checkbox.Props{Name: "scope", Value: scope, Checked: mcpScopeDefault(scope), Class: "mt-0.5", Attributes: templ.Attributes{"data-mcp-scope": scope}})
+							<span class="min-w-0">
+								<span class="font-medium text-foreground">{ mcpScopeLabel(ctx, scope) }</span>
+								<span class="block text-xs text-muted-foreground">{ mcpScopeDescription(ctx, scope) }</span>
+							</span>
+						</label>
+					}
+				</fieldset>
+				if len(data.Mailboxes) > 0 {
+					@mcpMailboxChooser(data.Mailboxes, "mcp-token")
+				}
+				@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) {
+					{ i18n.T(ctx, "settings.mcp.create") }
+				}
+			</form>
+			<div class="settings-row border-t border-border/60 pt-5 space-y-2" data-mcp-grants>
+				<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.apps") }</h4>
+				<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "settings.mcp.apps_description") }</p>
+				if len(data.Grants) == 0 {
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.mcp.no_apps") }</p>
+				} else {
+					<ul class="divide-y divide-border/60 rounded-md border border-border/60">
+						for _, grant := range data.Grants {
+							<li class="flex items-start gap-3 p-3" data-mcp-grant={ grant.ID }>
+								<div class="min-w-0 flex-1 space-y-0.5">
+									<p class="truncate text-sm font-medium text-foreground">{ grant.ClientName }</p>
+									<p class="text-xs text-muted-foreground">{ strings.Join(grant.Scopes, " · ") }</p>
+									<p class="text-xs text-muted-foreground" data-mcp-grant-mailboxes>{ mcpMailboxSummary(ctx, grant.Mailboxes) }</p>
+									<p class="text-xs text-muted-foreground">
+										{ i18n.T(ctx, "settings.mcp.allowed_on", "date", mcpDate(ctx, grant.CreatedAt)) }
+										if grant.LastUsedAt != nil {
+											· { i18n.T(ctx, "settings.mcp.last_used", "date", mcpDate(ctx, *grant.LastUsedAt)) }
+										}
+									</p>
+								</div>
+								@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "text-destructive hover:bg-destructive/10 hover:text-destructive", Attributes: templ.Attributes{
+									"hx-post":               "/api/settings/mcp/grants/" + grant.ID + "/revoke",
+									"hx-target":             "#mcp-settings-panel",
+									"hx-swap":               "outerHTML",
+									"hx-confirm":            i18n.T(ctx, "settings.mcp.revoke_confirm", "name", grant.ClientName),
+									"data-mcp-grant-revoke": "",
+								}}) {
+									{ i18n.T(ctx, "settings.mcp.revoke") }
+								}
+							</li>
+						}
+					</ul>
+				}
+			</div>
+			<div class="settings-row border-t border-border/60 pt-5 space-y-2">
+				<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.tokens") }</h4>
+				if len(data.Tokens) == 0 {
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.mcp.no_tokens") }</p>
+				} else {
+					<ul class="divide-y divide-border/60 rounded-md border border-border/60">
+						for _, token := range data.Tokens {
+							<li class={ "flex items-start gap-3 p-3", templ.KV("opacity-60", token.Revoked || token.Expired) } data-mcp-token={ token.ID }>
+								<div class="min-w-0 flex-1 space-y-0.5">
+									<p class="truncate text-sm font-medium text-foreground">{ token.Name }</p>
+									<p class="text-xs text-muted-foreground">{ strings.Join(token.Scopes, " · ") }</p>
+									<p class="text-xs text-muted-foreground" data-mcp-token-mailboxes>{ mcpMailboxSummary(ctx, token.Mailboxes) }</p>
+									<p class="text-xs text-muted-foreground">
+										{ i18n.T(ctx, "settings.mcp.created", "date", mcpDate(ctx, token.CreatedAt)) }
+										if token.ExpiresAt != nil && !token.Revoked {
+											· { i18n.T(ctx, "settings.mcp.expires_on", "date", mcpDate(ctx, *token.ExpiresAt)) }
+										}
+										· { mcpTokenStatus(ctx, token) }
+									</p>
+								</div>
+								if !token.Revoked && !token.Expired {
+									@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "text-destructive hover:bg-destructive/10 hover:text-destructive", Attributes: templ.Attributes{
+										"hx-post":         "/api/settings/mcp/tokens/" + token.ID + "/revoke",
+										"hx-target":       "#mcp-settings-panel",
+										"hx-swap":         "outerHTML",
+										"hx-confirm":      i18n.T(ctx, "settings.mcp.revoke_confirm", "name", token.Name),
+										"data-mcp-revoke": "",
+									}}) {
+										{ i18n.T(ctx, "settings.mcp.revoke") }
+									}
+								}
+							</li>
+						}
+					</ul>
+				}
+			</div>
+		}
+	</div>
+}
+
+// mcpMailboxChooser lets a token or app reach every mailbox, as it starts,
+// or, with "every mailbox" unticked, only the ones ticked.
+templ mcpMailboxChooser(choices []MCPMailboxChoice, idPrefix string) {
+	<fieldset class="group/mailboxes space-y-2" data-mcp-mailboxes>
+		<legend class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.mailboxes") }</legend>
+		<input type="hidden" name="mailbox_choice" value="1"/>
+		<label class="flex cursor-pointer items-start gap-2 text-sm">
+			@checkbox.Checkbox(checkbox.Props{Name: "mailbox_all", Value: "1", Checked: true, Class: "mt-0.5", Attributes: templ.Attributes{"data-mcp-mailbox-all": ""}})
+			<span class="min-w-0">
+				<span class="font-medium text-foreground">{ i18n.T(ctx, "settings.mcp.mailboxes_all") }</span>
+				<span class="block text-xs text-muted-foreground">{ i18n.T(ctx, "settings.mcp.mailboxes_all_description") }</span>
+			</span>
+		</label>
+		<div class="ml-6 space-y-1.5 transition-opacity group-has-[[data-mcp-mailbox-all]:checked]/mailboxes:opacity-50" data-mcp-mailbox-list>
+			for i, choice := range choices {
+				<label class="flex cursor-pointer items-start gap-2 text-sm" for={ idPrefix + "-mailbox-" + fmt.Sprint(i) }>
+					@checkbox.Checkbox(checkbox.Props{ID: idPrefix + "-mailbox-" + fmt.Sprint(i), Name: "mailbox", Value: choice.Key, Class: "mt-0.5", Attributes: templ.Attributes{"data-mcp-mailbox": choice.Key}})
+					<span class="min-w-0">
+						<span class="text-foreground">{ choice.Label }</span>
+						<span class="block text-xs text-muted-foreground">
+							if choice.Shared {
+								{ i18n.T(ctx, "settings.mcp.mailbox_shared", "account", choice.Account) }
+							} else {
+								{ i18n.T(ctx, "settings.mcp.mailbox_own") }
+							}
+						</span>
+					</span>
+				</label>
+			}
+		</div>
+	</fieldset>
+}
+
+// mcpExpiryLabel names how long a new token lasts, in days ("0": for ever).
+func mcpExpiryLabel(ctx context.Context, days string) string {
+	if days == "0" {
+		return i18n.T(ctx, "settings.mcp.expires_never")
+	}
+	return i18n.T(ctx, "settings.mcp.expires_days", "count", days)
+}
