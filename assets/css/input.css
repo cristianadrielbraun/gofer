@@ -5761,7 +5761,10 @@ body.mail-list-column-resizing {
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="cc"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="account"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="labels"] > * + *,
-  #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address {
+  #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address,
+  /* The phone card has no spot for the card layout's action buttons, and
+     phones archive and delete by swiping. */
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-action] {
     display: none;
   }
 
