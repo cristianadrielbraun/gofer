@@ -415,9 +415,15 @@ func (m *Manager) queryPendingEnrollmentAuthenticationPolicy(
 	if !instanceMFAPolicy.Valid() {
 		return authenticationPolicy{}, fmt.Errorf("%w: %q", ErrInstanceMFAPolicyInvalid, instanceMFAPolicy)
 	}
-	return m.withEnrolledMFAPolicy(ctx, queryer, userID, resolveAuthenticationPolicy(
-		authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers(),
-	))
+	resolved := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers())
+	if isAdmin != 1 {
+		required, passkeyCounts, err := policyTwoFactor(ctx, queryer, userID)
+		if err != nil {
+			return authenticationPolicy{}, err
+		}
+		resolved = resolved.withPolicyMFA(required, passkeyCounts)
+	}
+	return m.withEnrolledMFAPolicy(ctx, queryer, userID, resolved)
 }
 
 func (m *Manager) requireUserReadyForAuthenticationPolicy(

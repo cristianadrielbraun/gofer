@@ -61,12 +61,12 @@ func (s *Service) DeleteGroup(ctx context.Context, actor Actor, groupID string, 
 
 // AddToGroup puts up to MaxBulkPeople people in a group: one, a list, or
 // a selection from the Users list.
-func (s *Service) AddToGroup(ctx context.Context, actor Actor, groupID string, userIDs []string) (*auth.GroupMembershipChange, error) {
+func (s *Service) AddToGroup(ctx context.Context, actor Actor, groupID string, userIDs []string, twoFactor auth.TwoFactorChoice) (*auth.GroupMembershipChange, error) {
 	if err := checkGroupPeople(userIDs); err != nil {
 		return nil, err
 	}
 	return s.auth.AddGroupMembers(ctx, auth.ChangeGroupMembersOptions{
-		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, GroupID: groupID, UserIDs: userIDs,
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, GroupID: groupID, UserIDs: userIDs, TwoFactor: twoFactor,
 	})
 }
 

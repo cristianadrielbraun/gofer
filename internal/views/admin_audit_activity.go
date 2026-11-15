@@ -101,6 +101,9 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 			}
 		}
 		return i18n.N(ctx, key, count, "target", target, "count", i18n.Number(ctx, count))
+	case "policy.sessions_ended":
+		count, _ := adminAuditCount(record.Metadata["count"])
+		return i18n.N(ctx, key, count, "target", target, "count", i18n.Number(ctx, count))
 	case "policy.renamed":
 		change := record.Changes["name"]
 		args = append(args, "from", fmt.Sprint(change.From), "to", fmt.Sprint(change.To))

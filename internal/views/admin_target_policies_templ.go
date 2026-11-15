@@ -645,7 +645,7 @@ func adminTargetPolicyRow(data AdminTargetPolicies, item AdminTargetPolicy) temp
 }
 
 // adminTargetPolicyAssignDialog picks one policy to assign.
-func adminTargetPolicyAssignDialog(data AdminTargetPolicies, stepUpRequired bool) templ.Component {
+func adminTargetPolicyAssignDialog(data AdminTargetPolicies, verifying bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1142,7 +1142,7 @@ func adminTargetPolicyAssignDialog(data AdminTargetPolicies, stepUpRequired bool
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminTargetPolicyAssignDialogID, Open: data.AssignOpen && !stepUpRequired}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminTargetPolicyAssignDialogID, Open: data.AssignOpen && !verifying}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1159,7 +1159,7 @@ type AdminUserPolicyData struct {
 	Policies AdminTargetPolicies
 }
 
-func adminUserPolicyTab(data AdminUserPageData) templ.Component {
+func adminUserPolicyTab(data AdminUserPageData, verifying bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1204,7 +1204,7 @@ func adminUserPolicyTab(data AdminUserPageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = adminTargetPolicyAssignDialog(data.Policy.Policies, data.StepUpRequired).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = adminTargetPolicyAssignDialog(data.Policy.Policies, verifying).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

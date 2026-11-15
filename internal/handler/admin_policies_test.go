@@ -251,15 +251,19 @@ func TestPoliciesAreCreatedOrderedAssignedAndDeleted(t *testing.T) {
 		t.Fatalf("order after moving = %q", list)
 	}
 
-	// A setting on a named policy: saved, flagged as not applied yet.
+	// A setting on a named policy: two-factor sign-in applies, people's
+	// own proxies are flagged as not applied yet.
 	page := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(finance, ""), sessionCookie).Body.String()
 	if !strings.Contains(page, `data-admin-policy-setting="auth.mfa_required"`) || !strings.Contains(page, "Not set") ||
-		!strings.Contains(page, "not applied yet") || strings.Contains(page, "audit.security_retention_days") {
+		strings.Contains(page, "not applied yet") || strings.Contains(page, "audit.security_retention_days") {
 		t.Fatalf("Finance's Sign-in tab = %q", page)
+	}
+	if mail := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(finance, views.AdminPolicyTabMail), sessionCookie).Body.String(); !strings.Contains(mail, "not applied yet") {
+		t.Fatalf("Finance's Mail tab = %q", mail)
 	}
 	settingPath := views.AdminNamedPolicySettingPath(finance, "auth.mfa_required")
 	dialog := getSecuritySettingsPath(t, stack, settingPath, sessionCookie).Body.String()
-	if !strings.Contains(dialog, `data-admin-policy-not-applied`) || !strings.Contains(dialog, `name="version" value="1"`) {
+	if strings.Contains(dialog, `data-admin-policy-not-applied`) || !strings.Contains(dialog, `name="version" value="1"`) {
 		t.Fatalf("setting dialog = %q", dialog)
 	}
 	settingCSRF := csrfProofFromForm(t, dialog, settingPath)
@@ -270,7 +274,7 @@ func TestPoliciesAreCreatedOrderedAssignedAndDeleted(t *testing.T) {
 		!strings.Contains(stale.Body.String(), "This policy changed while you had it open") {
 		t.Fatalf("set from an old page = %d %q", stale.Code, stale.Body.String())
 	}
-	if page := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(finance, ""), sessionCookie).Body.String(); !strings.Contains(page, ">Required<") {
+	if page := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(finance, ""), sessionCookie).Body.String(); !strings.Contains(page, ">Required, always ask for the app code<") {
 		t.Fatalf("Finance after setting it = %q", page)
 	}
 	if missing := getSecuritySettingsPath(t, stack, views.AdminNamedPolicySettingPath(finance, "audit.security_retention_days"), sessionCookie); missing.Code != http.StatusNotFound {
@@ -285,7 +289,13 @@ func TestPoliciesAreCreatedOrderedAssignedAndDeleted(t *testing.T) {
 		}
 	}
 	assignAction := views.AdminPolicyPath(finance, "assign")
-	if assigned := postSecuritySettings(t, stack, assignAction, url.Values{"target": {"group:g-field", "user:ines.moreau"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, assign, assignAction)}}, sessionCookie); assigned.Code != http.StatusSeeOther {
+	// Finance requires two-factor sign-in, so assigning it asks first.
+	asks := postSecuritySettings(t, stack, assignAction, url.Values{"target": {"group:g-field", "user:ines.moreau"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, assign, assignAction)}}, sessionCookie)
+	if body := asks.Body.String(); asks.Code != http.StatusOK || !strings.Contains(body, "data-admin-two-factor-confirm") ||
+		!strings.Contains(body, `name="target" value="user:ines.moreau"`) || !strings.Contains(body, "Require two-factor sign-in of 1 more person?") {
+		t.Fatalf("assign asks = %d %q", asks.Code, body)
+	}
+	if assigned := postSecuritySettings(t, stack, assignAction, url.Values{"target": {"group:g-field", "user:ines.moreau"}, "confirm_two_factor": {"1"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, asks.Body.String(), assignAction)}}, sessionCookie); assigned.Code != http.StatusSeeOther {
 		t.Fatalf("assign = %d %q", assigned.Code, assigned.Body.String())
 	}
 	if search := getSecuritySettingsPath(t, stack, views.AdminPolicyAssignPath(finance, "ines"), sessionCookie).Body.String(); strings.Contains(search, `data-admin-policy-candidate="user:ines.moreau"`) ||
@@ -417,6 +427,37 @@ func TestPoliciesEditTheAllowedMailListsOneEntryAtATime(t *testing.T) {
 	} {
 		if got := adminSecurityVerificationReturnTo(value); got != want {
 			t.Errorf("return to %q = %q, want %q", value, got, want)
+		}
+	}
+}
+
+// A dialog opened at its address shows even when the session must verify
+// again: sending the change asks for verification first.
+func TestPolicyAndGroupDialogsOpenWhenTheSessionMustVerify(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	list := getSecuritySettingsPath(t, stack, views.AdminPoliciesPath, sessionCookie).Body.String()
+	created := postSecuritySettings(t, stack, views.AdminPoliciesPath, url.Values{"name": {"Test"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, list, views.AdminPoliciesPath)}}, sessionCookie)
+	id := strings.TrimPrefix(created.Header().Get("Location"), views.AdminPoliciesPath+"/")
+	if _, err := db.Write().Exec(`INSERT INTO directory_groups (id, name, name_normalized, created_at, updated_at) VALUES ('g-field', 'Field team', 'field team', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`UPDATE sessions SET step_up_at = NULL, step_up_method = ''`); err != nil {
+		t.Fatal(err)
+	}
+	for path, dialog := range map[string]string{
+		views.AdminNamedPolicySettingPath(id, "auth.mfa_required"):    "admin-policy-setting",
+		views.AdminNamedPolicySettingPath(id, "mail.allowed_servers"): "admin-policy-setting",
+		views.AdminPolicySettingPath("auth.mfa_required"):             "admin-policy-setting",
+		views.AdminPolicySettingPath("mail.allowed_servers"):          "admin-policy-setting",
+		views.AdminPolicyAssignPath(id, ""):                           "admin-policy-assign",
+		views.AdminPolicyPath(id, "delete"):                           "admin-policy-delete",
+		views.AdminGroupAddPath("g-field", ""):                        "admin-group-add",
+		views.AdminGroupPath("g-field", views.AdminGroupPolicyAssign): "admin-target-policy-assign",
+	} {
+		body := getSecuritySettingsPath(t, stack, path, sessionCookie).Body.String()
+		if !strings.Contains(body, `id="`+dialog+`" data-tui-dialog data-tui-dialog-open="true"`) ||
+			!strings.Contains(body, `id="admin-security-verification-dialog"`) || strings.Contains(body, `id="admin-security-verification-dialog" data-tui-dialog data-tui-dialog-open="true"`) {
+			t.Errorf("%s with a session to verify: the dialog isn't open, or verification is: %q", path, body)
 		}
 	}
 }

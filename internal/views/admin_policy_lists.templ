@@ -40,9 +40,10 @@ type AdminPolicyListDialog struct {
 
 // adminPolicyListDialog adds an entry to a list, or takes one off, and on
 // a named policy sets the list or leaves it to the policies after it.
-// Verification, when the session needs it, opens instead.
-templ adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) {
-	@dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !stepUpRequired}) {
+// It opens even when the session must verify again: sending the change
+// asks for that first. Only while verification is open does it wait.
+templ adminPolicyListDialog(d AdminPolicyListDialog, verifying bool) {
+	@dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
 			@dialog.Header() {
 				@dialog.Title() {

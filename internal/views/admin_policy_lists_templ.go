@@ -48,8 +48,9 @@ type AdminPolicyListDialog struct {
 
 // adminPolicyListDialog adds an entry to a list, or takes one off, and on
 // a named policy sets the list or leaves it to the policies after it.
-// Verification, when the session needs it, opens instead.
-func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.Component {
+// It opens even when the session must verify again: sending the change
+// asks for that first. Only while verification is open does it wait.
+func adminPolicyListDialog(d AdminPolicyListDialog, verifying bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -121,7 +122,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 						var templ_7745c5c3_Var6 string
 						templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(d.Title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 49, Col: 14}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 50, Col: 14}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 						if templ_7745c5c3_Err != nil {
@@ -152,7 +153,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 						var templ_7745c5c3_Var8 string
 						templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(d.Help)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 52, Col: 13}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 53, Col: 13}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 						if templ_7745c5c3_Err != nil {
@@ -177,7 +178,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(d.Key)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 55, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 56, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -195,7 +196,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 					var templ_7745c5c3_Var10 string
 					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.policies.not_set"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 58, Col: 86}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 59, Col: 86}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 					if templ_7745c5c3_Err != nil {
@@ -208,7 +209,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 					var templ_7745c5c3_Var11 string
 					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.policies.not_set_detail"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 59, Col: 98}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 60, Col: 98}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 					if templ_7745c5c3_Err != nil {
@@ -221,7 +222,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 					var templ_7745c5c3_Var12 templ.SafeURL
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.Action))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 60, Col: 58}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 61, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -234,7 +235,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(d.CSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 61, Col: 60}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 62, Col: 60}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 					if templ_7745c5c3_Err != nil {
@@ -259,7 +260,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 						var templ_7745c5c3_Var15 string
 						templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.policies.list.set"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 64, Col: 48}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 65, Col: 48}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 						if templ_7745c5c3_Err != nil {
@@ -284,7 +285,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 						var templ_7745c5c3_Var16 string
 						templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.policies.list.set_detail"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 71, Col: 103}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 72, Col: 103}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 						if templ_7745c5c3_Err != nil {
@@ -297,7 +298,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 						var templ_7745c5c3_Var17 templ.SafeURL
 						templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.Action))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 72, Col: 59}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 73, Col: 59}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 						if templ_7745c5c3_Err != nil {
@@ -310,7 +311,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 						var templ_7745c5c3_Var18 string
 						templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(d.CSRFToken)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 73, Col: 61}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 74, Col: 61}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 						if templ_7745c5c3_Err != nil {
@@ -335,7 +336,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 							var templ_7745c5c3_Var20 string
 							templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.policies.list.clear"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 76, Col: 51}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 77, Col: 51}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 							if templ_7745c5c3_Err != nil {
@@ -431,7 +432,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 							var templ_7745c5c3_Var24 string
 							templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.close"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 95, Col: 35}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_policy_lists.templ`, Line: 96, Col: 35}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 							if templ_7745c5c3_Err != nil {
@@ -463,7 +464,7 @@ func adminPolicyListDialog(d AdminPolicyListDialog, stepUpRequired bool) templ.C
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !stepUpRequired}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !verifying}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

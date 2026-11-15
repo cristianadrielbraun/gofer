@@ -118,7 +118,7 @@ func (h *Handler) renderAdminGroups(w http.ResponseWriter, r *http.Request, extr
 	if !ok {
 		return
 	}
-	data.StepUpRequired = stepUp
+	data.Verifying = stepUp && verification.Open
 	h.renderAdminPage(w, r, adminStatus(extras.status), views.AdminShellPage{
 		Section: views.AdminSectionGroups,
 		Content: views.AdminGroupsPage(data, verification),
@@ -195,6 +195,9 @@ type adminGroupExtras struct {
 	policyAssignOpen bool
 	settings         *views.AdminGroupForm
 	pageError        string
+	// twoFactor asks before a change that newly requires two-factor
+	// sign-in of people.
+	twoFactor *views.AdminTwoFactorConfirm
 }
 
 func (h *Handler) handleAdminGroupPage(tab string, extras adminGroupExtras) http.HandlerFunc {
@@ -236,7 +239,7 @@ func (h *Handler) renderAdminGroupPage(w http.ResponseWriter, r *http.Request, t
 		ID: group.ID, Name: group.Name, Description: group.Description, Version: group.Version,
 		CreatedAt: group.CreatedAt, UpdatedAt: group.UpdatedAt,
 		CreatedBy: h.adminUsername(ctx, group.CreatedBy), UpdatedBy: h.adminUsername(ctx, group.UpdatedBy),
-		Tab: tab, AddOpen: extras.addOpen, DeleteOpen: extras.deleteOpen,
+		Tab: tab, AddOpen: extras.addOpen, DeleteOpen: extras.deleteOpen, TwoFactorConfirm: extras.twoFactor,
 		Settings: views.AdminGroupForm{Name: group.Name, Description: group.Description},
 		CSRF: views.AdminGroupCSRF{
 			Add:      auth.CSRFToken(ctx, http.MethodPost, views.AdminGroupPath(group.ID, "members")),
@@ -288,7 +291,7 @@ func (h *Handler) renderAdminGroupPage(w http.ResponseWriter, r *http.Request, t
 	if !ok {
 		return
 	}
-	data.StepUpRequired = stepUp
+	data.Verifying = stepUp && verification.Open
 	h.renderAdminPage(w, r, adminStatus(extras.status), views.AdminShellPage{
 		Section: views.AdminSectionGroups,
 		Content: views.AdminGroupPage(data, verification),
@@ -336,6 +339,10 @@ func (h *Handler) handleChangeAdminGroupPolicy(assign bool) http.HandlerFunc {
 		ctx := r.Context()
 		groupID := r.PathValue("groupID")
 		change, err := h.adminChangeTargetPolicy(r, actor, policy.Target{Kind: policy.TargetGroup, ID: groupID}, assign)
+		if confirm := adminTwoFactorConfirmation(ctx, r, err); confirm != nil {
+			h.renderAdminGroupPage(w, r, views.AdminGroupTabPolicies, adminGroupExtras{twoFactor: confirm})
+			return
+		}
 		if err != nil {
 			status, message := adminTargetPolicyRefusal(ctx, err)
 			h.renderAdminGroupPage(w, r, views.AdminGroupTabPolicies, adminGroupExtras{
@@ -433,9 +440,13 @@ func (h *Handler) handleChangeAdminGroupMembers(add bool) http.HandlerFunc {
 		var change *auth.GroupMembershipChange
 		var err error
 		if add {
-			change, err = service.AddToGroup(ctx, actor, groupID, people)
+			change, err = service.AddToGroup(ctx, actor, groupID, people, adminTwoFactorChoice(r))
 		} else {
 			change, err = service.RemoveFromGroup(ctx, actor, groupID, people)
+		}
+		if confirm := adminTwoFactorConfirmation(ctx, r, err); confirm != nil {
+			h.renderAdminGroupPage(w, r, views.AdminGroupTabMembers, adminGroupExtras{twoFactor: confirm})
+			return
 		}
 		if err != nil {
 			status, message := adminGroupRefusal(ctx, err, "changing the members of")

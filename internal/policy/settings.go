@@ -36,6 +36,18 @@ var MFARequired = Bool(Spec{
 	return json.RawMessage(strconv.FormatBool(everyone)), everyone, true, nil
 })
 
+// MFAPasskeyCounts lets a passkey, with its PIN or biometrics, be the
+// second step that MFARequired asks for; a password or provider sign-in
+// still takes the authenticator app code. It's read from the policy that
+// decides MFARequired for someone. The Default policy's requirement for
+// everyone always takes the app code, so its value is fixed.
+var MFAPasskeyCounts = Bool(Spec{
+	Key: "auth.mfa_passkey_counts", Category: CategorySignIn, Kind: KindSecurity, Companion: true,
+	Label: "admin.policy.setting.mfa_passkey_counts", Help: "admin.policy.setting.mfa_passkey_counts.help",
+}, false).adapt(func(context.Context, Querier) (json.RawMessage, bool, bool, error) {
+	return json.RawMessage(`false`), false, true, nil
+})
+
 // SecurityRetentionDays is how long sign-in and security events are kept
 // (auth_system_state.auth_event_retention_days).
 var SecurityRetentionDays = Int(Spec{

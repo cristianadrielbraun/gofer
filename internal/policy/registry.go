@@ -45,6 +45,9 @@ type Spec struct {
 	// InstanceOnly settings only make sense for the whole server: only the
 	// Default policy sets them.
 	InstanceOnly bool
+	// Companion settings are part of another setting's value, changed with
+	// it, and not counted or named on their own.
+	Companion bool
 	// Label and Help are translation keys.
 	Label string
 	Help  string

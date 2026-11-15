@@ -78,6 +78,9 @@ type SetPolicyValuesOptions struct {
 	PolicyID       string
 	Version        int64
 	Changes        []policy.ValueChange
+	// TwoFactor answers for the people the change newly requires
+	// two-factor sign-in of.
+	TwoFactor TwoFactorChoice
 }
 
 // ChangePolicyAssignmentsOptions assigns a policy to groups and people, or
@@ -87,6 +90,9 @@ type ChangePolicyAssignmentsOptions struct {
 	ActorSessionID string
 	PolicyID       string
 	Targets        []policy.Target
+	// TwoFactor answers for the people assigning the policy newly requires
+	// two-factor sign-in of.
+	TwoFactor TwoFactorChoice
 }
 
 // ListPolicies returns every policy in order, the Default policy last,
@@ -104,10 +110,14 @@ func (m *Manager) ListPolicies(ctx context.Context, actorUserID string) ([]Polic
 			if err != nil {
 				return err
 			}
-			summary.Settings, summary.Security = len(values), policy.SetsSecurity(values)
+			summary.Security = policy.SetsSecurity(values)
 			for _, value := range values {
+				if setting, ok := policy.Lookup(value.Key); ok && setting.Companion {
+					continue
+				}
 				summary.Keys = append(summary.Keys, value.Key)
 			}
+			summary.Settings = len(summary.Keys)
 			if err := tx.QueryRowContext(ctx, `
 				SELECT (SELECT COUNT(*) FROM policy_assignments WHERE policy_id = ? AND target_kind = 'group'),
 				       (SELECT COUNT(*) FROM policy_assignments WHERE policy_id = ? AND target_kind = 'user')`,
@@ -297,9 +307,15 @@ func (m *Manager) ReorderPolicies(ctx context.Context, actorUserID, actorSession
 // setting takes the security permission too.
 func (m *Manager) SetPolicyValues(ctx context.Context, options SetPolicyValuesOptions) (*policy.Policy, error) {
 	var saved policy.Policy
-	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) (err error) {
-		saved, err = m.setPolicyValuesTx(ctx, tx, actorUserID, actorSessionID, now, options.PolicyID, options.Version, options.Changes)
-		return err
+	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) error {
+		found, err := policy.Get(ctx, tx, options.PolicyID)
+		if err != nil {
+			return err
+		}
+		return m.guardTwoFactor(ctx, tx, options.TwoFactor, actorUserID, actorSessionID, now, policyAuditTarget(found), func() (err error) {
+			saved, err = m.setPolicyValuesTx(ctx, tx, actorUserID, actorSessionID, now, options.PolicyID, options.Version, options.Changes)
+			return err
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -369,9 +385,19 @@ func (m *Manager) UnassignPolicy(ctx context.Context, options ChangePolicyAssign
 
 func (m *Manager) changePolicyAssignments(ctx context.Context, options ChangePolicyAssignmentsOptions, assign bool) (*PolicyAssignmentChange, error) {
 	var result *PolicyAssignmentChange
-	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) (err error) {
-		result, err = m.changePolicyAssignmentsTx(ctx, tx, actorUserID, actorSessionID, now, options.PolicyID, options.Targets, assign)
-		return err
+	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) error {
+		change := func() (err error) {
+			result, err = m.changePolicyAssignmentsTx(ctx, tx, actorUserID, actorSessionID, now, options.PolicyID, options.Targets, assign)
+			return err
+		}
+		if !assign {
+			return change()
+		}
+		found, err := policy.Get(ctx, tx, options.PolicyID)
+		if err != nil {
+			return err
+		}
+		return m.guardTwoFactor(ctx, tx, options.TwoFactor, actorUserID, actorSessionID, now, policyAuditTarget(found), change)
 	})
 	if err != nil {
 		return nil, err

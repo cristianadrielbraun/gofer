@@ -93,6 +93,9 @@ type adminUserPageExtras struct {
 	// verification for it.
 	pageError string
 	verify    bool
+	// twoFactor asks before a change that newly requires two-factor
+	// sign-in of them.
+	twoFactor *views.AdminTwoFactorConfirm
 }
 
 // handleAdminUserPage answers tab of a person's page.
@@ -146,7 +149,7 @@ func (h *Handler) renderAdminUserPage(w http.ResponseWriter, r *http.Request, us
 	row.ListPath = pagePath
 	data := views.AdminUserPageData{
 		User: row, Tab: tab, ListPath: list,
-		Dialog: extras.dialog, Invitation: extras.invitation, CredentialReset: extras.credentialReset,
+		Dialog: extras.dialog, Invitation: extras.invitation, CredentialReset: extras.credentialReset, TwoFactorConfirm: extras.twoFactor,
 		CreatedAt: detail.CreatedAt, DisabledAt: detail.DisabledAt, DeletionStartedAt: detail.DeletionStartedAt,
 		PasswordChangedAt: detail.PasswordChangedAt, Passkeys: detail.Passkeys, PasskeyLastUsedAt: detail.PasskeyLastUsedAt,
 		AuthenticatorAppSince: detail.AuthenticatorAppSince, AuthenticatorAppLastUsedAt: detail.AuthenticatorAppLastUsedAt,

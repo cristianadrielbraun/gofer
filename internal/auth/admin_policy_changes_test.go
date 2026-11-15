@@ -72,14 +72,14 @@ func TestPoliciesAreChangedOnlyByAdministratorsAndRecorded(t *testing.T) {
 		t.Fatalf("whole-server setting on a policy = %v", err)
 	}
 
-	added, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{
+	added, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{TwoFactor: TwoFactorChoice{Confirmed: true},
 		ActorUserID: "administrator", ActorSessionID: session.ID, PolicyID: finance.ID,
 		Targets: []policy.Target{{Kind: policy.TargetUser, ID: "ines"}, {Kind: policy.TargetUser, ID: "pavel"}},
 	})
 	if err != nil || len(added.Changed) != 2 || added.Changed[0].Name != "ines" {
 		t.Fatalf("assigned = %#v, %v", added, err)
 	}
-	if _, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{
+	if _, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{TwoFactor: TwoFactorChoice{Confirmed: true},
 		ActorUserID: "administrator", ActorSessionID: session.ID, PolicyID: finance.ID,
 		Targets: []policy.Target{{Kind: policy.TargetUser, ID: "administrator"}},
 	}); !errors.Is(err, policy.ErrTargetNotFound) {
@@ -154,7 +154,7 @@ func TestPolicyChangesRollBackWhenTheRecordFails(t *testing.T) {
 		BEGIN SELECT RAISE(ABORT, 'reject policy records'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{
+	if _, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{TwoFactor: TwoFactorChoice{Confirmed: true},
 		ActorUserID: "administrator", ActorSessionID: session.ID, PolicyID: contractors.ID,
 		Targets: []policy.Target{{Kind: policy.TargetUser, ID: "ines"}},
 	}); err == nil {

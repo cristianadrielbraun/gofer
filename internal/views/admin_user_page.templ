@@ -87,6 +87,9 @@ type AdminUserPageData struct {
 	Groups []AdminGroupRef
 	// Policy is the Policy tab.
 	Policy AdminUserPolicyData
+	// TwoFactorConfirm asks before a change that newly requires two-factor
+	// sign-in of them.
+	TwoFactorConfirm *AdminTwoFactorConfirm
 }
 
 // AdminUserMailboxData is one mail account the person added.
@@ -184,6 +187,9 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 				if data.Invitation != nil {
 					@AdminUserInvitationResultDialog(data.Invitation)
 				}
+				if data.TwoFactorConfirm != nil {
+					@AdminTwoFactorConfirmDialog(*data.TwoFactorConfirm)
+				}
 				if data.CredentialReset != nil {
 					@AdminUserCredentialResetResultDialog(data.CredentialReset)
 				}
@@ -193,7 +199,7 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 					case AdminUserTabSessions:
 						@adminUserSessionsTab(data)
 					case AdminUserTabPolicy:
-						@adminUserPolicyTab(data)
+						@adminUserPolicyTab(data, adminSecurityVerificationValue(verification).Open)
 					case AdminUserTabMailboxes:
 						@adminUserMailboxesTab(data)
 					case AdminUserTabActivity:
@@ -360,7 +366,9 @@ templ adminUserSignInTab(data AdminUserPageData) {
 				@adminBadge(adminUserMFATone(data.User.MFALabel)) {
 					{ adminValueLabel(ctx, data.User.MFALabel) }
 				}
-				<p class="mt-1 text-xs text-muted-foreground">{ adminValueLabel(ctx, data.User.MFADetail) }</p>
+				<p class="mt-1 text-xs text-muted-foreground" data-admin-user-mfa-detail>
+					@adminUserMFADetailLinked(data.User)
+				</p>
 				if data.User.MFASetupPending {
 					<p class="mt-2">
 						@adminBadge(adminToneWarning) {

@@ -280,14 +280,19 @@
   }
 })();
 
-// The two-factor requirement dialog's preview follows the chosen second
-// step, so the administrator sees what each sign-in needs.
+// The two-factor requirement dialogs' preview follows the chosen second
+// step, so the administrator sees what each sign-in needs: each line shows
+// for the choice it names, and a preview that names its choices
+// (data-admin-mfa-for) shows only for those.
 document.addEventListener('change', function(event) {
   var choice = event.target
-  if (!choice || !choice.matches || !choice.matches('[data-admin-mfa-choice] input[name="passkey"]')) return
+  if (!choice || !choice.matches || !choice.matches('[data-admin-mfa-choice] input[type="radio"]')) return
   var form = choice.closest('form')
   if (!form) return
   form.querySelectorAll('[data-admin-mfa-when]').forEach(function(line) {
     line.hidden = line.getAttribute('data-admin-mfa-when') !== choice.value
+  })
+  form.querySelectorAll('[data-admin-mfa-for]').forEach(function(preview) {
+    preview.hidden = preview.getAttribute('data-admin-mfa-for').split(' ').indexOf(choice.value) < 0
   })
 })

@@ -62,8 +62,8 @@ type AdminDefaultPolicyData struct {
 	Dialog   *AdminPolicySettingDialog
 	// ListDialog is a list setting's dialog, when one is open.
 	ListDialog *AdminPolicyListDialog
-	// StepUpRequired is a session that must verify again before a change.
-	StepUpRequired bool
+	// Verifying: the verification dialog is open, so no other one opens.
+	Verifying bool
 }
 
 // AdminPolicyTab is one of the page's tabs.
@@ -174,10 +174,10 @@ templ AdminDefaultPolicyPage(data AdminDefaultPolicyData, verification ...AdminS
 					</ul>
 				}
 				if data.Dialog != nil {
-					@adminPolicySettingDialog(*data.Dialog, data.StepUpRequired)
+					@adminPolicySettingDialog(*data.Dialog, data.Verifying)
 				}
 				if data.ListDialog != nil {
-					@adminPolicyListDialog(*data.ListDialog, data.StepUpRequired)
+					@adminPolicyListDialog(*data.ListDialog, data.Verifying)
 				}
 			</div>
 		</div>
@@ -235,12 +235,16 @@ templ adminPolicySettingRow(setting AdminPolicySetting) {
 	</li>
 }
 
-// adminPolicySettingDialog changes one setting. Verification, when the
-// session needs it, opens instead, and leads back here.
-templ adminPolicySettingDialog(d AdminPolicySettingDialog, stepUpRequired bool) {
-	@dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !stepUpRequired}) {
+// adminPolicySettingDialog changes one setting. It opens even when the
+// session must verify again: sending the change asks for that first. Only
+// while verification is open does it wait.
+templ adminPolicySettingDialog(d AdminPolicySettingDialog, verifying bool) {
+	@dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
-			@dialog.Header() {
+			// The header takes focus when the dialog opens, so no choice shows
+			// a focus ring before anyone has used the keyboard; Tab moves on
+			// to the choices.
+			@dialog.Header(dialog.HeaderProps{Class: "outline-none", Attributes: templ.Attributes{"tabindex": "-1", "autofocus": true}}) {
 				@dialog.Title() {
 					{ d.Title }
 				}
@@ -300,19 +304,7 @@ templ adminPolicyTwoFactor(data AdminSignInData) {
 			<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.off_detail") }</p>
 		} else {
 			<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.on_detail") }</p>
-			if data.WithoutAppTotal == 0 {
-				<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.preview_all_ready") }</p>
-			} else {
-				<p class="text-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_without_app", data.WithoutAppTotal, "count", i18n.Number(ctx, data.WithoutAppTotal)) }</p>
-				<ul class="flex flex-wrap gap-x-3 gap-y-1">
-					for _, person := range data.WithoutApp {
-						<li><a href={ templ.URL(person.path()) } class="text-primary underline-offset-4 hover:underline">{ person.Username }</a></li>
-					}
-					if data.WithoutAppTotal > len(data.WithoutApp) {
-						<li class="text-muted-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_more", data.WithoutAppTotal-len(data.WithoutApp), "count", i18n.Number(ctx, data.WithoutAppTotal-len(data.WithoutApp))) }</li>
-					}
-				</ul>
-			}
+			@adminTwoFactorWithoutApp(data)
 			<p class="text-foreground" data-admin-two-factor-sessions={ i18n.Number(ctx, data.SessionsToEnd) }>
 				if data.SessionsToEnd == 0 {
 					{ i18n.T(ctx, "admin.sign_in.two_factor.preview_no_sessions") }
@@ -344,7 +336,7 @@ templ adminPolicyOwnProxies(d AdminPolicySettingDialog) {
 
 templ adminPolicyChoice(id, value, title, detail string, checked bool) {
 	<label for={ id } class="flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2.5 hover:bg-accent/35">
-		@radio.Radio(radio.Props{ID: id, Name: "value", Value: value, Checked: checked, Class: "mt-0.5"})
+		@radio.Radio(radio.Props{ID: id, Name: "value", Value: value, Checked: checked, Class: "mt-0.5 shrink-0"})
 		<span class="min-w-0 text-sm">
 			<span class="block font-semibold text-foreground">{ title }</span>
 			<span class="mt-0.5 block text-xs text-muted-foreground">{ detail }</span>
@@ -377,5 +369,23 @@ templ adminPolicyRetention(d AdminPolicySettingDialog) {
 			<p id="admin-policy-retention-days-help" class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.retention.help", "min", d.MinDays, "max", d.MaxDays) }</p>
 		</div>
 		<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "admin.retention.note") }</p>
+	}
+}
+
+// adminTwoFactorWithoutApp says who has no authenticator app yet, naming
+// the first few, or that everyone has one.
+templ adminTwoFactorWithoutApp(data AdminSignInData) {
+	if data.WithoutAppTotal == 0 {
+		<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.preview_all_ready") }</p>
+	} else {
+		<p class="text-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_without_app", data.WithoutAppTotal, "count", i18n.Number(ctx, data.WithoutAppTotal)) }</p>
+		<ul class="flex flex-wrap gap-x-3 gap-y-1">
+			for _, person := range data.WithoutApp {
+				<li><a href={ templ.URL(person.path()) } class="text-primary underline-offset-4 hover:underline">{ person.Username }</a></li>
+			}
+			if data.WithoutAppTotal > len(data.WithoutApp) {
+				<li class="text-muted-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_more", data.WithoutAppTotal-len(data.WithoutApp), "count", i18n.Number(ctx, data.WithoutAppTotal-len(data.WithoutApp))) }</li>
+			}
+		</ul>
 	}
 }

@@ -36,6 +36,9 @@ type PersonPolicies struct {
 	Instance *policy.Effective
 	// Policies are the ones that apply to them, in order.
 	Policies []TargetPolicy
+	// MFAPasskeyCounts: the policy that requires two-factor sign-in of them
+	// lets a passkey be the second step.
+	MFAPasskeyCounts bool
 }
 
 // PoliciesOfGroup returns the policies assigned to a group, in order.
@@ -62,6 +65,9 @@ func (m *Manager) PoliciesOfPerson(ctx context.Context, actorUserID, userID stri
 			return err
 		}
 		if result.Instance, err = policy.ForInstance(ctx, tx); err != nil {
+			return err
+		}
+		if _, result.MFAPasskeyCounts, err = policyTwoFactor(ctx, tx, userID); err != nil {
 			return err
 		}
 		routes, err := policyRoutes(ctx, tx, `
@@ -150,6 +156,9 @@ func targetPolicies(ctx context.Context, tx *sql.Tx, routes map[string][]policyR
 		}
 		target := TargetPolicy{Policy: item, Security: policy.SetsSecurity(values)}
 		for _, value := range values {
+			if setting, ok := policy.Lookup(value.Key); ok && setting.Companion {
+				continue
+			}
 			target.Keys = append(target.Keys, value.Key)
 		}
 		for _, route := range reaches {

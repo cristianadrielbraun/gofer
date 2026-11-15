@@ -174,7 +174,7 @@ func (h *Handler) renderDefaultPolicy(w http.ResponseWriter, r *http.Request, ta
 	if !ok {
 		return
 	}
-	data.StepUpRequired = stepUp
+	data.Verifying = stepUp && verification.Open
 	h.renderAdminPage(w, r, adminStatus(extras.status), views.AdminShellPage{
 		Section: views.AdminSectionPolicies,
 		Content: views.AdminDefaultPolicyPage(data, verification),

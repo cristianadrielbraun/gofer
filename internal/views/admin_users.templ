@@ -36,6 +36,12 @@ type AdminUserData struct {
 	PasswordChangeRequired   bool
 	MFALabel                 string
 	MFADetail                string
+	// MFAPolicyID and MFAPolicyName are the policy that requires two-factor
+	// sign-in of them, if any, and MFAPolicyPasskey whether it lets a
+	// passkey be the second step.
+	MFAPolicyID      string
+	MFAPolicyName    string
+	MFAPolicyPasskey bool
 	MFARequired              bool
 	// MFAPasskeyCounts: the requirement accepts a passkey on its own.
 	MFAPasskeyCounts         bool
@@ -490,7 +496,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 												@adminBadge(adminUserMFATone(user.MFALabel)) {
 													{ adminValueLabel(ctx, user.MFALabel) }
 												}
-												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ adminValueLabel(ctx, user.MFADetail) }</p>
+												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ adminUserMFADetail(ctx, user) }</p>
 												if user.MFASetupPending {
 													<p class="mt-2">
 														@adminBadge(adminToneWarning, templ.Attributes{"data-admin-user-mfa-setup-pending": ""}) {
@@ -648,18 +654,47 @@ func adminUserMFAPolicyDialogID(user AdminUserData) string {
 	return "admin-user-mfa-policy-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
 }
 
+// adminMFAPreviewProps describe a two-factor preview: the choices its
+// passkey line shows "alone" and "with the app code" for, which is chosen
+// now, and a policy that always takes the app code whatever is chosen.
+type adminMFAPreviewProps struct {
+	Title          string
+	AloneWhen      string
+	CodeWhen       string
+	PasskeyCounts  bool
+	ProviderSignIn bool
+	// ShownFor are the choices the preview shows for, space-separated;
+	// empty shows it always. Hidden is whether it's hidden now.
+	ShownFor   string
+	Hidden     bool
+	PolicyName string
+	PolicyCode bool
+}
+
 // adminMFAPreview shows what each way of signing in will need under the
 // chosen second step. admin.js swaps the passkey line when the choice changes.
-templ adminMFAPreview(passkeyCounts, providerSignIn bool) {
-	<div class="mx-1 mb-2 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-sm" data-admin-mfa-preview>
-		<p class="mb-1.5 text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_title") }</p>
+templ adminMFAPreview(p adminMFAPreviewProps) {
+	// A policy that always takes the app code decides the passkey line,
+	// whichever is chosen here.
+	{{ policyCode := p.PolicyCode }}
+	{{ passkeyCounts, providerSignIn := p.PasskeyCounts, p.ProviderSignIn }}
+	{{ previewAttributes := templ.Attributes{} }}
+	if p.ShownFor != "" {
+		{{ previewAttributes["data-admin-mfa-for"] = p.ShownFor }}
+	}
+	<div class="mx-1 mb-2 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-sm" data-admin-mfa-preview hidden?={ p.Hidden } { previewAttributes... }>
+		<p class="mb-1.5 text-xs font-medium text-muted-foreground">{ p.Title }</p>
 		<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
 			<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_password") }</dt>
 			<dd class="text-foreground">{ i18n.T(ctx, "admin.mfa.preview_password_result") }</dd>
 			<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_passkey") }</dt>
 			<dd class="text-foreground">
-				<span data-admin-mfa-when="true" hidden?={ !passkeyCounts }>{ i18n.T(ctx, "admin.mfa.preview_passkey_alone") }</span>
-				<span data-admin-mfa-when="false" hidden?={ passkeyCounts }>{ i18n.T(ctx, "admin.mfa.preview_passkey_code") }</span>
+				if policyCode {
+					<span data-admin-mfa-policy-code>{ i18n.T(ctx, "admin.mfa.preview_passkey_code") }</span>
+				} else {
+					<span data-admin-mfa-when={ p.AloneWhen } hidden?={ !passkeyCounts }>{ i18n.T(ctx, "admin.mfa.preview_passkey_alone") }</span>
+					<span data-admin-mfa-when={ p.CodeWhen } hidden?={ passkeyCounts }>{ i18n.T(ctx, "admin.mfa.preview_passkey_code") }</span>
+				}
 			</dd>
 			if providerSignIn {
 				<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_provider") }</dt>
@@ -667,6 +702,9 @@ templ adminMFAPreview(passkeyCounts, providerSignIn bool) {
 			}
 		</dl>
 		<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_note") }</p>
+		if policyCode {
+			<p class="mt-2 text-xs text-amber-800 dark:text-amber-200" data-admin-mfa-policy-note>{ i18n.T(ctx, "admin.mfa.preview_policy_code", "policy", p.PolicyName) }</p>
+		}
 	</div>
 }
 
@@ -712,7 +750,11 @@ templ adminUserMFAPolicyDialog(user AdminUserData, csrfToken string, providerSig
 						</span>
 					</label>
 				</fieldset>
-				@adminMFAPreview(passkeyCounts, providerSignIn)
+				@adminMFAPreview(adminMFAPreviewProps{
+					Title: i18n.T(ctx, "admin.mfa.preview_title"), AloneWhen: "true", CodeWhen: "false",
+					PasskeyCounts: passkeyCounts, ProviderSignIn: providerSignIn,
+					PolicyName: user.MFAPolicyName, PolicyCode: user.MFAPolicyName != "" && !user.MFAPolicyPasskey,
+				})
 				@dialog.Footer() {
 					@dialog.Close() {
 						@button.Button(button.Props{Variant: button.VariantOutline}) {
@@ -1376,4 +1418,38 @@ templ adminUsersPaging(data AdminUsersData) {
 			}
 		}
 	</div>
+}
+
+// adminUserMFADetail says why two-factor sign-in is, or isn't, required of
+// someone, naming the policy when one requires it.
+func adminUserMFADetail(ctx context.Context, user AdminUserData) string {
+	if key := adminUserMFAPolicyKey(user); key != "" {
+		return i18n.T(ctx, key, "policy", user.MFAPolicyName)
+	}
+	return adminValueLabel(ctx, user.MFADetail)
+}
+
+// adminUserMFAPolicyKey is the words naming the policy that requires
+// two-factor sign-in, when one is why.
+func adminUserMFAPolicyKey(user AdminUserData) string {
+	switch {
+	case user.MFAPolicyName == "":
+		return ""
+	case user.MFADetail == "assigned_policy":
+		return "admin.value.assigned_policy_named"
+	case user.MFADetail == "assigned_policy_passkey":
+		return "admin.value.assigned_policy_passkey_named"
+	}
+	return ""
+}
+
+// adminUserMFADetailLinked is adminUserMFADetail with the policy's name
+// leading to it.
+templ adminUserMFADetailLinked(user AdminUserData) {
+	if key := adminUserMFAPolicyKey(user); key != "" {
+		{{ before, after, _ := strings.Cut(i18n.T(ctx, key, "policy", "\x00"), "\x00") }}
+		{ before }<a href={ templ.SafeURL(AdminPolicyPath(user.MFAPolicyID, "")) } class="font-medium text-primary underline-offset-4 hover:underline" data-admin-user-mfa-policy>{ user.MFAPolicyName }</a>{ after }
+	} else {
+		{ adminValueLabel(ctx, user.MFADetail) }
+	}
 }

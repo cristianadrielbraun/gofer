@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 )
 
 var ErrAuthenticationPolicyNotSatisfied = errors.New("authentication assurance does not satisfy policy")
@@ -23,6 +25,12 @@ type authenticationPolicy struct {
 	UserMFARequired             bool
 	AdministratorMFARequired    bool
 	InstanceMFARequired         bool
+	// PolicyMFARequired: a named policy requires it of the person
+	// (internal/policy). Like their individual requirement, it applies at
+	// their next sign-in, and their sessions until then stay.
+	// PolicyPasskeyCounts: that policy lets a passkey be the second step.
+	PolicyMFARequired   bool
+	PolicyPasskeyCounts bool
 }
 
 type authenticationPolicyQueryer interface {
@@ -39,6 +47,27 @@ func resolveAuthenticationPolicy(authVersion int64, mfaRequired, isAdmin, instan
 		AdministratorMFARequired: isAdmin,
 		InstanceMFARequired:      instanceMFARequired,
 	}
+}
+
+// policyTwoFactor reports whether a named policy requires two-factor
+// sign-in of the person, and whether that policy lets a passkey be the
+// second step, read with queryer: inside the caller's transaction when it
+// has one, so a policy change can't come between the check and what it
+// guards.
+func policyTwoFactor(ctx context.Context, queryer authenticationPolicyQueryer, userID string) (required, passkeyCounts bool, err error) {
+	if err := queryer.QueryRowContext(ctx, policy.TwoFactorForUserSQL(), userID, userID).Scan(&required, &passkeyCounts); err != nil {
+		return false, false, fmt.Errorf("check whether a policy requires two-factor sign-in: %w", err)
+	}
+	return required, passkeyCounts, nil
+}
+
+// withPolicyMFA adds a named policy's requirement.
+func (p authenticationPolicy) withPolicyMFA(required, passkeyCounts bool) authenticationPolicy {
+	if required {
+		p.PolicyMFARequired, p.RequiresMFA, p.MFAEnrollmentRequired = true, true, true
+		p.PolicyPasskeyCounts = passkeyCounts
+	}
+	return p
 }
 
 func (policy authenticationPolicy) allowsAssurance(assurance AssuranceLevel) bool {
@@ -114,11 +143,23 @@ func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicy
 	if userType == UserTypeManagement && isAdmin != 1 {
 		return authenticationPolicy{}, ErrUserNotActive
 	}
-	policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers())
-	// Only an individual requirement on a webmail user can accept a passkey;
-	// administrators and an instance-wide requirement always take the app.
-	policy.PasskeyCountsAsSecondFactor = userType == UserTypeWebmail && isAdmin != 1 && mfaRequired == 1 &&
-		mfaPasskeyCounts == 1 && !policy.InstanceMFARequired
+	resolved := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers())
+	// Policies reach webmail users only.
+	if userType == UserTypeWebmail && isAdmin != 1 {
+		required, passkeyCounts, err := policyTwoFactor(ctx, queryer, userID)
+		if err != nil {
+			return authenticationPolicy{}, err
+		}
+		resolved = resolved.withPolicyMFA(required, passkeyCounts)
+	}
+	policy := resolved
+	// An individual requirement and a policy's can each accept a passkey on
+	// a webmail user; when both apply, both must. Administrators and the
+	// requirement for everyone always take the app.
+	policy.PasskeyCountsAsSecondFactor = userType == UserTypeWebmail && isAdmin != 1 && !policy.InstanceMFARequired &&
+		(policy.UserMFARequired || policy.PolicyMFARequired) &&
+		(!policy.UserMFARequired || mfaPasskeyCounts == 1) &&
+		(!policy.PolicyMFARequired || policy.PolicyPasskeyCounts)
 	// Management identities are outside this feature; never permit them to
 	// bypass the separate factor based on a webmail-only preference.
 	policy.PasskeyTOTPRequired = userType != UserTypeWebmail || passkeyTOTPRequired == 1 ||

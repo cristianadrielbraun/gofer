@@ -80,10 +80,11 @@ type AdminGroupsData struct {
 	Search string
 	Total  int
 	// Form is the New group dialog, open again after a refusal.
-	Form           AdminGroupForm
-	CreateOpen     bool
-	CSRFToken      string
-	StepUpRequired bool
+	Form       AdminGroupForm
+	CreateOpen bool
+	CSRFToken  string
+	// Verifying: the verification dialog is open, so no other one opens.
+	Verifying bool
 }
 
 // AdminGroupRow is one group on the list.
@@ -120,11 +121,15 @@ type AdminGroupPageData struct {
 	CandidatesMore bool
 	DeleteOpen     bool
 	CSRF           AdminGroupCSRF
-	StepUpRequired bool
+	// Verifying: the verification dialog is open, so no other one opens.
+	Verifying bool
 	// Policies are the policies assigned to it, and the Assign dialog.
 	// Protected: one of them sets security settings.
 	Policies  AdminTargetPolicies
 	Protected bool
+	// TwoFactorConfirm asks before a change that newly requires two-factor
+	// sign-in of people.
+	TwoFactorConfirm *AdminTwoFactorConfirm
 }
 
 // AdminGroupCSRF are the page's forms' tokens.
@@ -193,7 +198,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(adminVerificationOnPageHeaders)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 160, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 165, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -236,7 +241,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 				var templ_7745c5c3_Var4 templ.SafeURL
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminGroupsPath))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 171, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 176, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -249,7 +254,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(AdminGroupsPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 174, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 179, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -297,7 +302,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.col.group"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 200, Col: 84}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 205, Col: 84}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -310,7 +315,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.col.members"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 201, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 206, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -323,7 +328,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.col.changed"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 202, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 207, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -341,7 +346,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 					var templ_7745c5c3_Var9 templ.SafeURL
 					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminGroupPath(group.ID, AdminGroupTabMembers)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 210, Col: 85}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 215, Col: 85}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 					if templ_7745c5c3_Err != nil {
@@ -354,7 +359,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 					var templ_7745c5c3_Var10 string
 					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(group.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 210, Col: 154}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 215, Col: 154}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 					if templ_7745c5c3_Err != nil {
@@ -380,7 +385,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 							var templ_7745c5c3_Var12 string
 							templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.protected"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 213, Col: 54}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 218, Col: 54}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 							if templ_7745c5c3_Err != nil {
@@ -405,7 +410,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 						var templ_7745c5c3_Var13 string
 						templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(group.Description)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 218, Col: 101}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 223, Col: 101}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 						if templ_7745c5c3_Err != nil {
@@ -423,7 +428,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 					var templ_7745c5c3_Var14 string
 					templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.groups.member_count", group.Members, "count", i18n.Number(ctx, group.Members)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 222, Col: 112}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 227, Col: 112}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 					if templ_7745c5c3_Err != nil {
@@ -436,7 +441,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 					var templ_7745c5c3_Var15 string
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(adminTime(ctx, group.UpdatedAt))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 224, Col: 115}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 229, Col: 115}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -469,7 +474,7 @@ func AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerifica
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.note"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 233, Col: 100}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 238, Col: 100}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -543,7 +548,7 @@ func adminGroupsHeaderActions() templ.Component {
 				var templ_7745c5c3_Var20 string
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.create"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 244, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 249, Col: 39}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 				if templ_7745c5c3_Err != nil {
@@ -637,7 +642,7 @@ func adminGroupCreateDialog(data AdminGroupsData) templ.Component {
 						var templ_7745c5c3_Var26 string
 						templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.create_title"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 254, Col: 47}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 259, Col: 47}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 						if templ_7745c5c3_Err != nil {
@@ -668,7 +673,7 @@ func adminGroupCreateDialog(data AdminGroupsData) templ.Component {
 						var templ_7745c5c3_Var28 string
 						templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.create_detail"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 257, Col: 48}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 262, Col: 48}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 						if templ_7745c5c3_Err != nil {
@@ -693,7 +698,7 @@ func adminGroupCreateDialog(data AdminGroupsData) templ.Component {
 				var templ_7745c5c3_Var29 templ.SafeURL
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminGroupsPath))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 260, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 265, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 				if templ_7745c5c3_Err != nil {
@@ -706,7 +711,7 @@ func adminGroupCreateDialog(data AdminGroupsData) templ.Component {
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 261, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 266, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {
@@ -759,7 +764,7 @@ func adminGroupCreateDialog(data AdminGroupsData) templ.Component {
 							var templ_7745c5c3_Var34 string
 							templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 266, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 271, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 							if templ_7745c5c3_Err != nil {
@@ -796,7 +801,7 @@ func adminGroupCreateDialog(data AdminGroupsData) templ.Component {
 						var templ_7745c5c3_Var36 string
 						templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.create_submit"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 270, Col: 49}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 275, Col: 49}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 						if templ_7745c5c3_Err != nil {
@@ -826,7 +831,7 @@ func adminGroupCreateDialog(data AdminGroupsData) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminGroupCreateDialogID, Open: data.CreateOpen && !data.StepUpRequired}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var22), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminGroupCreateDialogID, Open: data.CreateOpen && !data.Verifying}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var22), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -895,7 +900,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(prefix + "-name")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 288, Col: 31}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 293, Col: 31}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 		if templ_7745c5c3_Err != nil {
@@ -908,7 +913,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.name"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 288, Col: 120}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 293, Col: 120}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 		if templ_7745c5c3_Err != nil {
@@ -934,7 +939,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 			var templ_7745c5c3_Var41 string
 			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(prefix + "-name-error")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 295, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 300, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 			if templ_7745c5c3_Err != nil {
@@ -947,7 +952,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(form.NameError)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 295, Col: 97}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 300, Col: 97}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {
@@ -965,7 +970,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 		var templ_7745c5c3_Var43 string
 		templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(prefix + "-description")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 299, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 304, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 		if templ_7745c5c3_Err != nil {
@@ -978,7 +983,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 		var templ_7745c5c3_Var44 string
 		templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.description_label"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 299, Col: 140}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 304, Col: 140}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 		if templ_7745c5c3_Err != nil {
@@ -1004,7 +1009,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 			var templ_7745c5c3_Var45 string
 			templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(prefix + "-description-error")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 306, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 311, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 			if templ_7745c5c3_Err != nil {
@@ -1017,7 +1022,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 			var templ_7745c5c3_Var46 string
 			templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(form.DescriptionError)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 306, Col: 111}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 311, Col: 111}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 			if templ_7745c5c3_Err != nil {
@@ -1035,7 +1040,7 @@ func adminNameFields(prefix string, form AdminGroupForm, help string) templ.Comp
 			var templ_7745c5c3_Var47 string
 			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(help)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 308, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 313, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 			if templ_7745c5c3_Err != nil {
@@ -1087,7 +1092,7 @@ func AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerifi
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(adminVerificationOnPageHeaders)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 318, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 323, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
@@ -1105,7 +1110,7 @@ func AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerifi
 		var templ_7745c5c3_Var50 templ.SafeURL
 		templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminGroupsPath))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 323, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 328, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 		if templ_7745c5c3_Err != nil {
@@ -1122,7 +1127,7 @@ func AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerifi
 		var templ_7745c5c3_Var51 string
 		templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.nav.groups"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 325, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 330, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 		if templ_7745c5c3_Err != nil {
@@ -1164,7 +1169,7 @@ func AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerifi
 				var templ_7745c5c3_Var53 string
 				templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.protected"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 332, Col: 45}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 337, Col: 45}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 				if templ_7745c5c3_Err != nil {
@@ -1183,7 +1188,7 @@ func AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerifi
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.protected_detail"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 334, Col: 95}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 339, Col: 95}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {
@@ -1232,6 +1237,12 @@ func AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerifi
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
+		if data.TwoFactorConfirm != nil {
+			templ_7745c5c3_Err = AdminTwoFactorConfirmDialog(*data.TwoFactorConfirm).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
 		switch data.Tab {
 		case AdminGroupTabSettings:
 			templ_7745c5c3_Err = adminGroupSettingsTab(data).Render(ctx, templ_7745c5c3_Buffer)
@@ -1239,7 +1250,7 @@ func AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerifi
 				return templ_7745c5c3_Err
 			}
 		case AdminGroupTabPolicies:
-			templ_7745c5c3_Err = adminTargetPolicyAssignDialog(data.Policies, data.StepUpRequired).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = adminTargetPolicyAssignDialog(data.Policies, data.Verifying).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1319,7 +1330,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var58 templ.SafeURL
 				templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(adminGroupRemoveAction(data.ID)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 363, Col: 102}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 371, Col: 102}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 				if templ_7745c5c3_Err != nil {
@@ -1332,7 +1343,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRF.Remove)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 364, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 372, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
@@ -1353,7 +1364,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var60 string
 				templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.groups.col.person"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 372, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 380, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 				if templ_7745c5c3_Err != nil {
@@ -1366,7 +1377,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var61 string
 				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.status"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 373, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 381, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 				if templ_7745c5c3_Err != nil {
@@ -1379,7 +1390,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var62 string
 				templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.added"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 374, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 382, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 				if templ_7745c5c3_Err != nil {
@@ -1408,7 +1419,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 					var templ_7745c5c3_Var63 templ.SafeURL
 					templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminUserPagePath(url.PathEscape(member.UserID), AdminUserTabOverview, "")))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 387, Col: 109}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 395, Col: 109}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 					if templ_7745c5c3_Err != nil {
@@ -1421,7 +1432,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 					var templ_7745c5c3_Var64 string
 					templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(member.Username)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 387, Col: 183}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 395, Col: 183}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 					if templ_7745c5c3_Err != nil {
@@ -1446,7 +1457,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var66 string
 						templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(adminValueLabel(ctx, member.Status))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 391, Col: 48}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 399, Col: 48}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 						if templ_7745c5c3_Err != nil {
@@ -1466,7 +1477,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var67 string
 						templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.added_by", "when", adminTime(ctx, member.AddedAt), "user", member.AddedBy))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 396, Col: 112}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 404, Col: 112}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 						if templ_7745c5c3_Err != nil {
@@ -1476,7 +1487,7 @@ func adminGroupMembersTab(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var68 string
 						templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(adminTime(ctx, member.AddedAt))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 398, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 406, Col: 43}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 						if templ_7745c5c3_Err != nil {
@@ -1531,7 +1542,7 @@ func adminGroupMembersActions(data AdminGroupPageData) templ.Component {
 		var templ_7745c5c3_Var70 string
 		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.groups.member_count", len(data.Members), "count", i18n.Number(ctx, len(data.Members))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 413, Col: 153}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 421, Col: 153}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 		if templ_7745c5c3_Err != nil {
@@ -1565,7 +1576,7 @@ func adminGroupMembersActions(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var72 string
 				templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.remove_selected"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 417, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 425, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 				if templ_7745c5c3_Err != nil {
@@ -1601,7 +1612,7 @@ func adminGroupMembersActions(data AdminGroupPageData) templ.Component {
 			var templ_7745c5c3_Var74 string
 			templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.add"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 422, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 430, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 			if templ_7745c5c3_Err != nil {
@@ -1695,7 +1706,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var80 string
 						templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.add_title", "group", data.Name))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 434, Col: 63}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 442, Col: 63}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 						if templ_7745c5c3_Err != nil {
@@ -1726,7 +1737,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var82 string
 						templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.add_detail"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 437, Col: 44}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 445, Col: 44}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 						if templ_7745c5c3_Err != nil {
@@ -1751,7 +1762,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var83 templ.SafeURL
 				templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminGroupAddPath(data.ID, "")))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 442, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 450, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 				if templ_7745c5c3_Err != nil {
@@ -1764,7 +1775,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var84 string
 				templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(AdminGroupAddPath(data.ID, ""))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 444, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 452, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 				if templ_7745c5c3_Err != nil {
@@ -1792,7 +1803,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var85 templ.SafeURL
 				templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(adminGroupMembersAction(data.ID)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 458, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 466, Col: 79}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 				if templ_7745c5c3_Err != nil {
@@ -1805,7 +1816,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var86 string
 				templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRF.Add)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 459, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 467, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 				if templ_7745c5c3_Err != nil {
@@ -1824,7 +1835,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var87 string
 						templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.no_candidates"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 464, Col: 50}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 472, Col: 50}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 						if templ_7745c5c3_Err != nil {
@@ -1834,7 +1845,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var88 string
 						templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.no_candidates_match"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 466, Col: 56}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 474, Col: 56}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 						if templ_7745c5c3_Err != nil {
@@ -1858,7 +1869,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var89 string
 						templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs("admin-group-candidate-" + person.ID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 473, Col: 58}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 481, Col: 58}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 						if templ_7745c5c3_Err != nil {
@@ -1879,7 +1890,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var90 string
 						templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(person.Username)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 475, Col: 93}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 483, Col: 93}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 						if templ_7745c5c3_Err != nil {
@@ -1905,7 +1916,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 								var templ_7745c5c3_Var92 string
 								templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(adminValueLabel(ctx, person.Status))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 478, Col: 49}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 486, Col: 49}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 								if templ_7745c5c3_Err != nil {
@@ -1935,7 +1946,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var93 string
 						templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.candidates_more"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 486, Col: 125}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 494, Col: 125}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 						if templ_7745c5c3_Err != nil {
@@ -1990,7 +2001,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 							var templ_7745c5c3_Var97 string
 							templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 493, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 501, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var97))
 							if templ_7745c5c3_Err != nil {
@@ -2027,7 +2038,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var99 string
 						templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.add_submit"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 497, Col: 45}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 505, Col: 45}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 						if templ_7745c5c3_Err != nil {
@@ -2057,7 +2068,7 @@ func adminGroupAddDialog(data AdminGroupPageData) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminGroupAddDialogID, Open: data.AddOpen && !data.StepUpRequired}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var76), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminGroupAddDialogID, Open: data.AddOpen && !data.Verifying}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var76), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2105,7 +2116,7 @@ func adminGroupSettingsTab(data AdminGroupPageData) templ.Component {
 			var templ_7745c5c3_Var102 templ.SafeURL
 			templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabSettings)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 507, Col: 92}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 515, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 			if templ_7745c5c3_Err != nil {
@@ -2118,7 +2129,7 @@ func adminGroupSettingsTab(data AdminGroupPageData) templ.Component {
 			var templ_7745c5c3_Var103 string
 			templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRF.Settings)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 508, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 516, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 			if templ_7745c5c3_Err != nil {
@@ -2131,7 +2142,7 @@ func adminGroupSettingsTab(data AdminGroupPageData) templ.Component {
 			var templ_7745c5c3_Var104 string
 			templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatInt(data.Version, 10))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 509, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 517, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var104))
 			if templ_7745c5c3_Err != nil {
@@ -2164,7 +2175,7 @@ func adminGroupSettingsTab(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var106 string
 				templ_7745c5c3_Var106, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.save"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 515, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 523, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var106))
 				if templ_7745c5c3_Err != nil {
@@ -2289,7 +2300,7 @@ func adminGroupSettingsTab(data AdminGroupPageData) templ.Component {
 			var templ_7745c5c3_Var112 string
 			templ_7745c5c3_Var112, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete_detail"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 532, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 540, Col: 86}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var112))
 			if templ_7745c5c3_Err != nil {
@@ -2322,7 +2333,7 @@ func adminGroupSettingsTab(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var114 string
 				templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 535, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 543, Col: 39}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 				if templ_7745c5c3_Err != nil {
@@ -2386,7 +2397,7 @@ func adminGroupWhen(at time.Time, by string) templ.Component {
 			var templ_7745c5c3_Var116 string
 			templ_7745c5c3_Var116, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.when_by", "when", adminTime(ctx, at), "user", by))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 553, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 561, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var116))
 			if templ_7745c5c3_Err != nil {
@@ -2396,7 +2407,7 @@ func adminGroupWhen(at time.Time, by string) templ.Component {
 			var templ_7745c5c3_Var117 string
 			templ_7745c5c3_Var117, templ_7745c5c3_Err = templ.JoinStringErrs(adminTime(ctx, at))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 555, Col: 22}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 563, Col: 22}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var117))
 			if templ_7745c5c3_Err != nil {
@@ -2481,7 +2492,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var123 string
 						templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete_title", "group", data.Name))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 566, Col: 66}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 574, Col: 66}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var123))
 						if templ_7745c5c3_Err != nil {
@@ -2512,7 +2523,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var125 string
 						templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete_description"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 569, Col: 52}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 577, Col: 52}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var125))
 						if templ_7745c5c3_Err != nil {
@@ -2542,7 +2553,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 					var templ_7745c5c3_Var126 string
 					templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete_empty"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 574, Col: 73}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 582, Col: 73}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 					if templ_7745c5c3_Err != nil {
@@ -2560,7 +2571,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 					var templ_7745c5c3_Var127 string
 					templ_7745c5c3_Var127, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.group.delete_members", len(data.Members), "count", i18n.Number(ctx, len(data.Members))))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 576, Col: 140}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 584, Col: 140}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var127))
 					if templ_7745c5c3_Err != nil {
@@ -2579,7 +2590,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 					var templ_7745c5c3_Var128 string
 					templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.group.delete_policies", len(data.Policies.Policies), "count", i18n.Number(ctx, len(data.Policies.Policies)), "policies", adminTargetPolicyNames(data.Policies.Policies)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 580, Col: 195}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 588, Col: 195}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 					if templ_7745c5c3_Err != nil {
@@ -2598,7 +2609,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 					var templ_7745c5c3_Var129 string
 					templ_7745c5c3_Var129, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete_note_policies"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 585, Col: 55}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 593, Col: 55}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var129))
 					if templ_7745c5c3_Err != nil {
@@ -2608,7 +2619,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 					var templ_7745c5c3_Var130 string
 					templ_7745c5c3_Var130, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete_note"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 587, Col: 46}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 595, Col: 46}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var130))
 					if templ_7745c5c3_Err != nil {
@@ -2622,7 +2633,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var131 templ.SafeURL
 				templ_7745c5c3_Var131, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(adminGroupDeletePath(data.ID)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 591, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 599, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var131))
 				if templ_7745c5c3_Err != nil {
@@ -2635,7 +2646,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var132 string
 				templ_7745c5c3_Var132, templ_7745c5c3_Err = templ.JoinStringErrs(data.CSRF.Delete)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 592, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 600, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var132))
 				if templ_7745c5c3_Err != nil {
@@ -2648,7 +2659,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 				var templ_7745c5c3_Var133 string
 				templ_7745c5c3_Var133, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatInt(data.Version, 10))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 593, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 601, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var133))
 				if templ_7745c5c3_Err != nil {
@@ -2697,7 +2708,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 							var templ_7745c5c3_Var137 string
 							templ_7745c5c3_Var137, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 597, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 605, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var137))
 							if templ_7745c5c3_Err != nil {
@@ -2734,7 +2745,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 						var templ_7745c5c3_Var139 string
 						templ_7745c5c3_Var139, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.group.delete_submit"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 601, Col: 48}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_groups.templ`, Line: 609, Col: 48}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var139))
 						if templ_7745c5c3_Err != nil {
@@ -2764,7 +2775,7 @@ func adminGroupDeleteDialog(data AdminGroupPageData) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminGroupDeleteDialogID, Open: data.DeleteOpen && !data.StepUpRequired}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var119), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: adminGroupDeleteDialogID, Open: data.DeleteOpen && !data.Verifying}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var119), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

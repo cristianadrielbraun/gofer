@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/authz"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 )
 
 // ListAdministratorUsers returns application-login profile metadata without
@@ -138,9 +139,11 @@ type AdministratorUserCounts struct {
 
 // administratorPeople is everyone, with what the list shows and filters on,
 // as common table expressions; :now is the time invitations are judged at.
-const administratorPeople = `
+var administratorPeople = `
 	WITH policy AS (
 		SELECT COALESCE((SELECT state.mfa_policy FROM auth_system_state state WHERE state.id = 1), 'administrators') AS mfa_policy
+	), policy_mfa AS (
+		` + policy.TwoFactorPoliciesSQL() + `
 	), invitations AS (
 		SELECT candidate.user_id, candidate.id, candidate.expires_at, candidate.used_at, candidate.revoked_at,
 		       ROW_NUMBER() OVER (
@@ -159,9 +162,15 @@ const administratorPeople = `
 		       invitation.id AS invitation_id, invitation.expires_at, invitation.used_at, invitation.revoked_at,
 		       EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id) AS has_password,
 		       EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id AND p.must_change = 1) AS password_change_required,
+		       (u.user_type = 'webmail' AND u.is_admin = 0 AND u.id IN (SELECT user_id FROM policy_mfa)) AS policy_mfa_required,
+		       COALESCE((SELECT policy_id FROM policy_mfa WHERE policy_mfa.user_id = u.id), '') AS policy_mfa_id,
+		       COALESCE((SELECT policy_name FROM policy_mfa WHERE policy_mfa.user_id = u.id), '') AS policy_mfa_name,
+		       COALESCE((SELECT passkey_counts FROM policy_mfa WHERE policy_mfa.user_id = u.id), 0) AS policy_mfa_passkey,
 		       (EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL)
-		        OR (u.mfa_required = 1 AND u.mfa_passkey_counts = 1 AND u.user_type = 'webmail' AND u.is_admin = 0
-		            AND (SELECT mfa_policy FROM policy) <> 'all_users'
+		        OR (u.user_type = 'webmail' AND u.is_admin = 0 AND (SELECT mfa_policy FROM policy) <> 'all_users'
+		            AND (u.mfa_required = 1 OR u.id IN (SELECT user_id FROM policy_mfa))
+		            AND (u.mfa_required = 0 OR u.mfa_passkey_counts = 1)
+		            AND u.id NOT IN (SELECT user_id FROM policy_mfa WHERE passkey_counts = 0)
 		            AND EXISTS(SELECT 1 FROM webauthn_credentials w WHERE w.user_id = u.id AND w.revoked_at IS NULL))) AS has_second_factor
 		FROM users u
 		LEFT JOIN invitations invitation ON invitation.user_id = u.id AND invitation.rank = 1
@@ -169,11 +178,11 @@ const administratorPeople = `
 
 // What each reason to need an administrator means, over people. They match
 // the Users page: two-factor authentication is required of administrators,
-// of the people it's required of one by one, and of everyone when the
-// instance says so.
+// of the people it's required of one by one or by a policy, and of
+// everyone when the instance says so.
 const (
 	peopleNeedMFASetup = `(people.status = 'active' AND people.deletion_pending = 0 AND people.has_second_factor = 0
-		AND (people.mfa_required = 1 OR people.user_type = 'management' OR (SELECT mfa_policy FROM policy) = 'all_users'))`
+		AND (people.mfa_required = 1 OR people.policy_mfa_required = 1 OR people.user_type = 'management' OR (SELECT mfa_policy FROM policy) = 'all_users'))`
 	peopleInvitationExpired = `(people.status = 'pending' AND people.user_type = 'webmail' AND people.is_admin = 0
 		AND people.invitation_id IS NOT NULL AND people.revoked_at IS NULL AND people.used_at IS NULL AND people.expires_at <= :now)`
 )
@@ -301,7 +310,8 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		SELECT people.id, people.username, people.status, people.user_type, people.is_admin, people.mfa_required, people.mfa_passkey_counts,
 		       people.password_reset_requested_at, people.deletion_pending, people.deletion_protected,
 		       people.invitation_id, people.expires_at, people.used_at, people.revoked_at,
-		       people.has_password, people.password_change_required, people.has_second_factor,
+		       people.has_password, people.password_change_required, people.has_second_factor, people.policy_mfa_required,
+		       people.policy_mfa_id, people.policy_mfa_name, people.policy_mfa_passkey,
 		       people.created_at, people.last_login_at
 		FROM people`+where+administratorUserOrder(query.Sort)+` LIMIT :limit OFFSET :offset`,
 		append(args, sql.Named("limit", query.Limit), sql.Named("offset", query.Offset))...)
@@ -318,7 +328,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired, &mfaPasskeyCounts,
 			&passwordResetRequestedAt, &deletionPending, &deletionProtected,
 			&tokenID, &expiresAt, &usedAt, &revokedAt, &user.HasPassword, &user.PasswordChangeRequired,
-			&user.HasSecondFactor, &user.CreatedAt, &lastLoginAt,
+			&user.HasSecondFactor, &user.PolicyMFARequired, &user.PolicyMFAPolicyID, &user.PolicyMFAPolicyName, &user.PolicyMFAPasskeyCounts, &user.CreatedAt, &lastLoginAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan administrator user: %w", err)
 		}

@@ -47,6 +47,10 @@ func adminValueLabel(ctx context.Context, value string) string {
 		return i18n.T(ctx, "admin.value.individual_policy")
 	case "instance_policy", "Instance policy":
 		return i18n.T(ctx, "admin.value.instance_policy")
+	case "assigned_policy":
+		return i18n.T(ctx, "admin.value.assigned_policy")
+	case "assigned_policy_passkey":
+		return i18n.T(ctx, "admin.value.assigned_policy_passkey")
 	}
 	return value
 }
@@ -87,7 +91,7 @@ func AdminNavigationLoading() templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.loading_section"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 56, Col: 83}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 60, Col: 83}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {

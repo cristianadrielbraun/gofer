@@ -75,7 +75,8 @@ type AdminGroupsData struct {
 	Form           AdminGroupForm
 	CreateOpen     bool
 	CSRFToken      string
-	StepUpRequired bool
+	// Verifying: the verification dialog is open, so no other one opens.
+	Verifying bool
 }
 
 // AdminGroupRow is one group on the list.
@@ -112,11 +113,15 @@ type AdminGroupPageData struct {
 	CandidatesMore bool
 	DeleteOpen     bool
 	CSRF           AdminGroupCSRF
-	StepUpRequired bool
+	// Verifying: the verification dialog is open, so no other one opens.
+	Verifying bool
 	// Policies are the policies assigned to it, and the Assign dialog.
 	// Protected: one of them sets security settings.
 	Policies  AdminTargetPolicies
 	Protected bool
+	// TwoFactorConfirm asks before a change that newly requires two-factor
+	// sign-in of people.
+	TwoFactorConfirm *AdminTwoFactorConfirm
 }
 
 // AdminGroupCSRF are the page's forms' tokens.
@@ -247,7 +252,7 @@ templ adminGroupsHeaderActions() {
 }
 
 templ adminGroupCreateDialog(data AdminGroupsData) {
-	@dialog.Dialog(dialog.Props{ID: adminGroupCreateDialogID, Open: data.CreateOpen && !data.StepUpRequired}) {
+	@dialog.Dialog(dialog.Props{ID: adminGroupCreateDialogID, Open: data.CreateOpen && !data.Verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg"}) {
 			@dialog.Header() {
 				@dialog.Title() {
@@ -339,11 +344,14 @@ templ AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerif
 					@linkTab(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabPolicies)), i18n.T(ctx, "admin.group.tab.policies"), data.Tab == AdminGroupTabPolicies, nil)
 					@linkTab(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabSettings)), i18n.T(ctx, "admin.group.tab.settings"), data.Tab == AdminGroupTabSettings, nil)
 				}
+				if data.TwoFactorConfirm != nil {
+					@AdminTwoFactorConfirmDialog(*data.TwoFactorConfirm)
+				}
 				switch data.Tab {
 					case AdminGroupTabSettings:
 						@adminGroupSettingsTab(data)
 					case AdminGroupTabPolicies:
-						@adminTargetPolicyAssignDialog(data.Policies, data.StepUpRequired)
+						@adminTargetPolicyAssignDialog(data.Policies, data.Verifying)
 						@adminTargetPoliciesSection(data.Policies)
 					default:
 						@adminGroupMembersTab(data)
@@ -427,7 +435,7 @@ templ adminGroupMembersActions(data AdminGroupPageData) {
 // adminGroupAddDialog finds people by username and adds the ones chosen.
 // The search reloads the dialog's list in place.
 templ adminGroupAddDialog(data AdminGroupPageData) {
-	@dialog.Dialog(dialog.Props{ID: adminGroupAddDialogID, Open: data.AddOpen && !data.StepUpRequired}) {
+	@dialog.Dialog(dialog.Props{ID: adminGroupAddDialogID, Open: data.AddOpen && !data.Verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)]"}) {
 			@dialog.Header() {
 				@dialog.Title() {
@@ -559,7 +567,7 @@ templ adminGroupWhen(at time.Time, by string) {
 // adminGroupDeleteDialog says who deleting the group takes out of it
 // before it does.
 templ adminGroupDeleteDialog(data AdminGroupPageData) {
-	@dialog.Dialog(dialog.Props{ID: adminGroupDeleteDialogID, Open: data.DeleteOpen && !data.StepUpRequired}) {
+	@dialog.Dialog(dialog.Props{ID: adminGroupDeleteDialogID, Open: data.DeleteOpen && !data.Verifying}) {
 		@dialog.Content() {
 			@dialog.Header() {
 				@dialog.Title() {

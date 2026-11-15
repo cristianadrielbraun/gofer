@@ -50,15 +50,22 @@ func (user *User) IsManagement() bool {
 }
 
 type AdministratorUserSummary struct {
-	HasPassword               bool
-	PasswordChangeRequired    bool
-	ID                        string
-	Username                  string
-	Status                    UserStatus
-	UserType                  UserType
-	IsAdmin                   bool
-	MFARequired               bool
-	MFAPasskeyCounts          bool
+	HasPassword            bool
+	PasswordChangeRequired bool
+	ID                     string
+	Username               string
+	Status                 UserStatus
+	UserType               UserType
+	IsAdmin                bool
+	MFARequired            bool
+	MFAPasskeyCounts       bool
+	// PolicyMFARequired: a named policy requires two-factor sign-in of
+	// them (internal/policy), the one with PolicyMFAPolicyID and
+	// PolicyMFAPolicyName, which may let a passkey be the second step.
+	PolicyMFARequired         bool
+	PolicyMFAPolicyID         string
+	PolicyMFAPolicyName       string
+	PolicyMFAPasskeyCounts    bool
 	HasSecondFactor           bool // an authenticator app, or a passkey their requirement accepts
 	PasswordResetRequestedAt  *time.Time
 	DeletionPending           bool

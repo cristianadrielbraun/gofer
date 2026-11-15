@@ -78,7 +78,8 @@ type AdminPoliciesData struct {
 	Form           AdminGroupForm
 	CreateOpen     bool
 	CreateCSRF     string
-	StepUpRequired bool
+	// Verifying: the verification dialog is open, so no other one opens.
+	Verifying bool
 	// The Check a person dialog: open, what was searched, and who matches.
 	LookupOpen   bool
 	LookupSearch string
@@ -120,6 +121,9 @@ type AdminNamedPolicyData struct {
 	Dialog   *AdminNamedPolicySettingDialog
 	// ListDialog is a list setting's dialog, when one is open.
 	ListDialog *AdminPolicyListDialog
+	// TwoFactorConfirm asks before a change that newly requires two-factor
+	// sign-in of people.
+	TwoFactorConfirm *AdminTwoFactorConfirm
 	// Assigned are the groups and people it applies to.
 	Assigned []AdminPolicyTarget
 	// The Assign dialog: open, what was searched, and what can be chosen.
@@ -130,7 +134,8 @@ type AdminNamedPolicyData struct {
 	Details        AdminGroupForm
 	DeleteOpen     bool
 	CSRF           AdminNamedPolicyCSRF
-	StepUpRequired bool
+	// Verifying: the verification dialog is open, so no other one opens.
+	Verifying bool
 }
 
 // AdminNamedPolicyCSRF are the page's forms' tokens.
@@ -166,12 +171,18 @@ type AdminNamedPolicySettingDialog struct {
 	// NotApplied: the setting is saved, but doesn't take effect per person
 	// yet.
 	NotApplied bool
+	// TwoFactor shows what each way of signing in will need under the
+	// chosen requirement; ProviderSignIn says Google, Microsoft or an
+	// organization's sign-in is offered.
+	TwoFactor      bool
+	ProviderSignIn bool
 }
 
 // AdminPolicyChoice is one value a setting can be set to.
 type AdminPolicyChoice struct {
-	Value string
-	Label string
+	Value  string
+	Label  string
+	Detail string
 }
 
 func (target AdminPolicyTarget) path() string {
@@ -362,7 +373,7 @@ func adminPolicyWho(ctx context.Context, groups, people int) string {
 }
 
 templ adminPolicyCreateDialog(data AdminPoliciesData) {
-	@dialog.Dialog(dialog.Props{ID: adminPolicyCreateDialogID, Open: data.CreateOpen && !data.StepUpRequired}) {
+	@dialog.Dialog(dialog.Props{ID: adminPolicyCreateDialogID, Open: data.CreateOpen && !data.Verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg"}) {
 			@dialog.Header() {
 				@dialog.Title() {
@@ -411,6 +422,9 @@ templ AdminNamedPolicyPage(data AdminNamedPolicyData, verification ...AdminSecur
 						@linkTab(templ.SafeURL(AdminPolicyPath(data.ID, tab.Tab)), tab.Label, data.Tab == tab.Tab, nil)
 					}
 				}
+				if data.TwoFactorConfirm != nil {
+					@AdminTwoFactorConfirmDialog(*data.TwoFactorConfirm)
+				}
 				switch data.Tab {
 					case AdminNamedPolicyTabAssigned:
 						@adminPolicyAssignedTab(data)
@@ -425,10 +439,10 @@ templ AdminNamedPolicyPage(data AdminNamedPolicyData, verification ...AdminSecur
 							</ul>
 						}
 						if data.Dialog != nil {
-							@adminNamedPolicySettingDialog(*data.Dialog, data.StepUpRequired)
+							@adminNamedPolicySettingDialog(*data.Dialog, data.Verifying)
 						}
 						if data.ListDialog != nil {
-							@adminPolicyListDialog(*data.ListDialog, data.StepUpRequired)
+							@adminPolicyListDialog(*data.ListDialog, data.Verifying)
 						}
 				}
 			</div>
@@ -448,10 +462,13 @@ func adminNamedPolicyTabLabel(data AdminNamedPolicyData) string {
 
 // adminNamedPolicySettingDialog sets a setting on the policy, or leaves it
 // to the policies after it and the Default policy.
-templ adminNamedPolicySettingDialog(d AdminNamedPolicySettingDialog, stepUpRequired bool) {
-	@dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !stepUpRequired}) {
+templ adminNamedPolicySettingDialog(d AdminNamedPolicySettingDialog, verifying bool) {
+	@dialog.Dialog(dialog.Props{ID: adminPolicySettingDialogID, Open: !verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
-			@dialog.Header() {
+			// The header takes focus when the dialog opens, so no choice shows
+			// a focus ring before anyone has used the keyboard; Tab moves on
+			// to the choices.
+			@dialog.Header(dialog.HeaderProps{Class: "outline-none", Attributes: templ.Attributes{"tabindex": "-1", "autofocus": true}}) {
 				@dialog.Title() {
 					{ d.Title }
 				}
@@ -462,13 +479,20 @@ templ adminNamedPolicySettingDialog(d AdminNamedPolicySettingDialog, stepUpRequi
 			<form method="post" action={ templ.SafeURL(d.Action) } class="space-y-4" data-step-up data-admin-policy-form={ d.Key }>
 				<input type="hidden" name="_csrf" value={ d.CSRFToken }/>
 				<input type="hidden" name="version" value={ strconv.FormatInt(d.Version, 10) }/>
-				<fieldset class="space-y-2">
+				<fieldset class="space-y-2" data-admin-mfa-choice?={ d.TwoFactor }>
 					<legend class="sr-only">{ d.Title }</legend>
 					@adminPolicyChoice("admin-policy-value-unset", "", i18n.T(ctx, "admin.policies.not_set"), i18n.T(ctx, "admin.policies.not_set_detail"), d.Current == "")
 					for _, choice := range d.Choices {
-						@adminPolicyChoice("admin-policy-value-"+choice.Value, choice.Value, choice.Label, "", d.Current == choice.Value)
+						@adminPolicyChoice("admin-policy-value-"+choice.Value, choice.Value, choice.Label, choice.Detail, d.Current == choice.Value)
 					}
 				</fieldset>
+				if d.TwoFactor {
+					@adminMFAPreview(adminMFAPreviewProps{
+						Title: i18n.T(ctx, "admin.policies.mfa.preview_title"), AloneWhen: "passkey", CodeWhen: "true",
+						PasskeyCounts: d.Current != "true", ProviderSignIn: d.ProviderSignIn,
+						ShownFor: "passkey true", Hidden: d.Current != "passkey" && d.Current != "true",
+					})
+				}
 				if d.NotApplied {
 					<p class="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100" data-admin-policy-not-applied>
 						{ i18n.T(ctx, "admin.policies.not_applied_detail") }
@@ -575,7 +599,7 @@ templ adminPolicyAssignedActions(data AdminNamedPolicyData) {
 // adminPolicyAssignDialog finds groups by name and people by username, and
 // assigns the policy to the ones chosen.
 templ adminPolicyAssignDialog(data AdminNamedPolicyData) {
-	@dialog.Dialog(dialog.Props{ID: adminPolicyAssignDialogID, Open: data.AssignOpen && !data.StepUpRequired}) {
+	@dialog.Dialog(dialog.Props{ID: adminPolicyAssignDialogID, Open: data.AssignOpen && !data.Verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)]"}) {
 			@dialog.Header() {
 				@dialog.Title() {
@@ -693,7 +717,7 @@ templ adminPolicyDetailsTab(data AdminNamedPolicyData) {
 			}
 		</div>
 	}
-	@dialog.Dialog(dialog.Props{ID: adminPolicyDeleteDialogID, Open: data.DeleteOpen && !data.StepUpRequired}) {
+	@dialog.Dialog(dialog.Props{ID: adminPolicyDeleteDialogID, Open: data.DeleteOpen && !data.Verifying}) {
 		@dialog.Content() {
 			@dialog.Header() {
 				@dialog.Title() {

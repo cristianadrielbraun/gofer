@@ -42,7 +42,7 @@ func TestPoliciesOfGroupsAndPeopleSayHowEachReachesThem(t *testing.T) {
 	assign := func(policyID string, targets ...policy.Target) {
 		t.Helper()
 		user, sessionID := actor()
-		if _, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{ActorUserID: user, ActorSessionID: sessionID, PolicyID: policyID, Targets: targets}); err != nil {
+		if _, err := manager.AssignPolicy(ctx, ChangePolicyAssignmentsOptions{TwoFactor: TwoFactorChoice{Confirmed: true}, ActorUserID: user, ActorSessionID: sessionID, PolicyID: policyID, Targets: targets}); err != nil {
 			t.Fatal(err)
 		}
 	}

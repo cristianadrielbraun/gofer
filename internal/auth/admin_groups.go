@@ -77,6 +77,9 @@ type ChangeGroupMembersOptions struct {
 	ActorSessionID string
 	GroupID        string
 	UserIDs        []string
+	// TwoFactor answers for the people adding them to the group newly
+	// requires two-factor sign-in of, through its policies.
+	TwoFactor TwoFactorChoice
 }
 
 // ListGroups returns every group with how many people are in it.
@@ -308,53 +311,65 @@ func (m *Manager) changeGroupMembers(ctx context.Context, options ChangeGroupMem
 		if err != nil {
 			return err
 		}
-		var changed []string
-		if add {
-			for _, userID := range options.UserIDs {
-				if userID == "" {
-					continue
-				}
-				if err := requireGroupMemberEligible(ctx, tx, userID); err != nil {
-					return err
-				}
-			}
-			changed, err = directory.AddMembers(ctx, tx, group.ID, options.UserIDs, actorUserID, now)
-		} else {
-			changed, err = directory.RemoveMembers(ctx, tx, group.ID, options.UserIDs)
+		if !add {
+			return m.changeGroupMembersTx(ctx, tx, actorUserID, actorSessionID, now, group, options.UserIDs, false, result)
 		}
-		if err != nil {
-			return err
-		}
-		if result.Group, err = directory.Get(ctx, tx, group.ID); err != nil {
-			return err
-		}
-		if len(changed) == 0 {
-			return nil
-		}
-		people := make([]map[string]string, 0, len(changed))
-		for _, userID := range changed {
-			username, err := usernameForAudit(ctx, tx, userID)
-			if err != nil {
-				return err
-			}
-			people = append(people, map[string]string{"id": userID, "username": username})
-			result.Changed = append(result.Changed, username)
-			result.ChangedIDs = append(result.ChangedIDs, userID)
-		}
-		action := "group.members_removed"
-		if add {
-			action = "group.members_added"
-		}
-		return m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
-			Action:   action,
-			Target:   groupAuditTarget(group),
-			Metadata: map[string]any{"count": len(changed), "people": people},
+		return m.guardTwoFactor(ctx, tx, options.TwoFactor, actorUserID, actorSessionID, now, groupAuditTarget(group), func() error {
+			return m.changeGroupMembersTx(ctx, tx, actorUserID, actorSessionID, now, group, options.UserIDs, true, result)
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// changeGroupMembersTx adds people to group, or takes them out, inside a
+// change's transaction, filling in result.
+func (m *Manager) changeGroupMembersTx(ctx context.Context, tx *sql.Tx, actorUserID, actorSessionID string, now time.Time, group directory.Group, userIDs []string, add bool, result *GroupMembershipChange) error {
+	var changed []string
+	var err error
+	if add {
+		for _, userID := range userIDs {
+			if userID == "" {
+				continue
+			}
+			if err := requireGroupMemberEligible(ctx, tx, userID); err != nil {
+				return err
+			}
+		}
+		changed, err = directory.AddMembers(ctx, tx, group.ID, userIDs, actorUserID, now)
+	} else {
+		changed, err = directory.RemoveMembers(ctx, tx, group.ID, userIDs)
+	}
+	if err != nil {
+		return err
+	}
+	if result.Group, err = directory.Get(ctx, tx, group.ID); err != nil {
+		return err
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	people := make([]map[string]string, 0, len(changed))
+	for _, userID := range changed {
+		username, err := usernameForAudit(ctx, tx, userID)
+		if err != nil {
+			return err
+		}
+		people = append(people, map[string]string{"id": userID, "username": username})
+		result.Changed = append(result.Changed, username)
+		result.ChangedIDs = append(result.ChangedIDs, userID)
+	}
+	action := "group.members_removed"
+	if add {
+		action = "group.members_added"
+	}
+	return m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+		Action:   action,
+		Target:   groupAuditTarget(group),
+		Metadata: map[string]any{"count": len(changed), "people": people},
+	})
 }
 
 // changeGroups runs change in a transaction once the actor may manage

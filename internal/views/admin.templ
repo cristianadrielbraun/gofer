@@ -39,6 +39,10 @@ func adminValueLabel(ctx context.Context, value string) string {
 		return i18n.T(ctx, "admin.value.individual_policy")
 	case "instance_policy", "Instance policy":
 		return i18n.T(ctx, "admin.value.instance_policy")
+	case "assigned_policy":
+		return i18n.T(ctx, "admin.value.assigned_policy")
+	case "assigned_policy_passkey":
+		return i18n.T(ctx, "admin.value.assigned_policy_passkey")
 	}
 	return value
 }

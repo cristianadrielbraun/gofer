@@ -210,10 +210,12 @@ func TestAuthenticatePasswordCreatesRestrictedEnrollmentForFactorlessMFAPolicy(t
 		isAdmin     bool
 		mfaRequired bool
 		instanceMFA bool
+		policyMFA   bool
 	}{
 		{name: "administrator", isAdmin: true},
 		{name: "user policy", mfaRequired: true},
 		{name: "instance policy", instanceMFA: true},
+		{name: "assigned policy", policyMFA: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			clock := &fixedClock{now: now}
@@ -227,6 +229,17 @@ func TestAuthenticatePasswordCreatesRestrictedEnrollmentForFactorlessMFAPolicy(t
 					INSERT INTO auth_system_state (id, initialized, mfa_policy)
 					VALUES (1, 1, 'all_users')`); err != nil {
 					t.Fatal(err)
+				}
+			}
+			if test.policyMFA {
+				for _, statement := range []string{
+					`INSERT INTO policies (id, name, name_normalized, is_default, priority, created_at, updated_at) VALUES ('p-strict', 'Strict', 'strict', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+					`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES ('p-strict', 'auth.mfa_required', 'true', CURRENT_TIMESTAMP)`,
+					`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES ('p-strict', 'user', 'person', CURRENT_TIMESTAMP)`,
+				} {
+					if _, err := manager.db.Write().ExecContext(t.Context(), statement); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 

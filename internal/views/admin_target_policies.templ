@@ -161,8 +161,8 @@ templ adminTargetPolicyRow(data AdminTargetPolicies, item AdminTargetPolicy) {
 }
 
 // adminTargetPolicyAssignDialog picks one policy to assign.
-templ adminTargetPolicyAssignDialog(data AdminTargetPolicies, stepUpRequired bool) {
-	@dialog.Dialog(dialog.Props{ID: adminTargetPolicyAssignDialogID, Open: data.AssignOpen && !stepUpRequired}) {
+templ adminTargetPolicyAssignDialog(data AdminTargetPolicies, verifying bool) {
+	@dialog.Dialog(dialog.Props{ID: adminTargetPolicyAssignDialogID, Open: data.AssignOpen && !verifying}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)]"}) {
 			@dialog.Header() {
 				@dialog.Title() {
@@ -245,13 +245,13 @@ type AdminUserPolicyData struct {
 	Policies AdminTargetPolicies
 }
 
-templ adminUserPolicyTab(data AdminUserPageData) {
+templ adminUserPolicyTab(data AdminUserPageData, verifying bool) {
 	if !data.Policy.Applies {
 		@adminSection(adminSectionProps{ID: "admin-user-policy-heading", Title: i18n.T(ctx, "admin.user.policy.settings")}) {
 			@adminEmptyState(i18n.T(ctx, "admin.user.policy.administrator"))
 		}
 	} else {
-		@adminTargetPolicyAssignDialog(data.Policy.Policies, data.StepUpRequired)
+		@adminTargetPolicyAssignDialog(data.Policy.Policies, verifying)
 		@adminSection(adminSectionProps{ID: "admin-user-policy-heading", Title: i18n.T(ctx, "admin.user.policy.settings"), Aside: adminSectionNote(i18n.T(ctx, "admin.user.policy.settings_detail"))}) {
 			<ul class="divide-y divide-border">
 				for _, setting := range data.Policy.Settings {

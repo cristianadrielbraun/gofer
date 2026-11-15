@@ -178,11 +178,17 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		if user.UserType == auth.UserTypeWebmail && user.IsAdmin {
 			view.Role = "legacy"
 		}
+		// A policy that always takes the app code is stricter than a person's
+		// own requirement that accepts a passkey, and is the one named.
+		policyStricter := user.PolicyMFARequired && !user.PolicyMFAPasskeyCounts && user.MFAPasskeyCounts
+		if user.PolicyMFARequired {
+			view.MFAPolicyID, view.MFAPolicyName, view.MFAPolicyPasskey = user.PolicyMFAPolicyID, user.PolicyMFAPolicyName, user.PolicyMFAPasskeyCounts
+		}
 		switch {
 		case user.UserType == auth.UserTypeManagement:
 			view.MFALabel = "required"
 			view.MFADetail = "management_policy"
-		case user.MFARequired:
+		case user.MFARequired && !policyStricter:
 			view.MFALabel = "required"
 			view.MFADetail = "individual_policy"
 			if user.MFAPasskeyCounts {
@@ -191,6 +197,12 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		case instancePolicy.RequiresAllUsers():
 			view.MFALabel = "required"
 			view.MFADetail = "instance_policy"
+		case user.PolicyMFARequired:
+			view.MFALabel = "required"
+			view.MFADetail = "assigned_policy"
+			if user.PolicyMFAPasskeyCounts {
+				view.MFADetail = "assigned_policy_passkey"
+			}
 		}
 		view.MFASetupPending = view.MFALabel == "required" && !user.HasSecondFactor &&
 			user.Status == auth.UserStatusActive && !user.DeletionPending

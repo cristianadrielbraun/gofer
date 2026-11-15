@@ -303,7 +303,9 @@ func (s *Service) BulkGroup(ctx context.Context, actor Actor, action BulkAction,
 	}
 	var change *auth.GroupMembershipChange
 	if action == BulkAddToGroup {
-		change, err = s.AddToGroup(ctx, actor, groupID, eligible)
+		// The people a group's policies newly require two-factor sign-in
+		// of set it up at their next sign-in.
+		change, err = s.AddToGroup(ctx, actor, groupID, eligible, auth.TwoFactorChoice{Confirmed: true})
 	} else {
 		change, err = s.RemoveFromGroup(ctx, actor, groupID, eligible)
 	}

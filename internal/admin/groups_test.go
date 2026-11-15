@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ func TestGroupChangesSayWhyTheyWereRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if change, err := service.AddToGroup(ctx, actor, field.ID, []string{"milo-rivers"}); err != nil || len(change.Changed) != 1 {
+	if change, err := service.AddToGroup(ctx, actor, field.ID, []string{"milo-rivers"}, auth.TwoFactorChoice{}); err != nil || len(change.Changed) != 1 {
 		t.Fatalf("AddToGroup = %+v, %v", change, err)
 	}
 	tooMany := make([]string, MaxBulkPeople+1)
@@ -34,9 +35,15 @@ func TestGroupChangesSayWhyTheyWereRefused(t *testing.T) {
 		}, CodeInvalid},
 		{"old page", func() error { _, err := service.UpdateGroup(ctx, actor, field.ID, 9, "Field crew", ""); return err }, CodeStale},
 		{"missing group", func() error { _, err := service.DeleteGroup(ctx, actor, "no-such-group", 1); return err }, CodeUnavailable},
-		{"an administrator", func() error { _, err := service.AddToGroup(ctx, actor, field.ID, []string{"head-admin"}); return err }, CodeUnavailable},
+		{"an administrator", func() error {
+			_, err := service.AddToGroup(ctx, actor, field.ID, []string{"head-admin"}, auth.TwoFactorChoice{})
+			return err
+		}, CodeUnavailable},
 		{"nobody", func() error { _, err := service.RemoveFromGroup(ctx, actor, field.ID, nil); return err }, CodeInvalid},
-		{"too many", func() error { _, err := service.AddToGroup(ctx, actor, field.ID, tooMany); return err }, CodeTooMany},
+		{"too many", func() error {
+			_, err := service.AddToGroup(ctx, actor, field.ID, tooMany, auth.TwoFactorChoice{})
+			return err
+		}, CodeTooMany},
 		{"webmail user", func() error {
 			_, err := service.ListGroups(ctx, Actor{UserID: "milo-rivers", SessionID: "milo-session"})
 			return err
@@ -69,7 +76,7 @@ func TestBulkGroupChangesEveryoneItAppliesToAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.AddToGroup(ctx, actor, field.ID, []string{"milo-rivers"}); err != nil {
+	if _, err := service.AddToGroup(ctx, actor, field.ID, []string{"milo-rivers"}, auth.TwoFactorChoice{}); err != nil {
 		t.Fatal(err)
 	}
 

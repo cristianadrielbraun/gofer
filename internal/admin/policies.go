@@ -50,19 +50,21 @@ func (s *Service) ReorderPolicies(ctx context.Context, actor Actor, ids []string
 
 // SetPolicyValues changes a policy's settings, from the version the
 // administrator loaded.
-func (s *Service) SetPolicyValues(ctx context.Context, actor Actor, policyID string, version int64, changes []policy.ValueChange) (*policy.Policy, error) {
+func (s *Service) SetPolicyValues(ctx context.Context, actor Actor, policyID string, version int64, changes []policy.ValueChange, twoFactor auth.TwoFactorChoice) (*policy.Policy, error) {
 	return s.auth.SetPolicyValues(ctx, auth.SetPolicyValuesOptions{
-		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, PolicyID: policyID, Version: version, Changes: changes,
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, PolicyID: policyID, Version: version, Changes: changes, TwoFactor: twoFactor,
 	})
 }
 
 // AssignPolicy gives a policy to up to MaxBulkPeople groups and people.
-func (s *Service) AssignPolicy(ctx context.Context, actor Actor, policyID string, targets []policy.Target) (*auth.PolicyAssignmentChange, error) {
+// twoFactor answers for the people it newly requires two-factor sign-in
+// of: unconfirmed, the change is refused with who they are.
+func (s *Service) AssignPolicy(ctx context.Context, actor Actor, policyID string, targets []policy.Target, twoFactor auth.TwoFactorChoice) (*auth.PolicyAssignmentChange, error) {
 	if err := checkPolicyTargets(targets); err != nil {
 		return nil, err
 	}
 	return s.auth.AssignPolicy(ctx, auth.ChangePolicyAssignmentsOptions{
-		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, PolicyID: policyID, Targets: targets,
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, PolicyID: policyID, Targets: targets, TwoFactor: twoFactor,
 	})
 }
 

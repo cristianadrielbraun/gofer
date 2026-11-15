@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/policy"
@@ -32,19 +33,22 @@ func TestPolicyChangesSayWhyTheyWereRefused(t *testing.T) {
 		}, CodeInvalid},
 		{"wrong order", func() error { return service.ReorderPolicies(ctx, actor, []string{"p-nope"}) }, CodeInvalid},
 		{"value out of bounds", func() error {
-			_, err := service.SetPolicyValues(ctx, actor, contractors.ID, 1, []policy.ValueChange{{Key: policy.OwnProxies.Key, JSON: json.RawMessage(`"yes"`)}})
+			_, err := service.SetPolicyValues(ctx, actor, contractors.ID, 1, []policy.ValueChange{{Key: policy.OwnProxies.Key, JSON: json.RawMessage(`"yes"`)}}, auth.TwoFactorChoice{})
 			return err
 		}, CodeInvalid},
 		{"a setting that lives elsewhere", func() error {
-			_, err := service.SetPolicyValues(ctx, actor, policy.DefaultID, 0, []policy.ValueChange{{Key: policy.OwnProxies.Key, JSON: json.RawMessage(`true`)}})
+			_, err := service.SetPolicyValues(ctx, actor, policy.DefaultID, 0, []policy.ValueChange{{Key: policy.OwnProxies.Key, JSON: json.RawMessage(`true`)}}, auth.TwoFactorChoice{})
 			return err
 		}, CodeInvalid},
 		{"missing policy", func() error { return service.DeletePolicy(ctx, actor, "p-gone", 1) }, CodeUnavailable},
 		{"an administrator", func() error {
-			_, err := service.AssignPolicy(ctx, actor, contractors.ID, []policy.Target{{Kind: policy.TargetUser, ID: "head-admin"}})
+			_, err := service.AssignPolicy(ctx, actor, contractors.ID, []policy.Target{{Kind: policy.TargetUser, ID: "head-admin"}}, auth.TwoFactorChoice{})
 			return err
 		}, CodeUnavailable},
-		{"nobody", func() error { _, err := service.AssignPolicy(ctx, actor, contractors.ID, nil); return err }, CodeInvalid},
+		{"nobody", func() error {
+			_, err := service.AssignPolicy(ctx, actor, contractors.ID, nil, auth.TwoFactorChoice{})
+			return err
+		}, CodeInvalid},
 		{"webmail user", func() error {
 			_, err := service.ListPolicies(ctx, Actor{UserID: "milo-rivers", SessionID: "milo-session"})
 			return err
@@ -54,7 +58,7 @@ func TestPolicyChangesSayWhyTheyWereRefused(t *testing.T) {
 			t.Errorf("%s: %v (%s), want %s", test.name, err, CodeOf(err), test.want)
 		}
 	}
-	if change, err := service.AssignPolicy(ctx, actor, contractors.ID, []policy.Target{{Kind: policy.TargetUser, ID: "milo-rivers"}}); err != nil || len(change.Changed) != 1 {
+	if change, err := service.AssignPolicy(ctx, actor, contractors.ID, []policy.Target{{Kind: policy.TargetUser, ID: "milo-rivers"}}, auth.TwoFactorChoice{}); err != nil || len(change.Changed) != 1 {
 		t.Fatalf("assign Milo = %+v, %v", change, err)
 	}
 }

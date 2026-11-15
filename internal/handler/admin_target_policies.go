@@ -82,7 +82,7 @@ func (h *Handler) adminChangeTargetPolicy(r *http.Request, actor admin.Actor, ta
 	service := h.adminService()
 	targets := []policy.Target{target}
 	if assign {
-		return service.AssignPolicy(ctx, actor, policyID, targets)
+		return service.AssignPolicy(ctx, actor, policyID, targets, adminTwoFactorChoice(r))
 	}
 	return service.UnassignPolicy(ctx, actor, policyID, targets)
 }
@@ -125,6 +125,9 @@ func adminUserPolicySetting(ctx context.Context, person views.AdminUserData, set
 		row.Note = i18n.T(ctx, "admin.user.policy.not_applied", "policy", resolved.Source.PolicyName, "value", adminPolicyValueLabel(ctx, setting, resolved.Value))
 	}
 	row.Value = adminPolicyValueText(ctx, setting, applied.Value)
+	if setting == policy.MFARequired && applied.Source.Kind == policy.SourcePolicy && applied.Value == true && found.MFAPasskeyCounts {
+		row.Value = i18n.T(ctx, "admin.policies.mfa.required_passkey")
+	}
 	row.Enforced = applied.Source.Enforced
 	tab := adminPolicyTabOf(setting)
 	switch applied.Source.Kind {
@@ -234,6 +237,10 @@ func (h *Handler) handleChangeAdminUserPolicy(assign bool) http.HandlerFunc {
 		userID := r.PathValue("userID")
 		list := adminUserPolicyList(r.PostFormValue("list"))
 		change, err := h.adminChangeTargetPolicy(r, actor, policy.Target{Kind: policy.TargetUser, ID: userID}, assign)
+		if confirm := adminTwoFactorConfirmation(ctx, r, err); confirm != nil {
+			h.renderAdminUserPage(w, r, userID, views.AdminUserTabPolicy, list, adminUserPageExtras{twoFactor: confirm})
+			return
+		}
 		if err != nil {
 			status, message := adminTargetPolicyRefusal(ctx, err)
 			code := admin.CodeOf(err)

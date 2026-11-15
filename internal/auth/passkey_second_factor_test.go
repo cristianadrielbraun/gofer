@@ -180,3 +180,78 @@ func TestAppCanGoWhenTheRequirementAcceptsAKeptPasskey(t *testing.T) {
 		})
 	}
 }
+
+// A policy's two-factor requirement can accept a passkey too. With the
+// person's own requirement as well, a passkey is enough only when both say
+// so.
+func TestPasskeyLoginUnderAPolicyRequirement(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		policyPasskey bool
+		individual    string // "", "passkey" or "app"
+		hasApp        bool
+		want          string // "session", "code" or "set up the app"
+	}{
+		{"policy: passkey counts, no app", true, "", false, "session"},
+		{"policy: app only, no app yet", false, "", false, "set up the app"},
+		{"policy: app only, app", false, "", true, "code"},
+		{"policy passkey, own requirement passkey", true, "passkey", false, "session"},
+		{"policy passkey, own requirement app", true, "app", true, "code"},
+		{"policy app, own requirement passkey", false, "passkey", true, "code"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newPasskeyAuthenticationFixture(t, 7)
+			db := fixture.manager.db.Write()
+			statements := []string{
+				`INSERT INTO policies (id, name, name_normalized, is_default, priority, created_at, updated_at) VALUES ('p-strict', 'Strict', 'strict', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+				`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES ('p-strict', 'auth.mfa_required', 'true', CURRENT_TIMESTAMP)`,
+				`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES ('p-strict', 'user', '` + fixture.userID + `', CURRENT_TIMESTAMP)`,
+				// The person doesn't ask for the code after a passkey.
+				`UPDATE users SET passkey_totp_required = 0 WHERE id = '` + fixture.userID + `'`,
+			}
+			if tt.policyPasskey {
+				statements = append(statements, `INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES ('p-strict', 'auth.mfa_passkey_counts', 'true', CURRENT_TIMESTAMP)`)
+			}
+			switch tt.individual {
+			case "passkey":
+				statements = append(statements, `UPDATE users SET mfa_required = 1, mfa_passkey_counts = 1 WHERE id = '`+fixture.userID+`'`)
+			case "app":
+				statements = append(statements, `UPDATE users SET mfa_required = 1, mfa_passkey_counts = 0 WHERE id = '`+fixture.userID+`'`)
+			}
+			for _, statement := range statements {
+				if _, err := db.ExecContext(t.Context(), statement); err != nil {
+					t.Fatal(statement, err)
+				}
+			}
+			if tt.hasApp {
+				if _, err := db.ExecContext(t.Context(), `INSERT INTO totp_credentials (id, user_id, encrypted_seed, key_version, enabled, created_at) VALUES ('second-step-totp', ?, ?, 1, 1, ?)`,
+					fixture.userID, []byte{1}, time.Date(2026, 8, 9, 18, 0, 0, 0, time.UTC)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			started, err := fixture.manager.StartPasskeyLogin(t.Context(), "", "https://gofer.example", "source")
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := fixture.manager.FinishPasskeyLogin(t.Context(), started.Challenge.Token, "https://gofer.example", []byte(`{}`), "source", "Browser")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := "session"
+			if result.PreAuthChallenge != nil {
+				got = "code"
+				if result.MFAEnrollmentRequired {
+					got = "set up the app"
+				}
+			}
+			if got != tt.want {
+				t.Fatalf("after the passkey: %s, want %s (%#v)", got, tt.want, result)
+			}
+			if got == "session" {
+				if saved, err := fixture.manager.GetSessionByToken(t.Context(), result.Session.Token); err != nil || saved == nil {
+					t.Fatalf("passkey session no longer valid: %#v, %v", saved, err)
+				}
+			}
+		})
+	}
+}

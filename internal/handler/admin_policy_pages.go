@@ -22,17 +22,25 @@ import (
 const adminPolicyCandidatesShown = 30
 
 // adminPolicyNotApplied are the settings a named policy saves that don't
-// take effect per person yet: sign-in and proxies only read the Default
-// policy's value until they're wired to the resolver.
+// take effect per person yet: proxies only read the Default policy's value
+// until they're wired to the resolver.
 var adminPolicyNotApplied = map[string]bool{
-	policy.MFARequired.Key: true,
-	policy.OwnProxies.Key:  true,
+	policy.OwnProxies.Key: true,
 }
 
-// adminPolicyChoices are what a named policy can set each setting to.
-var adminPolicyChoices = map[string][]struct{ value, label string }{
-	policy.MFARequired.Key: {{"true", "admin.policies.mfa.required"}, {"false", "admin.policies.mfa.not_required"}},
-	policy.OwnProxies.Key:  {{"true", "admin.policies.own_proxies.on"}, {"false", "admin.policies.own_proxies.off"}},
+// adminPolicyChoices are what a named policy can set each setting to, with
+// what each means. Two-factor sign-in's "passkey" sets both it and
+// MFAPasskeyCounts.
+var adminPolicyChoices = map[string][]struct{ value, label, detail string }{
+	policy.MFARequired.Key: {
+		{adminMFAPasskeyChoice, "admin.policies.mfa.required_passkey", "admin.policies.mfa.required_passkey_help"},
+		{"true", "admin.policies.mfa.required_app", "admin.mfa.option_totp_help"},
+		{"false", "admin.policies.mfa.not_required", "admin.policies.mfa.not_required_help"},
+	},
+	policy.OwnProxies.Key: {
+		{"true", "admin.policies.own_proxies.on", "admin.proxies.policy_on_detail"},
+		{"false", "admin.policies.own_proxies.off", "admin.proxies.policy_off_detail"},
+	},
 }
 
 func (h *Handler) registerAdminPolicyPageRoutes(adminRoute func(string, http.HandlerFunc)) {
@@ -111,7 +119,7 @@ func (h *Handler) renderAdminPolicies(w http.ResponseWriter, r *http.Request, ex
 	if !ok {
 		return
 	}
-	data.StepUpRequired = stepUp
+	data.Verifying = stepUp && verification.Open
 	h.renderAdminPage(w, r, adminStatus(extras.status), views.AdminShellPage{
 		Section: views.AdminSectionPolicies,
 		Content: views.AdminPoliciesPage(data, verification),
@@ -234,6 +242,9 @@ type adminNamedPolicyExtras struct {
 	// why.
 	listTyped string
 	listError string
+	// twoFactor asks before a change that newly requires two-factor
+	// sign-in of people.
+	twoFactor *views.AdminTwoFactorConfirm
 }
 
 // adminNamedPolicyTabs are a named policy's tabs: each category with a
@@ -338,7 +349,7 @@ func (h *Handler) renderNamedPolicy(w http.ResponseWriter, r *http.Request, extr
 		Tab: extras.tab, Tabs: adminNamedPolicyTabs(ctx),
 		CreatedAt: found.CreatedAt, CreatedBy: h.adminUsername(ctx, found.CreatedBy),
 		UpdatedAt: found.UpdatedAt, UpdatedBy: h.adminUsername(ctx, found.UpdatedBy),
-		AssignOpen: extras.assignOpen, DeleteOpen: extras.deleteOpen,
+		AssignOpen: extras.assignOpen, DeleteOpen: extras.deleteOpen, TwoFactorConfirm: extras.twoFactor,
 		Details: views.AdminGroupForm{Name: found.Name, Description: found.Description},
 		CSRF: views.AdminNamedPolicyCSRF{
 			Assign:   auth.CSRFToken(ctx, http.MethodPost, views.AdminPolicyPath(found.ID, "assign")),
@@ -373,6 +384,7 @@ func (h *Handler) renderNamedPolicy(w http.ResponseWriter, r *http.Request, extr
 			data.ListDialog = adminPolicyListDialogFor(ctx, found, setting, detail.Values, extras.listTyped, extras.listError)
 		} else {
 			data.Dialog = adminNamedPolicyDialog(ctx, found, setting, values)
+			data.Dialog.ProviderSignIn = h.auth.HasGoogleLogin() || h.auth.HasMicrosoftLogin() || h.auth.HasOIDCLogin()
 		}
 	}
 	if data.AssignOpen {
@@ -395,7 +407,7 @@ func (h *Handler) renderNamedPolicy(w http.ResponseWriter, r *http.Request, extr
 	if !ok {
 		return
 	}
-	data.StepUpRequired = stepUp
+	data.Verifying = stepUp && verification.Open
 	h.renderAdminPage(w, r, adminStatus(extras.status), views.AdminShellPage{
 		Section: views.AdminSectionPolicies,
 		Content: views.AdminNamedPolicyPage(data, verification),
@@ -413,7 +425,7 @@ func adminNamedPolicyRow(ctx context.Context, policyID string, setting *policy.S
 		Source:   i18n.T(ctx, "admin.policies.not_set_detail"),
 	}
 	if stored, ok := values[setting.Key]; ok {
-		row.Value, row.Source = adminPolicyChoiceLabel(ctx, setting.Key, stored.JSON), ""
+		row.Value, row.Source = adminPolicyChoiceLabel(ctx, setting.Key, json.RawMessage(adminStoredChoice(setting, values))), ""
 		if _, list := adminPolicyLists[setting.Key]; list {
 			decoded, _ := setting.Decode(stored.JSON)
 			row.Value = adminPolicyListText(ctx, setting, decoded)
@@ -439,15 +451,50 @@ func adminNamedPolicyDialog(ctx context.Context, found policy.Policy, setting *p
 	dialog := &views.AdminNamedPolicySettingDialog{
 		Key: setting.Key, Title: i18n.T(ctx, setting.Label), Help: i18n.T(ctx, setting.Help),
 		Action: action, CSRFToken: auth.CSRFToken(ctx, http.MethodPost, action), Version: found.Version,
-		NotApplied: adminPolicyNotApplied[setting.Key],
+		NotApplied: adminPolicyNotApplied[setting.Key], TwoFactor: setting == policy.MFARequired,
 	}
 	for _, choice := range adminPolicyChoices[setting.Key] {
-		dialog.Choices = append(dialog.Choices, views.AdminPolicyChoice{Value: choice.value, Label: i18n.T(ctx, choice.label)})
+		dialog.Choices = append(dialog.Choices, views.AdminPolicyChoice{Value: choice.value, Label: i18n.T(ctx, choice.label), Detail: i18n.T(ctx, choice.detail)})
 	}
-	if stored, ok := values[setting.Key]; ok {
-		dialog.Current = strings.TrimSpace(string(stored.JSON))
+	if _, ok := values[setting.Key]; ok {
+		dialog.Current = adminStoredChoice(setting, values)
 	}
 	return dialog
+}
+
+// adminMFAPasskeyChoice is two-factor sign-in required, with a passkey
+// enough: MFARequired and MFAPasskeyCounts both on.
+const adminMFAPasskeyChoice = "passkey"
+
+// adminStoredChoice is the choice a policy's stored values make for
+// setting: two-factor sign-in reads its passkey companion with it.
+func adminStoredChoice(setting *policy.Setting, values map[string]policy.Value) string {
+	choice := strings.TrimSpace(string(values[setting.Key].JSON))
+	if setting == policy.MFARequired && choice == "true" && strings.TrimSpace(string(values[policy.MFAPasskeyCounts.Key].JSON)) == "true" {
+		return adminMFAPasskeyChoice
+	}
+	return choice
+}
+
+// adminChoiceChanges are the values a choice saves: two-factor sign-in
+// saves its passkey companion with it, cleared unless a passkey is enough.
+func adminChoiceChanges(setting *policy.Setting, value string) []policy.ValueChange {
+	change := policy.ValueChange{Key: setting.Key}
+	if setting != policy.MFARequired {
+		if value != "" {
+			change.JSON = json.RawMessage(value)
+		}
+		return []policy.ValueChange{change}
+	}
+	passkey := policy.ValueChange{Key: policy.MFAPasskeyCounts.Key}
+	switch value {
+	case "":
+	case adminMFAPasskeyChoice:
+		change.JSON, passkey.JSON = json.RawMessage(`true`), json.RawMessage(`true`)
+	default:
+		change.JSON = json.RawMessage(value)
+	}
+	return []policy.ValueChange{change, passkey}
 }
 
 // adminPolicyTargetView is a group or person as the page names them.
@@ -531,13 +578,14 @@ func (h *Handler) handleSetNamedPolicySetting(w http.ResponseWriter, r *http.Req
 		return
 	}
 	ctx := r.Context()
-	change := policy.ValueChange{Key: setting.Key}
-	if value := strings.TrimSpace(r.PostFormValue("value")); value != "" {
-		change.JSON = json.RawMessage(value)
-	}
+	changes := adminChoiceChanges(setting, strings.TrimSpace(r.PostFormValue("value")))
 	version, _ := strconv.ParseInt(r.PostFormValue("version"), 10, 64)
 	policyID := r.PathValue("policyID")
-	if _, err := h.adminService().SetPolicyValues(ctx, actor, policyID, version, []policy.ValueChange{change}); err != nil {
+	if _, err := h.adminService().SetPolicyValues(ctx, actor, policyID, version, changes, adminTwoFactorChoice(r)); err != nil {
+		if confirm := adminTwoFactorConfirmation(ctx, r, err); confirm != nil {
+			h.renderNamedPolicy(w, r, adminNamedPolicyExtras{tab: adminPolicyTabOf(setting), twoFactor: confirm})
+			return
+		}
 		status, message := adminPolicyRefusal(ctx, err, "changing a setting of")
 		extras := adminNamedPolicyExtras{tab: adminPolicyTabOf(setting), status: status, pageError: message}
 		if admin.CodeOf(err) == admin.CodeVerificationRequired || admin.CodeOf(err) == admin.CodeInvalid {
@@ -567,9 +615,13 @@ func (h *Handler) handleChangeAdminPolicyAssignments(assign bool) http.HandlerFu
 		var change *auth.PolicyAssignmentChange
 		var err error
 		if assign {
-			change, err = service.AssignPolicy(ctx, actor, policyID, targets)
+			change, err = service.AssignPolicy(ctx, actor, policyID, targets, adminTwoFactorChoice(r))
 		} else {
 			change, err = service.UnassignPolicy(ctx, actor, policyID, targets)
+		}
+		if confirm := adminTwoFactorConfirmation(ctx, r, err); confirm != nil {
+			h.renderNamedPolicy(w, r, adminNamedPolicyExtras{tab: views.AdminNamedPolicyTabAssigned, twoFactor: confirm})
+			return
 		}
 		if err != nil {
 			status, message := adminPolicyRefusal(ctx, err, "changing who has")
