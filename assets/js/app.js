@@ -11302,10 +11302,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
   }
 
+  function mailListIsUnreadOnly() {
+    // Use the applied filters, not edits waiting for Apply in the filter panel.
+    var scroll = document.getElementById("mail-list-scroll")
+    var list = scroll && scroll._virtualMailList
+    if (list && list.filters) return !!list.filters.unread
+    return new URLSearchParams(window.location.search).get("unread") === "1"
+  }
+
   function scheduleAutoMarkRead(emailId, trigger) {
     if (autoMarkReadTimer) clearTimeout(autoMarkReadTimer)
     autoMarkReadTimer = null
     autoMarkReadEmailId = emailId
+
+    // Keep messages in an unread-only list until explicitly marked read.
+    if (mailListIsUnreadOnly()) return
 
     var delay = window.GoferSettings ? GoferSettings.get("auto_mark_read_after") : null
     if (!delay) delay = "0"
@@ -11316,6 +11327,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     var run = function () {
       if (autoMarkReadEmailId !== emailId) return
+      if (mailListIsUnreadOnly()) return
       markRead(emailId, trigger)
     }
 
