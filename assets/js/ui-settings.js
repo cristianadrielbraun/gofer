@@ -499,7 +499,9 @@ var GoferSettings;
   }
 
   var MAIL_CARD = cardLayoutModel({
-    fields: ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread"],
+    // The *Action fields are buttons that act on the card's message, hidden
+    // until the layout shows them.
+    fields: ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread", "readAction", "archiveAction", "deleteAction", "labelsAction", "spamAction"],
     defaultFields: "avatar,thread,from,account,to,attachment,date,subject,preview,labels,starred",
     zones: ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner", "hidden"],
     defaultLayout: "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
@@ -513,7 +515,7 @@ var GoferSettings;
     ],
     legacySplitBody: true,
     legacyRail: legacyRailZone,
-    iconFields: { avatar: true, thread: true, accountMarker: true, attachment: true, starred: true, unread: true },
+    iconFields: { avatar: true, thread: true, accountMarker: true, attachment: true, starred: true, unread: true, readAction: true, archiveAction: true, deleteAction: true, labelsAction: true, spamAction: true },
     sideZones: ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"],
     centerZones: ["header", "body", "bodyBottom", "footer"],
     // How many fields a zone holds. The middle is two lines, body and
@@ -534,6 +536,11 @@ var GoferSettings;
       preview: "footer",
       labels: "footer",
       starred: "corner",
+      readAction: "status",
+      archiveAction: "status",
+      deleteAction: "status",
+      labelsAction: "status",
+      spamAction: "status",
     },
     fallbackZone: "body",
     fallbackField: "subject",
@@ -674,8 +681,12 @@ var GoferSettings;
       scroll.toggleAttribute("data-mail-date-time", _cache.mail_card_date_time === "true");
       // On unless turned off, so settings saved before the option keep it.
       scroll.toggleAttribute("data-mail-account-no-marker", _cache.mail_card_account_marker === "false");
+      // The card's buttons show on hover only unless this is turned off.
+      scroll.toggleAttribute("data-mail-card-actions-always", _cache.mail_card_actions_on_hover === "false");
     }
     MAIL_CARD.applyToScopes(scope, layout);
+    // The card buttons whose label follows the folder (app.js).
+    if (typeof window.syncMailCardActionLabels === "function") window.syncMailCardActionLabels(scope);
   }
 
   // Lays the contact cards out: their fields in their zones, and the card as
@@ -916,7 +927,7 @@ var GoferSettings;
       _cache.mail_card_layout = MAIL_CARD.serialize(MAIL_CARD.normalize(_cache.mail_card_layout, _cache.mail_card_fields));
       applyMailCardSettings();
     }
-    if (key === "mail_card_date_time" || key === "mail_card_account_marker") {
+    if (key === "mail_card_date_time" || key === "mail_card_account_marker" || key === "mail_card_actions_on_hover") {
       applyMailCardSettings();
     }
     if (key === "mail_card_layout") {

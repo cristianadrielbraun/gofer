@@ -2974,6 +2974,62 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   align-items: center;
 }
 
+/* A card's action buttons and its star take spots of one size, so they line
+   up in whatever order the layout gives them. */
+.mail-card-action-btn,
+.mail-list-card .star-btn[data-mail-card-field="starred"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+}
+
+/* A card's action buttons (Read, Archive, Delete, Labels, Spam): quiet
+   icons whose lines light up under the pointer, Delete's in red. */
+.mail-card-action-btn {
+  border-radius: 0.25rem;
+  color: var(--color-muted-foreground);
+  opacity: 0.8;
+  cursor: pointer;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.mail-list-card button.mail-card-action-btn:hover,
+.mail-list-card button.mail-card-action-btn:focus-visible,
+/* With several cards selected, the button under the pointer on one of them
+   lights up on all of them, as a click acts on them all (app.js). */
+#mail-list-scroll[data-mail-selection-hover-action="read"] .mail-list-item[data-mail-selected] [data-mail-card-action="read"],
+#mail-list-scroll[data-mail-selection-hover-action="archive"] .mail-list-item[data-mail-selected] [data-mail-card-action="archive"],
+#mail-list-scroll[data-mail-selection-hover-action="delete"] .mail-list-item[data-mail-selected] [data-mail-card-action="delete"],
+#mail-list-scroll[data-mail-selection-hover-action="labels"] .mail-list-item[data-mail-selected] [data-mail-card-action="labels"],
+#mail-list-scroll[data-mail-selection-hover-action="spam"] .mail-list-item[data-mail-selected] [data-mail-card-action="spam"] {
+  color: var(--color-foreground);
+  opacity: 1;
+}
+
+.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:hover,
+.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:focus-visible,
+#mail-list-scroll[data-mail-selection-hover-action="delete"] .mail-list-item[data-mail-selected] [data-mail-card-action="delete"] {
+  color: var(--color-destructive);
+}
+
+/* The card's buttons, and its star while unstarred, show while the pointer
+   is over the card or the keyboard is on it, unless the "only on hover"
+   setting is off (ui-settings.js). With several cards selected and the
+   pointer over one of them, every selected card shows its action buttons,
+   which act on them all; the star stars one message, so it doesn't follow.
+   Screens without a pointer that hovers always show them; phones lay their
+   card out on their own. */
+@media (hover: hover) and (min-width: 1024px) {
+  #mail-list-scroll:not([data-mail-card-actions-always], [data-mail-selection-hover]) .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible),
+  #mail-list-scroll[data-mail-selection-hover]:not([data-mail-card-actions-always]) .mail-list-item:not([data-mail-selected]) > .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible),
+  #mail-list-scroll[data-mail-selection-hover]:not([data-mail-card-actions-always]) .mail-list-card:not(:hover, :focus-visible) .star-btn.mail-card-hover-action:not(:focus-visible) {
+    opacity: 0;
+  }
+}
+
 .mail-list-card-empty-icon-slot {
   display: inline-flex;
   width: 1rem;
@@ -3183,19 +3239,19 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   column-gap: 0.25em;
 }
 
-.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="thread"]) {
+.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) {
   min-width: 1.75rem;
   justify-content: center;
   padding-inline: 0;
 }
 
-.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"]) {
+.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) {
   width: 1.75rem;
 }
 
 /* The editor's card is enlarged on purpose, so its small icons grow too. */
-.mail-card-layout-drag-layer :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"]) > svg,
-.mail-card-layout-preview-card :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"]) > svg {
+.mail-card-layout-drag-layer :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) > svg,
+.mail-card-layout-preview-card :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) > svg {
   width: 1rem;
   height: 1rem;
 }
@@ -3426,7 +3482,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="account"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="accountMarker"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="to"],
-#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="cc"] {
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="cc"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="readAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="archiveAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="deleteAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="labelsAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="spamAction"] {
   display: none !important;
 }
 
@@ -3443,7 +3504,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #mail-list-scroll[data-mail-card-hidden~="labels"] [data-mail-card-field="labels"],
 #mail-list-scroll[data-mail-card-hidden~="attachment"] [data-mail-card-field="attachment"],
 #mail-list-scroll[data-mail-card-hidden~="starred"] [data-mail-card-field="starred"],
-#mail-list-scroll[data-mail-card-hidden~="unread"] [data-mail-card-field="unread"] {
+#mail-list-scroll[data-mail-card-hidden~="unread"] [data-mail-card-field="unread"],
+#mail-list-scroll[data-mail-card-hidden~="readAction"] [data-mail-card-field="readAction"],
+#mail-list-scroll[data-mail-card-hidden~="archiveAction"] [data-mail-card-field="archiveAction"],
+#mail-list-scroll[data-mail-card-hidden~="deleteAction"] [data-mail-card-field="deleteAction"],
+#mail-list-scroll[data-mail-card-hidden~="labelsAction"] [data-mail-card-field="labelsAction"],
+#mail-list-scroll[data-mail-card-hidden~="spamAction"] [data-mail-card-field="spamAction"] {
   display: none !important;
 }
 
@@ -5596,6 +5662,7 @@ body.mail-list-column-resizing {
   /* While selecting, a tap anywhere on a card selects it: its star and thread
      toggle don't take the tap. */
   #mail-list[data-mail-selecting] #mail-list-scroll .star-btn,
+  #mail-list[data-mail-selecting] #mail-list-scroll [data-mail-card-action],
   #mail-list[data-mail-selecting] #mail-list-scroll [data-thread-toggle] {
     pointer-events: none;
   }
@@ -5712,7 +5779,10 @@ body.mail-list-column-resizing {
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="cc"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="account"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="labels"] > * + *,
-  #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address {
+  #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address,
+  /* The phone card has no spot for the card layout's action buttons, and
+     phones archive and delete by swiping. */
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-action] {
     display: none;
   }
 
