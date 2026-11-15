@@ -20,7 +20,7 @@ import (
 // edits them. Every change swaps AccountIdentitiesPanel.
 templ AccountIdentitiesDialog(data models.AccountIdentitiesData) {
 	@dialog.Dialog(dialog.Props{ID: "account-identities-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-2xl"}) {
+		@dialog.Content(dialog.ContentProps{Class: "account-identities-dialog mobile-page-dialog sm:max-w-2xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
 					{ i18n.T(ctx, "identities.title") }
