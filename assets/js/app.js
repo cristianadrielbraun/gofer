@@ -372,6 +372,9 @@ document.addEventListener("DOMContentLoaded", function () {
   // rows not loaded in the list. A message's account never changes, so it's
   // kept until the next such selection.
   var selectedMailAccounts = new Map()
+  // What the pointer was last over, for the selected cards to follow a card
+  // under it (syncMailSelectionHover).
+  var mailPointerTarget = null
   // The messages shown under each expanded thread row, by the row's id. Once
   // one of them is picked on its own, the thread row stands for its own
   // message only, and these say which of the others are picked too.
@@ -2191,6 +2194,7 @@ document.addEventListener("DOMContentLoaded", function () {
     setupMailPullToRefresh()
     setupMailSwipeActions()
     setupMailCardActionLabels()
+    setupMailSelectionHover()
 
     // With no reading pane, a click selects a message, and a double click
     // opens it in the list's place (a single click does, with that setting on).
@@ -3253,6 +3257,46 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       document.addEventListener("mouseover", sync, { passive: true })
       document.addEventListener("focusin", sync)
+    }
+
+    // With several cards selected, a card's button acts on all of them
+    // (runMailCardAction), so the pointer over one of them shows every
+    // selected card's action buttons, and the button under it lights up on
+    // all of them. The CSS follows the list's data-mail-selection-hover and
+    // data-mail-selection-hover-action.
+    function setupMailSelectionHover() {
+      if (document.body._goferMailSelectionHoverBound) return
+      document.body._goferMailSelectionHoverBound = true
+      document.addEventListener("mouseover", function (e) {
+        mailPointerTarget = e.target
+        syncMailSelectionHover()
+      }, { passive: true })
+      // Leaving the window.
+      document.addEventListener("mouseout", function (e) {
+        if (e.relatedTarget) return
+        mailPointerTarget = null
+        syncMailSelectionHover()
+      }, { passive: true })
+    }
+
+    // syncMailSelectionControls also runs this, as the selection changes
+    // under a still pointer.
+    function syncMailSelectionHover() {
+      var scroll = document.getElementById("mail-list-scroll")
+      if (!scroll) return
+      var target = mailPointerTarget && mailPointerTarget.isConnected && mailPointerTarget.closest ? mailPointerTarget : null
+      var row = target && target.closest("#mail-list-scroll .mail-list-item[data-email-id]")
+      var shared = !!row && selectedMailIds.size > 1 && selectedMailIds.has(row.dataset.emailId)
+      var button = shared ? target.closest("[data-mail-card-action]") : null
+      setScrollAttribute("data-mail-selection-hover", shared ? "" : null)
+      setScrollAttribute("data-mail-selection-hover-action", button ? button.getAttribute("data-mail-card-action") : null)
+
+      // Only a change touches the list, which restyles it.
+      function setScrollAttribute(name, value) {
+        if (scroll.getAttribute(name) === value) return
+        if (value === null) scroll.removeAttribute(name)
+        else scroll.setAttribute(name, value)
+      }
     }
 
     // Right-clicking a folder in the sidebar offers what applies to the whole
@@ -5075,6 +5119,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var deleteSlotFrom = toolbarSynced ? null : mailDeleteSlotLeft()
       syncMailSelectAllControls(selectedMailIds.size)
       syncMailRowSelection()
+      syncMailSelectionHover()
 
       var count = selectedMailIds.size
       if (count === 0 && !keepMailSelectionModeWhenEmpty) setMailSelectionMode(false)

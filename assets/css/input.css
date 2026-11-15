@@ -2991,23 +2991,36 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 }
 
 .mail-list-card button.mail-card-action-btn:hover,
-.mail-list-card button.mail-card-action-btn:focus-visible {
+.mail-list-card button.mail-card-action-btn:focus-visible,
+/* With several cards selected, the button under the pointer on one of them
+   lights up on all of them, as a click acts on them all (app.js). */
+#mail-list-scroll[data-mail-selection-hover-action="read"] .mail-list-item[data-mail-selected] [data-mail-card-action="read"],
+#mail-list-scroll[data-mail-selection-hover-action="archive"] .mail-list-item[data-mail-selected] [data-mail-card-action="archive"],
+#mail-list-scroll[data-mail-selection-hover-action="delete"] .mail-list-item[data-mail-selected] [data-mail-card-action="delete"],
+#mail-list-scroll[data-mail-selection-hover-action="labels"] .mail-list-item[data-mail-selected] [data-mail-card-action="labels"],
+#mail-list-scroll[data-mail-selection-hover-action="spam"] .mail-list-item[data-mail-selected] [data-mail-card-action="spam"] {
   color: var(--color-foreground);
   background: color-mix(in srgb, var(--color-foreground) 8%, transparent);
   opacity: 1;
 }
 
 .mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:hover,
-.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:focus-visible {
+.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:focus-visible,
+#mail-list-scroll[data-mail-selection-hover-action="delete"] .mail-list-item[data-mail-selected] [data-mail-card-action="delete"] {
   color: var(--color-destructive);
 }
 
 /* The card's buttons, and its star while unstarred, show while the pointer
    is over the card or the keyboard is on it, unless the "only on hover"
-   setting is off (ui-settings.js). Screens without a pointer that hovers
-   always show them; phones lay their card out on their own. */
+   setting is off (ui-settings.js). With several cards selected and the
+   pointer over one of them, every selected card shows its action buttons,
+   which act on them all; the star stars one message, so it doesn't follow.
+   Screens without a pointer that hovers always show them; phones lay their
+   card out on their own. */
 @media (hover: hover) and (min-width: 1024px) {
-  #mail-list-scroll:not([data-mail-card-actions-always]) .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible) {
+  #mail-list-scroll:not([data-mail-card-actions-always], [data-mail-selection-hover]) .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible),
+  #mail-list-scroll[data-mail-selection-hover]:not([data-mail-card-actions-always]) .mail-list-item:not([data-mail-selected]) > .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible),
+  #mail-list-scroll[data-mail-selection-hover]:not([data-mail-card-actions-always]) .mail-list-card:not(:hover, :focus-visible) .star-btn.mail-card-hover-action:not(:focus-visible) {
     opacity: 0;
   }
 }
