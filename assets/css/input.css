@@ -2974,20 +2974,26 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   align-items: center;
 }
 
-/* A card's action buttons (Read, Archive, Delete, Labels, Spam): quiet
-   icons that light up under the pointer, Delete in red. */
-.mail-card-action-btn {
+/* A card's action buttons and its star take spots of one size, so they line
+   up in whatever order the layout gives them. */
+.mail-card-action-btn,
+.mail-list-card .star-btn[data-mail-card-field="starred"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25rem;
+  width: 1rem;
   height: 1.25rem;
   flex: 0 0 auto;
+}
+
+/* A card's action buttons (Read, Archive, Delete, Labels, Spam): quiet
+   icons whose lines light up under the pointer, Delete's in red. */
+.mail-card-action-btn {
   border-radius: 0.25rem;
   color: var(--color-muted-foreground);
   opacity: 0.8;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+  transition: color 0.15s ease, opacity 0.15s ease;
 }
 
 .mail-list-card button.mail-card-action-btn:hover,
@@ -3000,7 +3006,6 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #mail-list-scroll[data-mail-selection-hover-action="labels"] .mail-list-item[data-mail-selected] [data-mail-card-action="labels"],
 #mail-list-scroll[data-mail-selection-hover-action="spam"] .mail-list-item[data-mail-selected] [data-mail-card-action="spam"] {
   color: var(--color-foreground);
-  background: color-mix(in srgb, var(--color-foreground) 8%, transparent);
   opacity: 1;
 }
 
