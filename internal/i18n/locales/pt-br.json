@@ -863,6 +863,8 @@
   "admin.policy.setting.own_proxies.help": "Se as pessoas podem salvar proxies para as próprias caixas de correio.",
   "admin.policy.setting.security_retention_days": "Eventos de acesso e segurança",
   "admin.policy.setting.security_retention_days.help": "Por quanto tempo os eventos de acesso e segurança são mantidos antes de serem removidos.",
+  "admin.policy.setting.sign_in_methods": "Métodos de login",
+  "admin.policy.setting.sign_in_methods.help": "As formas como as pessoas podem começar a entrar. Uma que fique de fora é recusada, inclusive para verificar de novo, e não pode ser configurada; uma chave de acesso que fique de fora também não serve como segunda etapa do login em duas etapas.",
   "admin.progress": "{done} de {total} processados",
   "admin.provider.domain_icon": "Ícone do domínio",
   "admin.provider.role.bimi": "Alternativa com a marca do domínio",

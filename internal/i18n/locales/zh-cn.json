@@ -863,6 +863,8 @@
   "admin.policy.setting.own_proxies.help": "人员是否可以为自己的邮箱保存代理。",
   "admin.policy.setting.security_retention_days": "登录和安全事件",
   "admin.policy.setting.security_retention_days.help": "登录和安全事件在删除前保留多长时间。",
+  "admin.policy.setting.sign_in_methods": "登录方式",
+  "admin.policy.setting.sign_in_methods.help": "人们可以用来开始登录的方式。未选中的方式会被拒绝，包括再次验证时，也无法设置；未选中通行密钥时，它也不能作为两步登录的第二步。",
   "admin.progress": "已处理 {done}/{total}",
   "admin.provider.domain_icon": "域名图标",
   "admin.provider.role.bimi": "域名品牌备选",

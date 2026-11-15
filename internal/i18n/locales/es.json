@@ -863,6 +863,8 @@
   "admin.policy.setting.own_proxies.help": "Si las personas pueden guardar proxies para sus propios buzones.",
   "admin.policy.setting.security_retention_days": "Eventos de inicio de sesión y seguridad",
   "admin.policy.setting.security_retention_days.help": "Cuánto tiempo se conservan los eventos de inicio de sesión y seguridad antes de eliminarlos.",
+  "admin.policy.setting.sign_in_methods": "Métodos de inicio de sesión",
+  "admin.policy.setting.sign_in_methods.help": "Las formas en que las personas pueden empezar a iniciar sesión. Una que quede fuera se rechaza, también para volver a verificar, y no se puede configurar; una llave de acceso que quede fuera tampoco sirve como segundo paso del inicio de sesión en dos pasos.",
   "admin.progress": "{done} de {total} procesados",
   "admin.provider.domain_icon": "Icono del dominio",
   "admin.provider.role.bimi": "Alternativa con la marca del dominio",

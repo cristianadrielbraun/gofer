@@ -141,6 +141,58 @@ func StringList(spec Spec, clean func(string) (string, error), max int) *Setting
 	return register(listSetting(spec, clean, max))
 }
 
+// Subset declares a choice of one or more of options, all of them by
+// default. It's stored sorted, without repeats, like a list.
+func Subset(spec Spec, options ...string) *Setting {
+	return register(subsetSetting(spec, options...))
+}
+
+func subsetSetting(spec Spec, options ...string) *Setting {
+	all := slices.Clone(options)
+	sort.Strings(all)
+	setting := &Setting{Spec: spec, builtin: all, Max: len(options), Options: slices.Clone(options)}
+	setting.decode = func(raw json.RawMessage) (any, error) {
+		var chosen []string
+		if err := json.Unmarshal(raw, &chosen); err != nil || chosen == nil {
+			return nil, invalid(spec.Key, "not a list")
+		}
+		for _, option := range chosen {
+			if !slices.Contains(options, option) {
+				return nil, invalid(spec.Key, "%q isn't one of the choices", option)
+			}
+		}
+		sort.Strings(chosen)
+		chosen = slices.Compact(chosen)
+		if len(chosen) == 0 {
+			return nil, invalid(spec.Key, "nothing chosen")
+		}
+		return chosen, nil
+	}
+	return setting
+}
+
+// Subsets are every value a Subset setting can be stored as: each choice
+// of one or more of its options, as Encode writes it.
+func (setting *Setting) Subsets() []string {
+	options := slices.Clone(setting.Options)
+	sort.Strings(options)
+	var subsets []string
+	for mask := 1; mask < 1<<len(options); mask++ {
+		var chosen []string
+		for i, option := range options {
+			if mask&(1<<i) != 0 {
+				chosen = append(chosen, option)
+			}
+		}
+		raw, err := json.Marshal(chosen)
+		if err != nil {
+			panic(err)
+		}
+		subsets = append(subsets, string(raw))
+	}
+	return subsets
+}
+
 func listSetting(spec Spec, clean func(string) (string, error), max int) *Setting {
 	setting := &Setting{Spec: spec, builtin: []string{}, Max: max}
 	setting.decode = func(raw json.RawMessage) (any, error) {

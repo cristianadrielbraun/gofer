@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -110,6 +111,49 @@ func OwnProxyOwners(ctx context.Context, q Querier) (map[string]bool, error) {
 		owners[owner] = allowed
 	}
 	return owners, rows.Err()
+}
+
+// Sign-in methods: the value the resolver gives someone, in a query, so a
+// sign-in reads it inside its own transaction and the Users page for
+// everyone at once. As the resolver's rule: the Default policy's value
+// when it's enforced, then the first named policy that reaches them and
+// sets it, then the Default policy's, then every method. Values are
+// matched as they're stored (Setting.Encode).
+func signInMethodsSQL(forUser bool) string {
+	values := SignInMethods.Subsets()
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = "'" + value + "'"
+	}
+	fromDefault := func(enforced string) string {
+		return `(SELECT d.value_json FROM policy_values d WHERE d.policy_id = '` + DefaultID + `' AND d.setting_key = '` + SignInMethods.Key + `'` +
+			enforced + ` AND d.value_json IN (` + strings.Join(quoted, ", ") + `))`
+	}
+	builtin := "'" + values[len(values)-1] + "'"
+	if forUser {
+		return `SELECT COALESCE(` + fromDefault(" AND d.enforced = 1") +
+			`, (SELECT named.value_json FROM (` + namedValuesSQL(SignInMethods, values, true) + `) named), ` +
+			fromDefault("") + `, ` + builtin + `)`
+	}
+	return `SELECT u.id AS user_id, COALESCE(` + fromDefault(" AND d.enforced = 1") + `, named.value_json, ` + fromDefault("") + `, ` + builtin + `) AS value_json
+		FROM users u LEFT JOIN (` + namedValuesSQL(SignInMethods, values, false) + `) named ON named.user_id = u.id`
+}
+
+// SignInMethodsSQL selects (user_id, value_json) for every user: the
+// sign-in methods their policies allow, as a stored SignInMethods value.
+func SignInMethodsSQL() string { return signInMethodsSQL(false) }
+
+// SignInMethodsForUserSQL selects one value_json, the sign-in methods the
+// policies allow the person given twice as the query's arguments.
+func SignInMethodsForUserSQL() string { return signInMethodsSQL(true) }
+
+// ParseSignInMethods reads what the queries select.
+func ParseSignInMethods(raw string) ([]string, error) {
+	value, err := SignInMethods.Decode(json.RawMessage(raw))
+	if err != nil {
+		return nil, err
+	}
+	return value.([]string), nil
 }
 
 // ownProxyValues are OwnProxies' valid values; peopleAddSQL is the Default

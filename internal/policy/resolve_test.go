@@ -82,11 +82,12 @@ func TestTheDeclaredSettingsKeepTodaysBehaviour(t *testing.T) {
 			keys = append(keys, setting.Key)
 		}
 	}
-	if got := strings.Join(keys, " "); got != "audit.security_retention_days auth.mfa_passkey_counts auth.mfa_required mail.allowed_address_domains mail.allowed_providers mail.allowed_servers mail.own_proxies" {
+	if got := strings.Join(keys, " "); got != "audit.security_retention_days auth.mfa_passkey_counts auth.mfa_required auth.sign_in_methods mail.allowed_address_domains mail.allowed_providers mail.allowed_servers mail.own_proxies" {
 		t.Fatalf("declared settings = %s", got)
 	}
 	empty := resolve(resolveInput{policies: []Policy{unsavedDefault()}, settings: Settings()})
 	if empty.Bool(MFARequired) || empty.Int(SecurityRetentionDays) != 180 || empty.Bool(OwnProxies) ||
+		strings.Join(empty.Strings(SignInMethods), " ") != "google microsoft oidc passkey password" ||
 		len(empty.Strings(MailAllowedServers)) != 0 || len(empty.Strings(MailAllowedDomains)) != 0 || len(empty.Strings(MailAllowedProviders)) != 0 {
 		t.Fatalf("with nothing set:\n%s", empty.describe())
 	}
@@ -519,5 +520,32 @@ func TestTheCacheWorksSettingsOutAgainAfterAChange(t *testing.T) {
 	}
 	if len(cache.entries) != 2 || cache.entries["u-ines"] != nil {
 		t.Fatalf("cache holds %d, Ines still in: %v", len(cache.entries), cache.entries["u-ines"] != nil)
+	}
+}
+
+// A choice of sign-in methods takes one or more of them, stored sorted and
+// without repeats, and Subsets lists every value it can be stored as.
+func TestSignInMethodsTakeOneOrMoreMethods(t *testing.T) {
+	for raw, want := range map[string]string{
+		`["password","google","password"]`: `["google","password"]`,
+		`["oidc"]`:                         `["oidc"]`,
+	} {
+		if stored, err := SignInMethods.canonical(json.RawMessage(raw)); err != nil || string(stored) != want {
+			t.Fatalf("%s stored as %s, %v; want %s", raw, stored, err, want)
+		}
+	}
+	for _, raw := range []string{`[]`, `["fax"]`, `"password"`, `null`} {
+		if _, err := SignInMethods.Decode(json.RawMessage(raw)); !errors.Is(err, ErrValueInvalid) {
+			t.Fatalf("%s accepted: %v", raw, err)
+		}
+	}
+	subsets := SignInMethods.Subsets()
+	if len(subsets) != 31 || subsets[len(subsets)-1] != `["google","microsoft","oidc","passkey","password"]` {
+		t.Fatalf("subsets = %d, last %s", len(subsets), subsets[len(subsets)-1])
+	}
+	for _, subset := range subsets {
+		if stored, err := SignInMethods.canonical(json.RawMessage(subset)); err != nil || string(stored) != subset {
+			t.Fatalf("%s isn't stored as itself: %s, %v", subset, stored, err)
+		}
 	}
 }

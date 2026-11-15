@@ -48,6 +48,25 @@ var MFAPasskeyCounts = Bool(Spec{
 	return json.RawMessage(`false`), false, true, nil
 })
 
+// The ways to start signing in SignInMethods chooses from.
+const (
+	SignInPassword  = "password"
+	SignInPasskey   = "passkey"
+	SignInGoogle    = "google"
+	SignInMicrosoft = "microsoft"
+	SignInOIDC      = "oidc"
+)
+
+// SignInMethods are the ways people may start signing in. One left out is
+// refused, at sign-in and to verify again for sensitive actions, and can't
+// be set up; a passkey left out isn't the second step of two-factor
+// sign-in either. What was set up stays, unused. Only the ways the server
+// has set up are offered at all, and administrators aren't limited.
+var SignInMethods = Subset(Spec{
+	Key: "auth.sign_in_methods", Category: CategorySignIn, Kind: KindSecurity,
+	Label: "admin.policy.setting.sign_in_methods", Help: "admin.policy.setting.sign_in_methods.help",
+}, SignInPassword, SignInPasskey, SignInGoogle, SignInMicrosoft, SignInOIDC)
+
 // SecurityRetentionDays is how long sign-in and security events are kept
 // (auth_system_state.auth_event_retention_days).
 var SecurityRetentionDays = Int(Spec{

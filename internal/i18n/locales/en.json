@@ -863,6 +863,8 @@
   "admin.policy.setting.own_proxies.help": "Whether people can save proxies for their own mailboxes.",
   "admin.policy.setting.security_retention_days": "Sign-in and security events",
   "admin.policy.setting.security_retention_days.help": "How long sign-in and security events are kept before they're removed.",
+  "admin.policy.setting.sign_in_methods": "Sign-in methods",
+  "admin.policy.setting.sign_in_methods.help": "The ways people can start signing in. One left out is refused, even to verify again, and can't be set up; a passkey left out isn't the second step of two-factor sign-in either.",
   "admin.progress": "{done} of {total} processed",
   "admin.provider.domain_icon": "Domain icon",
   "admin.provider.role.bimi": "Domain brand fallback",

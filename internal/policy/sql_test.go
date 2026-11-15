@@ -42,6 +42,9 @@ func TestTheQueriesAgreeWithTheResolver(t *testing.T) {
 			if choice := r.Intn(4); choice > 0 {
 				exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, id, OwnProxies.Key, []string{"true", "false", `"maybe"`}[choice-1])
 			}
+			if value, ok := randomSignInMethods(r); ok {
+				exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, id, SignInMethods.Key, value)
+			}
 			switch r.Intn(4) {
 			case 1:
 				exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES (?, ?, 'true', CURRENT_TIMESTAMP)`, id, MFARequired.Key)
@@ -61,6 +64,24 @@ func TestTheQueriesAgreeWithTheResolver(t *testing.T) {
 				}
 			}
 		}
+		// The Default policy's sign-in methods, maybe enforced.
+		if value, ok := randomSignInMethods(r); ok {
+			exec(`INSERT INTO policies (id, name, name_normalized, is_default, priority, created_at, updated_at) VALUES (?, 'Default', 'default', 1, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, DefaultID)
+			exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, enforced, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, DefaultID, SignInMethods.Key, value, r.Intn(2))
+		}
+		methods := map[string]string{}
+		rows, err := db.Read().Query(SignInMethodsSQL())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var id, value string
+			if err := rows.Scan(&id, &value); err != nil {
+				t.Fatal(err)
+			}
+			methods[id] = value
+		}
+		rows.Close()
 		// The Default policy's own-proxy switch, either way, and proxies of
 		// their own for some.
 		exec(`INSERT INTO outbound_proxy_policy (singleton, people_add) VALUES (1, ?) ON CONFLICT (singleton) DO UPDATE SET people_add = excluded.people_add`, r.Intn(2))
@@ -82,7 +103,7 @@ func TestTheQueriesAgreeWithTheResolver(t *testing.T) {
 		named := map[string]bool{}
 		deciding := map[string]string{}
 		passkeys := map[string]bool{}
-		rows, err := db.Read().Query(TwoFactorPoliciesSQL())
+		rows, err = db.Read().Query(TwoFactorPoliciesSQL())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -139,6 +160,30 @@ func TestTheQueriesAgreeWithTheResolver(t *testing.T) {
 			if passkeys[person] != wantPasskey || onePasskey != wantPasskey {
 				t.Fatalf("round %d, %s: a passkey counts by the queries %v and %v, by the deciding policy %v", round, person, passkeys[person], onePasskey, wantPasskey)
 			}
+			var oneMethods string
+			if err := db.Read().QueryRow(SignInMethodsForUserSQL(), person, person).Scan(&oneMethods); err != nil {
+				t.Fatal(err)
+			}
+			wantMethods := fmt.Sprint(effective.Get(SignInMethods).Value)
+			for _, raw := range []string{oneMethods, methods[person]} {
+				parsed, err := ParseSignInMethods(raw)
+				if err != nil || fmt.Sprint(parsed) != wantMethods {
+					t.Fatalf("round %d, %s: sign-in methods by the queries %s and %s, by the resolver %s (%s)", round, person, oneMethods, methods[person], wantMethods, effective.describe())
+				}
+			}
 		}
 	}
+}
+
+// randomSignInMethods is a stored sign-in methods value, or one that
+// doesn't check, or none.
+func randomSignInMethods(r *rand.Rand) (string, bool) {
+	switch r.Intn(4) {
+	case 0:
+		return "", false
+	case 1:
+		return []string{`[]`, `["fax"]`, `"password"`}[r.Intn(3)], true
+	}
+	subsets := SignInMethods.Subsets()
+	return subsets[r.Intn(len(subsets))], true
 }
