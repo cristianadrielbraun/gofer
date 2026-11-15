@@ -1939,6 +1939,8 @@ function setupEditAccountDialog() {
     document.querySelectorAll("#edit-account-dialog [data-account-wizard-step]").forEach(function (item) {
       item.dataset.active = String(+item.dataset.accountWizardStep === 0)
     })
+    var openStep = typeof takeEditAccountOpenStep === "function" ? takeEditAccountOpenStep() : null
+    if (openStep && typeof editWizardGo === "function") editWizardGo(openStep, true)
   })
 }
 

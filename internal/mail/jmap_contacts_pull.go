@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,7 +48,9 @@ type JMAPContactsPage struct {
 	State    string
 }
 
-// JMAPAddressBooks lists the address books of a JMAP account.
+// JMAPAddressBooks lists the address books of a JMAP account: the login's
+// own, then those of the mailboxes shared with it, whose ids carry their
+// account.
 func JMAPAddressBooks(ctx context.Context, cfg *models.AccountConfig, password string) ([]jmap.AddressBook, error) {
 	client, session, account, err := jmapContactsSession(ctx, cfg, password)
 	if err != nil {
@@ -57,7 +60,18 @@ func JMAPAddressBooks(ctx context.Context, cfg *models.AccountConfig, password s
 	if err != nil {
 		return nil, err
 	}
-	return books.List, nil
+	list := books.List
+	for _, shared := range jmapSharedAccountsWith(session, jmap.CapabilityContacts) {
+		theirs, err := client.GetAddressBooks(ctx, session, shared)
+		if err != nil {
+			continue
+		}
+		for _, book := range theirs.List {
+			book.ID = jmapCapabilityRef(session, jmap.CapabilityContacts, shared, book.ID)
+			list = append(list, book)
+		}
+	}
+	return list, nil
 }
 
 // CreateJMAPAddressBook makes an address book named name on the account's
@@ -73,7 +87,11 @@ func CreateJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, passw
 // RenameJMAPAddressBook gives an address book on the account's JMAP server a
 // new name, and DeleteJMAPAddressBook deletes it with its contacts.
 func RenameJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, password, id, name string) error {
-	client, session, account, err := jmapContactsSession(ctx, cfg, password)
+	client, session, _, err := jmapContactsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	account, id, err := jmapCapabilityAccountOf(session, jmap.CapabilityContacts, id)
 	if err != nil {
 		return err
 	}
@@ -81,7 +99,11 @@ func RenameJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, passw
 }
 
 func DeleteJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, password, id string) error {
-	client, session, account, err := jmapContactsSession(ctx, cfg, password)
+	client, session, _, err := jmapContactsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	account, id, err := jmapCapabilityAccountOf(session, jmap.CapabilityContacts, id)
 	if err != nil {
 		return err
 	}
@@ -92,18 +114,107 @@ func DeleteJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, passw
 // that changed since sinceState, or all of them when sinceState is empty or
 // the server can no longer tell what changed since then.
 func PullJMAPContacts(ctx context.Context, cfg *models.AccountConfig, password, sinceState string, books []string) (*JMAPContactsPage, error) {
-	client, session, account, err := jmapContactsSession(ctx, cfg, password)
+	client, session, own, err := jmapContactsSession(ctx, cfg, password)
 	if err != nil {
 		return nil, err
 	}
-	puller := jmapContactPuller{client: client, session: session, account: account, books: books}
-	if sinceState != "" {
-		page, err := puller.changes(ctx, sinceState)
-		if !jmap.IsCannotCalculateChanges(err) {
-			return page, err
+	// Books of mailboxes shared with the login are in accounts of their own,
+	// each with its own state.
+	byAccount := map[string][]string{}
+	var accounts []string
+	for _, ref := range books {
+		account, id, err := jmapCapabilityAccountOf(session, jmap.CapabilityContacts, ref)
+		if err != nil {
+			// A book of a mailbox no longer shared: its cards go.
+			continue
+		}
+		if _, ok := byAccount[account]; !ok {
+			accounts = append(accounts, account)
+		}
+		byAccount[account] = append(byAccount[account], id)
+	}
+	if len(accounts) == 0 {
+		accounts = []string{own}
+	}
+	states := jmapContactStates(sinceState, own)
+	// Changes come per account; when any account must be listed whole, all
+	// are, since a whole listing removes every card it doesn't see.
+	full := false
+	for _, account := range accounts {
+		if states[account] == "" {
+			full = true
 		}
 	}
-	return puller.full(ctx)
+	pages := make([]*JMAPContactsPage, len(accounts))
+	if !full {
+		for i, account := range accounts {
+			puller := jmapContactPuller{client: client, session: session, account: account, books: byAccount[account]}
+			page, err := puller.changes(ctx, states[account])
+			if jmap.IsCannotCalculateChanges(err) {
+				full = true
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			pages[i] = page
+		}
+	}
+	if full {
+		for i, account := range accounts {
+			puller := jmapContactPuller{client: client, session: session, account: account, books: byAccount[account]}
+			page, err := puller.full(ctx)
+			if err != nil {
+				return nil, err
+			}
+			pages[i] = page
+		}
+	}
+	if len(accounts) == 1 && accounts[0] == own {
+		return pages[0], nil
+	}
+	merged := &JMAPContactsPage{Full: full}
+	newStates := map[string]string{}
+	for i, account := range accounts {
+		page := pages[i]
+		ref := func(id string) string { return jmapCapabilityRef(session, jmap.CapabilityContacts, account, id) }
+		for _, contact := range page.Contacts {
+			contact.ID, contact.AddressBookID = ref(contact.ID), ref(contact.AddressBookID)
+			merged.Contacts = append(merged.Contacts, contact)
+		}
+		for _, id := range page.Removed {
+			merged.Removed = append(merged.Removed, ref(id))
+		}
+		for _, id := range page.Seen {
+			merged.Seen = append(merged.Seen, ref(id))
+		}
+		newStates[account] = page.State
+	}
+	merged.State = jmapContactStateString(newStates, own)
+	return merged, nil
+}
+
+// jmapContactStates reads the state a pull saved: one account's state as the
+// server gave it, or, for books in several accounts, each account's.
+func jmapContactStates(saved, own string) map[string]string {
+	states := map[string]string{}
+	if strings.HasPrefix(saved, "{") {
+		_ = json.Unmarshal([]byte(saved), &states)
+		return states
+	}
+	if saved != "" {
+		states[own] = saved
+	}
+	return states
+}
+
+// jmapContactStateString writes the states of several accounts as one.
+func jmapContactStateString(states map[string]string, own string) string {
+	if len(states) == 1 && states[own] != "" {
+		return states[own]
+	}
+	data, _ := json.Marshal(states)
+	return string(data)
 }
 
 func jmapContactsSession(ctx context.Context, cfg *models.AccountConfig, password string) (*jmap.Client, *jmap.Session, string, error) {

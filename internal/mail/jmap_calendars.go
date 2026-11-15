@@ -21,7 +21,8 @@ var (
 	ErrJMAPCalendarsCannotParse = errors.New("the JMAP server can't read iCalendar data, so Gofer can't save events there; use CalDAV for this account's calendars instead")
 )
 
-// JMAPCalendars lists the calendars of a JMAP account.
+// JMAPCalendars lists the calendars of a JMAP account: the login's own, then
+// those of the mailboxes shared with it, whose ids carry their account.
 func JMAPCalendars(ctx context.Context, cfg *models.AccountConfig, password string) ([]jmap.Calendar, error) {
 	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
 	if err != nil {
@@ -31,7 +32,39 @@ func JMAPCalendars(ctx context.Context, cfg *models.AccountConfig, password stri
 	if err != nil {
 		return nil, err
 	}
-	return calendars.List, nil
+	list := calendars.List
+	for _, shared := range jmapSharedAccountsWith(session, jmap.CapabilityCalendars) {
+		theirs, err := client.GetCalendars(ctx, session, shared)
+		if err != nil {
+			// A shared account whose calendars can't be read leaves the
+			// rest listed.
+			continue
+		}
+		for _, calendar := range theirs.List {
+			calendar.ID = jmapCapabilityRef(session, jmap.CapabilityCalendars, shared, calendar.ID)
+			list = append(list, calendar)
+		}
+	}
+	return list, nil
+}
+
+// jmapCalendarRefs gives an event read from account the ids Gofer stores:
+// its own and those of the calendars it is in.
+func jmapCalendarRefs(session *jmap.Session, account string, event jmap.CalendarEvent) jmap.CalendarEvent {
+	if account == session.PrimaryAccount(jmap.CapabilityCalendars) || event == nil {
+		return event
+	}
+	if id := event.ID(); id != "" {
+		event["id"] = jmapCapabilityRef(session, jmap.CapabilityCalendars, account, id)
+	}
+	if calendars, ok := event["calendarIds"].(map[string]any); ok {
+		refs := make(map[string]any, len(calendars))
+		for id, in := range calendars {
+			refs[jmapCapabilityRef(session, jmap.CapabilityCalendars, account, id)] = in
+		}
+		event["calendarIds"] = refs
+	}
+	return event
 }
 
 // CreateJMAPCalendar makes a calendar named name on the account's JMAP server
@@ -47,7 +80,11 @@ func CreateJMAPCalendar(ctx context.Context, cfg *models.AccountConfig, password
 // RenameJMAPCalendar gives a calendar on the account's JMAP server a new
 // name, and DeleteJMAPCalendar deletes it with its events.
 func RenameJMAPCalendar(ctx context.Context, cfg *models.AccountConfig, password, id, name string) error {
-	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	client, session, _, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	account, id, err := jmapCapabilityAccountOf(session, jmap.CapabilityCalendars, id)
 	if err != nil {
 		return err
 	}
@@ -55,7 +92,11 @@ func RenameJMAPCalendar(ctx context.Context, cfg *models.AccountConfig, password
 }
 
 func DeleteJMAPCalendar(ctx context.Context, cfg *models.AccountConfig, password, id string) error {
-	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	client, session, _, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	account, id, err := jmapCapabilityAccountOf(session, jmap.CapabilityCalendars, id)
 	if err != nil {
 		return err
 	}
@@ -124,7 +165,11 @@ type JMAPCalendarEvents struct {
 // [start, end), series included when an occurrence does, or every event
 // when start and end are zero.
 func PullJMAPCalendarEvents(ctx context.Context, cfg *models.AccountConfig, password, calendarID string, start, end time.Time) (*JMAPCalendarEvents, error) {
-	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	client, session, _, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return nil, err
+	}
+	account, calendarID, err := jmapCapabilityAccountOf(session, jmap.CapabilityCalendars, calendarID)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +197,9 @@ func PullJMAPCalendarEvents(ctx context.Context, cfg *models.AccountConfig, pass
 			if err != nil {
 				return nil, err
 			}
-			out.Events = append(out.Events, events.List...)
+			for _, event := range events.List {
+				out.Events = append(out.Events, jmapCalendarRefs(session, account, event))
+			}
 		}
 		position += len(query.IDs)
 		// A server that leaves out the total is read until a page is empty.
@@ -164,6 +211,10 @@ func PullJMAPCalendarEvents(ctx context.Context, cfg *models.AccountConfig, pass
 
 // JMAPCalendarState is the account's calendar event state, which changes
 // whenever any of its events does.
+//
+// With mailboxes shared with the login, each a JMAP account of its own, the
+// state is theirs too, so a change to any of their events changes it. It is
+// only ever compared, never sent back to the server.
 func JMAPCalendarState(ctx context.Context, cfg *models.AccountConfig, password string) (string, error) {
 	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
 	if err != nil {
@@ -173,12 +224,24 @@ func JMAPCalendarState(ctx context.Context, cfg *models.AccountConfig, password 
 	if err != nil {
 		return "", err
 	}
-	return current.State, nil
+	state := current.State
+	for _, shared := range jmapSharedAccountsWith(session, jmap.CapabilityCalendars) {
+		theirs, err := client.GetCalendarEvents(ctx, session, shared, []string{})
+		if err != nil {
+			return "", err
+		}
+		state += " " + shared + jmapSharedSeparator + theirs.State
+	}
+	return state, nil
 }
 
 // CreateJMAPCalendarEvent saves a new event in a calendar and gives its id.
 func CreateJMAPCalendarEvent(ctx context.Context, cfg *models.AccountConfig, password, calendarID string, event jmap.CalendarEvent) (string, error) {
-	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	client, session, _, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return "", err
+	}
+	account, calendarID, err := jmapCapabilityAccountOf(session, jmap.CapabilityCalendars, calendarID)
 	if err != nil {
 		return "", err
 	}
@@ -195,13 +258,17 @@ func CreateJMAPCalendarEvent(ctx context.Context, cfg *models.AccountConfig, pas
 	if id == "" {
 		return "", errors.New("CalendarEvent/set: the server gave the new event no id")
 	}
-	return id, nil
+	return jmapCapabilityRef(session, jmap.CapabilityCalendars, account, id), nil
 }
 
 // DeleteJMAPCalendarEvent destroys an event. One already gone counts as
 // deleted.
 func DeleteJMAPCalendarEvent(ctx context.Context, cfg *models.AccountConfig, password, id string) error {
-	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	client, session, _, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	account, id, err := jmapCapabilityAccountOf(session, jmap.CapabilityCalendars, id)
 	if err != nil {
 		return err
 	}
@@ -234,13 +301,17 @@ func OpenJMAPCalendars(ctx context.Context, cfg *models.AccountConfig, password 
 
 // Event fetches one event, or nil when the server has no such event.
 func (c *JMAPCalendarConnection) Event(ctx context.Context, id string) (jmap.CalendarEvent, error) {
-	events, err := c.client.GetCalendarEvents(ctx, c.session, c.account, []string{id})
+	account, id, err := jmapCapabilityAccountOf(c.session, jmap.CapabilityCalendars, id)
+	if err != nil {
+		return nil, err
+	}
+	events, err := c.client.GetCalendarEvents(ctx, c.session, account, []string{id})
 	if err != nil {
 		return nil, err
 	}
 	for _, event := range events.List {
 		if event.ID() == id {
-			return event, nil
+			return jmapCalendarRefs(c.session, account, event), nil
 		}
 	}
 	return nil, nil
@@ -249,11 +320,15 @@ func (c *JMAPCalendarConnection) Event(ctx context.Context, id string) (jmap.Cal
 // ByUID finds the event with a uid in a calendar, or nil. A server may
 // index a new event for search a moment after saving it.
 func (c *JMAPCalendarConnection) ByUID(ctx context.Context, calendarID, uid string) (jmap.CalendarEvent, error) {
-	query, err := c.client.QueryCalendarEvents(ctx, c.session, c.account, jmap.CalendarEventFilter{InCalendar: calendarID, UID: uid}, 0, 2)
+	account, calendarID, err := jmapCapabilityAccountOf(c.session, jmap.CapabilityCalendars, calendarID)
+	if err != nil {
+		return nil, err
+	}
+	query, err := c.client.QueryCalendarEvents(ctx, c.session, account, jmap.CalendarEventFilter{InCalendar: calendarID, UID: uid}, 0, 2)
 	if err != nil || len(query.IDs) == 0 {
 		return nil, err
 	}
-	return c.Event(ctx, query.IDs[0])
+	return c.Event(ctx, jmapCapabilityRef(c.session, jmap.CapabilityCalendars, account, query.IDs[0]))
 }
 
 // FromICS has the server read iCalendar data into events.
@@ -263,9 +338,13 @@ func (c *JMAPCalendarConnection) FromICS(ctx context.Context, data []byte) ([]jm
 
 // Create saves a new event in a calendar and gives its id.
 func (c *JMAPCalendarConnection) Create(ctx context.Context, calendarID string, event jmap.CalendarEvent) (string, error) {
+	account, calendarID, err := jmapCapabilityAccountOf(c.session, jmap.CapabilityCalendars, calendarID)
+	if err != nil {
+		return "", err
+	}
 	event["calendarIds"] = map[string]any{calendarID: true}
 	delete(event, "id")
-	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: c.account, Create: map[string]jmap.CalendarEvent{"new": event}})
+	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: account, Create: map[string]jmap.CalendarEvent{"new": event}})
 	if err != nil {
 		return "", err
 	}
@@ -276,13 +355,17 @@ func (c *JMAPCalendarConnection) Create(ctx context.Context, calendarID string, 
 	if id == "" {
 		return "", errors.New("CalendarEvent/set: the server gave the new event no id")
 	}
-	return id, nil
+	return jmapCapabilityRef(c.session, jmap.CapabilityCalendars, account, id), nil
 }
 
 // Update applies a patch to an event. It reports false when the event is
 // gone.
 func (c *JMAPCalendarConnection) Update(ctx context.Context, id string, patch jmap.PatchObject) (bool, error) {
-	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: c.account, Update: map[string]jmap.PatchObject{id: patch}})
+	account, id, err := jmapCapabilityAccountOf(c.session, jmap.CapabilityCalendars, id)
+	if err != nil {
+		return false, err
+	}
+	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: account, Update: map[string]jmap.PatchObject{id: patch}})
 	if err != nil {
 		return false, err
 	}
@@ -298,7 +381,11 @@ func (c *JMAPCalendarConnection) Update(ctx context.Context, id string, patch jm
 // Delete destroys an event. It reports false when the event was already
 // gone.
 func (c *JMAPCalendarConnection) Delete(ctx context.Context, id string) (bool, error) {
-	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: c.account, Destroy: []string{id}})
+	account, id, err := jmapCapabilityAccountOf(c.session, jmap.CapabilityCalendars, id)
+	if err != nil {
+		return false, err
+	}
+	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: account, Destroy: []string{id}})
 	if err != nil {
 		return false, err
 	}

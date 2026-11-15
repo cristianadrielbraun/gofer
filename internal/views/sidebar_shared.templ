@@ -1,0 +1,115 @@
+package views
+
+import (
+	"fmt"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+// SidebarAccountFolders lists an account's own folders, then the shared
+// mailboxes it can open under one heading, each mailbox with its folders
+// under its own entry. Both levels fold like a folder with subfolders and
+// remember whether they were folded (sidebar_folder_collapsed).
+templ SidebarAccountFolders(account models.Account, activeFolder string, uiSettings map[string]string) {
+	{{ own, shared := sidebarSplitSharedFolders(account.Folders) }}
+	for _, folder := range own {
+		@SidebarFolderItem(folder, activeFolder, account.ID, uiSettings)
+	}
+	if len(shared) > 0 {
+		@SidebarSharedMailboxes(account, shared, activeFolder, uiSettings)
+	}
+}
+
+templ SidebarSharedMailboxes(account models.Account, mailboxes []sidebarSharedMailbox, activeFolder string, uiSettings map[string]string) {
+	{{ groupID := sidebarSharedMailboxesGroupID(account.ID) }}
+	{{ active := sidebarSharedMailboxesHaveActive(mailboxes, activeFolder) }}
+	{{ collapsed := sidebarGroupCollapsed(uiSettings, groupID, active) }}
+	{{ unread := sidebarSharedMailboxesUnread(mailboxes) }}
+	<div
+		class="space-y-px"
+		data-sidebar-folder={ groupID }
+		data-sidebar-shared-mailboxes={ account.ID }
+		data-sidebar-folder-active?={ active }
+		data-sidebar-folder-collapsed={ fmt.Sprintf("%t", collapsed) }
+	>
+		<button
+			type="button"
+			class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-sidebar-foreground transition-colors duration-150 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+			data-sidebar-folder-row
+			data-sidebar-folder-toggle={ groupID }
+			aria-expanded={ fmt.Sprintf("%t", !collapsed) }
+		>
+			<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground">
+				@icon.Users(icon.Props{Class: "size-4"})
+			</span>
+			<span class="flex-1 truncate text-left">{ i18n.T(ctx, "mail.shared_mailboxes.heading") }</span>
+			if unread > 0 && collapsed {
+				@sidebarSharedUnreadBadge(unread)
+			}
+			@icon.ChevronDown(icon.Props{Class: "sidebar-folder-chevron size-3.5 shrink-0 text-sidebar-foreground transition-transform duration-200"})
+		</button>
+		<div class="sidebar-folder-children" data-sidebar-folder-children={ groupID }>
+			<div class="sidebar-folder-children-inner pl-3 space-y-px">
+				for _, mailbox := range mailboxes {
+					@SidebarSharedMailbox(account, mailbox, activeFolder, uiSettings)
+				}
+			</div>
+		</div>
+	</div>
+}
+
+templ SidebarSharedMailbox(account models.Account, mailbox sidebarSharedMailbox, activeFolder string, uiSettings map[string]string) {
+	{{ groupID := sidebarSharedMailboxGroupID(account.ID, mailbox.Email) }}
+	{{ active := sidebarSharedFoldersHaveActive(mailbox.Folders, activeFolder) }}
+	{{ collapsed := sidebarGroupCollapsed(uiSettings, groupID, active) }}
+	<div
+		class="space-y-px"
+		data-sidebar-folder={ groupID }
+		data-sidebar-shared-mailbox={ mailbox.Email }
+		data-sidebar-folder-active?={ active }
+		data-sidebar-folder-collapsed={ fmt.Sprintf("%t", collapsed) }
+	>
+		<button
+			type="button"
+			class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-sidebar-foreground transition-colors duration-150 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+			data-sidebar-folder-row
+			data-sidebar-folder-toggle={ groupID }
+			aria-label={ i18n.T(ctx, "mail.shared_mailboxes.toggle", "mailbox", mailbox.Email) }
+			aria-expanded={ fmt.Sprintf("%t", !collapsed) }
+			title={ mailbox.Email }
+		>
+			<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground">
+				@icon.Mailbox(icon.Props{Class: "size-4"})
+			</span>
+			<span class="flex min-w-0 flex-1 flex-col text-left leading-tight">
+				<span class="truncate">{ mailbox.Name }</span>
+				if sidebarShowSharedAddress(uiSettings) {
+					<span class="truncate text-[11px] text-sidebar-foreground/70" data-sidebar-shared-mailbox-address>{ mailbox.Email }</span>
+				}
+			</span>
+			if mailbox.Unread > 0 {
+				@sidebarSharedUnreadBadge(mailbox.Unread)
+			}
+			@icon.ChevronDown(icon.Props{Class: "sidebar-folder-chevron size-3.5 shrink-0 text-sidebar-foreground transition-transform duration-200"})
+		</button>
+		<div class="sidebar-folder-children" data-sidebar-folder-children={ groupID }>
+			<div class="sidebar-folder-children-inner pl-5 space-y-px">
+				for _, folder := range mailbox.Folders {
+					@SidebarFolderItem(folder, activeFolder, account.ID, uiSettings)
+				}
+			</div>
+		</div>
+	</div>
+}
+
+// The count is the mailbox's own: its folders' badges inside keep theirs, so
+// it is not one of the folder badges the unread rollup adds up.
+templ sidebarSharedUnreadBadge(unread int) {
+	<span
+		data-sidebar-shared-unread
+		class="min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full bg-sidebar-accent text-[11px] font-semibold tabular-nums text-sidebar-foreground"
+	>
+		{ fmt.Sprintf("%d", unread) }
+	</span>
+}

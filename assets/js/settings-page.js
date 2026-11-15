@@ -1315,8 +1315,14 @@
 (function() {
   document.addEventListener('change', function(e) {
     var toggle = e.target.closest('[data-ui-setting-switch]');
-    if (!toggle || typeof GoferSettings === 'undefined') return;
-    GoferSettings.set(toggle.getAttribute('data-ui-setting-switch'), toggle.checked ? 'true' : 'false');
+    if (toggle && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set(toggle.getAttribute('data-ui-setting-switch'), toggle.checked ? 'true' : 'false');
+    }
+    // A select or text box saved under its key as it changes.
+    var input = e.target.closest('[data-ui-setting-input]');
+    if (input && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set(input.getAttribute('data-ui-setting-input'), input.value.trim());
+    }
   });
 })();
 
@@ -1751,7 +1757,7 @@ function wizardGo(step, immediate) {
   var root = document.getElementById('add-account-dialog');
   if (!track || !root) return;
   if (step < 0) step = 0;
-  if (step > 5) step = 5;
+  if (step > 6) step = 6;
   step = wizardSkipSending(step, _wizStep, root.dataset.mailService === 'icloud' || root.dataset.mailService === 'jmap');
   syncAddContactStep();
   // The Email steps end by creating the account. Going back to them would
@@ -1763,7 +1769,7 @@ function wizardGo(step, immediate) {
   }
   if (step >= 4 && !addAccountCreated()) return;
   _wizStep = step;
-  track.style.transform = 'translateX(-' + (step * (100 / 6)) + '%)';
+  track.style.transform = 'translateX(-' + (step * (100 / 7)) + '%)';
   root.querySelectorAll('[data-account-wizard-step]').forEach(function(item) {
     item.dataset.active = String(+item.dataset.accountWizardStep === step);
   });
@@ -1998,6 +2004,7 @@ function syncAddContactStep() {
   });
   setWizardStepDisabled(contactStep, !created);
   setWizardStepDisabled(calendarStep, !created);
+  setWizardStepDisabled(root.querySelector('[data-account-wizard-step="6"]'), !created);
   syncAddAccountSubmitButtons();
 }
 // Runs after the contacts step of the add dialog has been loaded.
@@ -3327,7 +3334,7 @@ function editWizardEmailEnabled(root) {
 }
 function editWizardGo(step, immediate) {
   if (step < 0) step = 0;
-  if (step > 5) step = 5;
+  if (step > 6) step = 6;
   var track = document.getElementById('edit-wizard-track');
   var root = document.getElementById('edit-account-dialog');
   if (!track || !root) return;
@@ -3344,7 +3351,7 @@ function editWizardGo(step, immediate) {
     unsaved.hidden = true;
   }
   _editWizStep = step;
-  track.style.transform = 'translateX(-' + (step * (100 / 6)) + '%)';
+  track.style.transform = 'translateX(-' + (step * (100 / 7)) + '%)';
   root.querySelectorAll('[data-account-wizard-step]').forEach(function(item) {
     item.dataset.active = String(+item.dataset.accountWizardStep === step);
   });
@@ -3411,6 +3418,19 @@ function editToggleSmtpAuth(checked) {
     });
   });
 })();
+
+// A button that opens Edit account on one step, such as the account card's
+// shared mailbox list, notes the step; the dialog goes there once it opens.
+var _editAccountOpenStep = null;
+document.addEventListener('click', function(event) {
+  var opener = event.target && event.target.closest ? event.target.closest('[data-edit-account-open-step]') : null;
+  if (opener) _editAccountOpenStep = +opener.getAttribute('data-edit-account-open-step');
+}, true);
+function takeEditAccountOpenStep() {
+  var step = _editAccountOpenStep;
+  _editAccountOpenStep = null;
+  return step;
+}
 
 // The account wizards move between steps with a transform; their viewport
 // never scrolls. Focus moving into a hidden step, as Tab from a step's last

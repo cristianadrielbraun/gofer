@@ -345,6 +345,10 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts", routed.handleUserCreateAccount)
 		private("GET /api/settings/contacts/suppressed", routed.handleUserSuppressedContactsSettings)
 		private("GET /api/accounts/{id}/edit", routed.handleUserEditAccount)
+		// Choosing shared mailboxes reads the account's own store, which
+		// only personal and open mode serve here; the wizard step says so.
+		private("GET /api/accounts/{id}/shared-mailboxes", handleSharedMailboxesUnavailable)
+		private("GET /api/accounts/{id}/shared-mailboxes/summary", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 		private("POST /api/accounts/{id}/edit", routed.handleUserUpdateAccount)
 		private("POST /api/accounts/{id}/color", routed.handleUserAccountColor)
 		private("POST /api/accounts/{id}/proxy", routed.handleUserSaveAccountProxy)

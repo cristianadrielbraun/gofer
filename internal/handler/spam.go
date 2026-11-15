@@ -64,7 +64,7 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 	for _, target := range targets {
 		infos := target.Infos
 
-		destFolderID, destRemoteID, err := h.spamDestinationFolder(ctx, infos[0].AccountID, disposition)
+		destFolderID, destRemoteID, err := h.spamDestinationFolder(ctx, infos[0].AccountID, infos[0].FolderID, disposition)
 		if err != nil {
 			if errors.Is(err, errNoSpamFolder) {
 				noteMissingFolder(w, infos[0].AccountID, "junk")
@@ -173,9 +173,11 @@ func (h *Handler) queueJMAPSpamKeywords(ctx context.Context, infos []storage.Thr
 	}
 }
 
-func (h *Handler) spamDestinationFolder(ctx context.Context, accountID string, disposition spamDisposition) (string, string, error) {
+// The folder is that of the shared mailbox fromFolderID is in, when it is in
+// one that has it.
+func (h *Handler) spamDestinationFolder(ctx context.Context, accountID, fromFolderID string, disposition spamDisposition) (string, string, error) {
 	if disposition == spamDispositionNotSpam {
-		folderID, remoteID, err := h.db.GetFolderIDByRole(ctx, accountID, "inbox")
+		folderID, remoteID, err := h.db.FolderIDByRoleNear(ctx, accountID, fromFolderID, "inbox")
 		if err != nil {
 			return "", "", err
 		}
@@ -186,7 +188,7 @@ func (h *Handler) spamDestinationFolder(ctx context.Context, accountID string, d
 	}
 
 	for _, role := range []string{"junk", "spam"} {
-		folderID, remoteID, err := h.db.GetFolderIDByRole(ctx, accountID, role)
+		folderID, remoteID, err := h.db.FolderIDByRoleNear(ctx, accountID, fromFolderID, role)
 		if err != nil {
 			return "", "", err
 		}

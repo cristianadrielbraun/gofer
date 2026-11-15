@@ -985,6 +985,7 @@ func weekStartLabel(ctx context.Context, day time.Weekday) string {
 
 templ SettingsAdvancedTab(uiSettings map[string]string) {
 	<div class="mt-6 space-y-6">
+		@SharedMailboxSettingsCard(uiSettings)
 		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.advanced.title") }</h3>
@@ -2004,6 +2005,9 @@ templ SettingsAccountCard(account models.Account) {
 			</div>
 			if account.EmailSyncEnabled && !account.IsDeleting {
 				@SettingsAccountMailboxSize(account)
+			}
+			if account.EmailSyncEnabled && !account.IsDeleting && accountHasSharedMailboxes(account.Provider) {
+				<div hx-get={ fmt.Sprintf("/api/accounts/%s/shared-mailboxes/summary", account.ID) } hx-trigger="load" hx-swap="outerHTML"></div>
 			}
 		</div>
 		if !account.IsDeleting && !accountHasNoMail(account) {
@@ -4011,10 +4015,10 @@ templ AddAccountDialog() {
 			<div class="account-wizard-shell grid gap-4 pt-2 md:grid-cols-[16rem_minmax(0,1fr)]">
 		@AccountWizardAddSidebar()
 				<div id="wizard-viewport" class="account-wizard-viewport">
-					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 600%">
+					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 700%">
 						<form id="account-form" hx-post="/api/accounts" hx-target="#add-contacts-content" hx-swap="innerHTML" class="contents">
 						<input type="hidden" name="mail_service" value=""/>
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="0">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="0">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
@@ -4063,7 +4067,7 @@ templ AddAccountDialog() {
 							</div>
 						</div>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="1">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="1">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							<div data-add-mode="icloud">
@@ -4196,7 +4200,7 @@ templ AddAccountDialog() {
 							</div>
 						</div>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="2">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="2">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							<div data-add-mode="generic">
@@ -4289,7 +4293,7 @@ templ AddAccountDialog() {
 						</div>
 						</form>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="3">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="3">
 							<div class="account-wizard-panel">
 								<div class="account-wizard-scroll">
 									<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
@@ -4301,17 +4305,24 @@ templ AddAccountDialog() {
 								</div>
 							</div>
 						</div>
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="4">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="4">
 							<div class="account-wizard-panel">
 								<div id="add-contacts-content" data-on-htmx-after-swap='["syncAddContactStepAfterSwap"]'></div>
 							</div>
 						</div>
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="5">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="5">
 							<div class="account-wizard-panel">
 								<div class="account-wizard-scroll">
 									<div id="add-calendar-content">
 										@CalendarSetupNotice()
 									</div>
+								</div>
+							</div>
+						</div>
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="6">
+							<div class="account-wizard-panel">
+								<div class="account-wizard-scroll">
+									@SharedMailboxesPanelLoader("")
 								</div>
 							</div>
 						</div>
@@ -4330,8 +4341,9 @@ templ AccountWizardAddSidebar() {
 			<p class="mt-0.5 text-[11px] leading-snug text-muted-foreground">{ i18n.T(ctx, "settings.wizard.sections_hint") }</p>
 		</div>
 		@AccountWizardAddEmailSection()
-		@AccountWizardTopStep("wizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
-		@AccountWizardTopStep("wizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), true, true, "", "calendar", false, false, nil)
+		@AccountWizardTopStep("wizardGo", 6, "2", i18n.T(ctx, "settings.wizard.shared_mailboxes"), i18n.T(ctx, "settings.wizard.shared_mailboxes_description"), true, true, "", "", false, false, nil)
+		@AccountWizardTopStep("wizardGo", 4, "3", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
+		@AccountWizardTopStep("wizardGo", 5, "4", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), true, true, "", "calendar", false, false, nil)
 		// Adding mail to an account, the row is that account's own (see
 		// startAddMail), so it stays in a container of its own to swap.
 		<div id="add-account-proxy-row">
@@ -4356,8 +4368,11 @@ templ AccountWizardEditSidebar(data models.EditAccountData) {
 		} else {
 			@AccountWizardEmailSection("editWizardGo", data.AccountID, emailEnabled, false, true, i18n.T(ctx, "settings.wizard.test_save"))
 		}
-		@AccountWizardTopStep("editWizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), false, true, data.AccountID, "contacts", data.ContactSync.Enabled || data.ReconnectContacts, false, nil)
-		@AccountWizardTopStep("editWizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), false, true, data.AccountID, "calendar", data.CalendarSync.Enabled || data.ReconnectCalendar, false, nil)
+		if accountHasSharedMailboxes(data.Provider) {
+			@AccountWizardTopStep("editWizardGo", 6, "2", i18n.T(ctx, "settings.wizard.shared_mailboxes"), i18n.T(ctx, "settings.wizard.shared_mailboxes_description"), !emailEnabled, true, data.AccountID, "", false, false, nil)
+		}
+		@AccountWizardTopStep("editWizardGo", 4, sharedShiftedIndex(data.Provider, 2), i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), false, true, data.AccountID, "contacts", data.ContactSync.Enabled || data.ReconnectContacts, false, nil)
+		@AccountWizardTopStep("editWizardGo", 5, sharedShiftedIndex(data.Provider, 3), i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), false, true, data.AccountID, "calendar", data.CalendarSync.Enabled || data.ReconnectCalendar, false, nil)
 		@AccountProxyChoiceSidebarLoader(data.AccountID, "")
 	</aside>
 }
@@ -4597,7 +4612,7 @@ templ AddAccountWizardFooter() {
 					@icon.Check(icon.Props{Class: "size-4"})
 					{ i18n.T(ctx, "common.done") }
 				</button>
-				<button type="button" data-on-click='["wizardGo",4]' data-account-test-continue hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">
+				<button type="button" data-on-click='["wizardGo",6]' data-account-test-continue hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">
 					{ i18n.T(ctx, "settings.wizard.continue_contacts") }
 					@icon.ChevronRight(icon.Props{Class: "size-4"})
 				</button>
@@ -4605,6 +4620,7 @@ templ AddAccountWizardFooter() {
 		</div>
 		<div id="add-wizard-footer-step-4" data-wizard-footer-step="4" data-active="false" class="hidden"></div>
 		<div id="add-wizard-footer-step-5" data-wizard-footer-step="5" data-active="false" class="hidden"></div>
+		<div id="add-wizard-footer-step-6" data-wizard-footer-step="6" data-active="false" class="hidden"></div>
 	</div>
 }
 
@@ -4795,13 +4811,13 @@ templ EditAccountDialog(data models.EditAccountData) {
 		}
 		@withReconnectMarks(data, AccountWizardEditSidebar(data))
 				<div id="edit-wizard-viewport" class="account-wizard-viewport">
-					<div id="edit-wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 600%">
+					<div id="edit-wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 700%">
 						<form id="edit-account-form" hx-post={ fmt.Sprintf("/api/accounts/%s/edit", data.AccountID) } hx-target="#edit-account-save-status" hx-swap="innerHTML" data-on-htmx-before-request='["handleEditAccountSaveStart","$event"]' data-on-htmx-after-request='["handleEditAccountSaveResult","$event"]' class="contents">
 						<input type="hidden" name="provider" value={ data.Provider }/>
 						if editAccountIsICloud(data) {
 							<input type="hidden" name="mail_service" value={ providers.MailServiceICloud }/>
 						}
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="0">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="0">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
@@ -4836,7 +4852,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 							</div>
 						</div>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="1">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="1">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							if accountEditUsesProviderAPI(data.Provider) {
@@ -4938,7 +4954,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 							</div>
 						</div>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="2">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="2">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
 							if !editAccountSkipsSending(data) {
@@ -5031,7 +5047,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 						</div>
 						</form>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="3">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="3">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll">
 								<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
@@ -5046,7 +5062,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 							</div>
 						</div>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="4">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="4">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll">
 								<div data-wizard-service-content="contacts">
@@ -5066,7 +5082,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 							</div>
 						</div>
 
-						<div class="w-1/6 shrink-0 px-1" data-wizard-step="5">
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="5">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll">
 								<div
@@ -5087,6 +5103,15 @@ templ EditAccountDialog(data models.EditAccountData) {
 				</button>
 							</div>
 						</div>
+						</div>
+						<div class="w-1/7 shrink-0 px-1" data-wizard-step="6">
+							<div class="account-wizard-panel">
+								<div class="account-wizard-scroll">
+									if accountHasSharedMailboxes(data.Provider) {
+										@SharedMailboxesPanelLoader(data.AccountID)
+									}
+								</div>
+							</div>
 						</div>
 
 					</div>
@@ -5187,7 +5212,33 @@ templ EditAccountWizardFooter(data models.EditAccountData) {
 				{ i18n.T(ctx, "common.done") }
 			</button>
 		</div>
+		<div data-wizard-footer-step="6" data-active="false" class="hidden flex justify-between gap-2">
+			<button type="button" data-on-click='["editWizardGo",3]' class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-md border border-border hover:bg-accent">
+				@icon.ArrowLeft(icon.Props{Class: "size-4"})
+				{ i18n.T(ctx, "settings.wizard.back") }
+			</button>
+			<button type="button" data-on-click='["editWizardGo",4]' class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+				{ i18n.T(ctx, "common.next") }
+				@icon.ChevronRight(icon.Props{Class: "size-4"})
+			</button>
+		</div>
 	</div>
+}
+
+// accountHasSharedMailboxes reports whether accounts of provider can open
+// shared mailboxes, which IMAP lists in its shared namespace and JMAP as
+// further accounts of the login.
+func accountHasSharedMailboxes(provider string) bool {
+	return provider == "imap" || provider == providers.ProviderJMAP
+}
+
+// sharedShiftedIndex numbers a wizard section after the shared mailboxes
+// one, which comes second where the account has it.
+func sharedShiftedIndex(provider string, n int) string {
+	if accountHasSharedMailboxes(provider) {
+		n++
+	}
+	return strconv.Itoa(n)
 }
 
 func editAccountTestsTypedSettings(data models.EditAccountData) bool {
@@ -5944,6 +5995,15 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 	</div>
 	<div id="add-calendar-content" hx-swap-oob="innerHTML">
 		@CalendarSyncSettings(data)
+	</div>
+	<div id="add-shared-mailboxes-content" hx-swap-oob="innerHTML">
+		@SharedMailboxesPanelLoader(accountID)
+	</div>
+	<div id="add-wizard-footer-step-6" data-wizard-footer-step="6" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-end gap-2">
+		<button type="button" data-on-click='["wizardGo",4]' class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+			{ i18n.T(ctx, "common.next") }
+			@icon.ChevronRight(icon.Props{Class: "size-4"})
+		</button>
 	</div>
 	@AccountWizardSectionSwitch("wizardGo", accountID, "calendar", data.CalendarSync.Enabled, false, false, true, nil)
 	<div class="flex h-full flex-col pt-1">

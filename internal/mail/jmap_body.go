@@ -3,7 +3,6 @@ package mail
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
@@ -19,17 +18,13 @@ func FetchJMAPRawMessage(ctx context.Context, cfg *models.AccountConfig, passwor
 	if emailID == "" {
 		return nil, errors.New("JMAP email identity is unavailable")
 	}
-	client, err := newJMAPAccountClient(cfg, password)
+	client, session, err := openJMAPSession(ctx, cfg, password)
 	if err != nil {
 		return nil, err
 	}
-	session, err := client.Session(ctx, cfg.JMAPSessionURL)
+	account, emailID, err := jmapAccountOf(session, emailID)
 	if err != nil {
-		return nil, fmt.Errorf("JMAP session: %w", err)
-	}
-	account := session.PrimaryAccount(jmap.CapabilityMail)
-	if account == "" {
-		return nil, errors.New("the JMAP server offers no mail account for this login")
+		return nil, err
 	}
 	got, err := client.GetEmails(ctx, session, account, []string{emailID}, []string{"id", "blobId", "size"})
 	if err != nil {

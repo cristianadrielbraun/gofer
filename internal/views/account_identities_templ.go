@@ -838,6 +838,10 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
+		templ_7745c5c3_Err = accountIdentitySharedStatus(data, identity).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
 		if identity.HasOwnSMTP() {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<p class=\"truncate text-xs text-muted-foreground\" data-account-identity-smtp>")
 			if templ_7745c5c3_Err != nil {
@@ -846,7 +850,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.sends_through", "host", identity.SMTPHost))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 197, Col: 149}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 198, Col: 149}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {
@@ -864,7 +868,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 				var templ_7745c5c3_Var43 string
 				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.needs_password"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 199, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 200, Col: 120}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 				if templ_7745c5c3_Err != nil {
@@ -884,7 +888,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(identityUnusableNote(ctx, data))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 203, Col: 104}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 204, Col: 104}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 			if templ_7745c5c3_Err != nil {
@@ -910,7 +914,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.move_up", "email", identity.Email))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 211, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 212, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 		if templ_7745c5c3_Err != nil {
@@ -933,7 +937,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 		var templ_7745c5c3_Var46 string
 		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/"+identity.ID+"/move"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 213, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 214, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 		if templ_7745c5c3_Err != nil {
@@ -954,7 +958,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 		var templ_7745c5c3_Var47 string
 		templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.move_down", "email", identity.Email))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 223, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 224, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 		if templ_7745c5c3_Err != nil {
@@ -977,7 +981,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 		var templ_7745c5c3_Var48 string
 		templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/"+identity.ID+"/move"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 225, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 226, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 		if templ_7745c5c3_Err != nil {
@@ -1014,7 +1018,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 			var templ_7745c5c3_Var50 string
 			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.edit_named", "email", identity.Email))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 236, Col: 79}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 237, Col: 79}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 			if templ_7745c5c3_Err != nil {
@@ -1027,7 +1031,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 			var templ_7745c5c3_Var51 string
 			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/panel?edit="+identity.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 237, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 238, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
@@ -1059,7 +1063,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.delete_named", "email", identity.Email))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 248, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 249, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 			if templ_7745c5c3_Err != nil {
@@ -1072,7 +1076,7 @@ func accountIdentityRow(data models.AccountIdentitiesData, identity models.Ident
 			var templ_7745c5c3_Var53 string
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/"+identity.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 249, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 250, Col: 72}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {
@@ -1145,7 +1149,7 @@ func accountIdentityDefaultBadge() templ.Component {
 			var templ_7745c5c3_Var56 string
 			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.default"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 272, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 273, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 			if templ_7745c5c3_Err != nil {
@@ -1205,7 +1209,7 @@ func accountIdentityDefaultButton(data models.AccountIdentitiesData, id string, 
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.is_default"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 284, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 285, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
@@ -1249,7 +1253,7 @@ func accountIdentityDefaultButton(data models.AccountIdentitiesData, id string, 
 				var templ_7745c5c3_Var61 string
 				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.make_default_named", "email", email))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 296, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 297, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 				if templ_7745c5c3_Err != nil {
@@ -1262,7 +1266,7 @@ func accountIdentityDefaultButton(data models.AccountIdentitiesData, id string, 
 				var templ_7745c5c3_Var62 string
 				templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/default"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 297, Col: 64}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 298, Col: 64}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 				if templ_7745c5c3_Err != nil {
@@ -1275,7 +1279,7 @@ func accountIdentityDefaultButton(data models.AccountIdentitiesData, id string, 
 				var templ_7745c5c3_Var63 string
 				templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(templ.JSONString(map[string]string{"identity_id": id}))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 298, Col: 68}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 299, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 				if templ_7745c5c3_Err != nil {
@@ -1288,7 +1292,7 @@ func accountIdentityDefaultButton(data models.AccountIdentitiesData, id string, 
 				var templ_7745c5c3_Var64 string
 				templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 301, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 302, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 				if templ_7745c5c3_Err != nil {
@@ -1392,7 +1396,7 @@ func accountIdentityTooltip(label string) templ.Component {
 				var templ_7745c5c3_Var69 string
 				templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 316, Col: 10}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 317, Col: 10}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 				if templ_7745c5c3_Err != nil {
@@ -1444,7 +1448,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var71 string
 		templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/sender-name"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 326, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 327, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 		if templ_7745c5c3_Err != nil {
@@ -1457,7 +1461,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var72 string
 		templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.back"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 335, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 336, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 		if templ_7745c5c3_Err != nil {
@@ -1470,7 +1474,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var73 string
 		templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/panel"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 336, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 337, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 		if templ_7745c5c3_Err != nil {
@@ -1491,7 +1495,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var74 string
 		templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.sender_name_edit"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 343, Col: 145}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 344, Col: 145}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 		if templ_7745c5c3_Err != nil {
@@ -1504,7 +1508,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var75 string
 		templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.sender_name_label"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 346, Col: 144}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 347, Col: 144}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 		if templ_7745c5c3_Err != nil {
@@ -1525,7 +1529,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var76 string
 		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.sender_name_hint", "email", data.Account.Email, "name", data.Account.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 348, Col: 151}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 349, Col: 151}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 		if templ_7745c5c3_Err != nil {
@@ -1543,7 +1547,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var77 string
 			templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 352, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 353, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 			if templ_7745c5c3_Err != nil {
@@ -1570,7 +1574,7 @@ func accountSenderNameForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var78 string
 		templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.save"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 358, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 359, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 		if templ_7745c5c3_Err != nil {
@@ -1614,7 +1618,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var80 string
 		templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, ""))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 369, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 370, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 		if templ_7745c5c3_Err != nil {
@@ -1627,7 +1631,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var81 string
 		templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.back"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 378, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 379, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 		if templ_7745c5c3_Err != nil {
@@ -1640,7 +1644,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var82 string
 		templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/panel"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 379, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 380, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 		if templ_7745c5c3_Err != nil {
@@ -1662,7 +1666,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var83 string
 			templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.add_title"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 388, Col: 42}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 389, Col: 42}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 			if templ_7745c5c3_Err != nil {
@@ -1672,7 +1676,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var84 string
 			templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.edit_named", "email", editing.Email))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 390, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 391, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 			if templ_7745c5c3_Err != nil {
@@ -1691,7 +1695,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var85 string
 			templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "identities.catch_all", len(data.CatchAllDomains), "domains", strings.Join(data.CatchAllDomains, ", ")))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 395, Col: 193}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 396, Col: 193}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 			if templ_7745c5c3_Err != nil {
@@ -1710,7 +1714,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var86 string
 			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.from_provider_note", "provider", accountProviderName(data.Account.Provider)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 398, Col: 146}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 399, Col: 146}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 			if templ_7745c5c3_Err != nil {
@@ -1728,7 +1732,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var87 string
 		templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(editing.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 400, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 401, Col: 51}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 		if templ_7745c5c3_Err != nil {
@@ -1741,7 +1745,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var88 string
 		templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.field.name"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 403, Col: 138}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 404, Col: 138}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 		if templ_7745c5c3_Err != nil {
@@ -1762,7 +1766,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var89 string
 		templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.email"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 407, Col: 136}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 408, Col: 136}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 		if templ_7745c5c3_Err != nil {
@@ -1783,7 +1787,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var90 string
 		templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.reply_to"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 411, Col: 142}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 412, Col: 142}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 		if templ_7745c5c3_Err != nil {
@@ -1796,7 +1800,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var91 string
 		templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.optional"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 411, Col: 207}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 412, Col: 207}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 		if templ_7745c5c3_Err != nil {
@@ -1817,7 +1821,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 		var templ_7745c5c3_Var92 string
 		templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.signature"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 415, Col: 111}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 416, Col: 111}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 		if templ_7745c5c3_Err != nil {
@@ -1892,7 +1896,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 					var templ_7745c5c3_Var97 string
 					templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.use_account_signature"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 421, Col: 142}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 422, Col: 142}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var97))
 					if templ_7745c5c3_Err != nil {
@@ -1920,7 +1924,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 						var templ_7745c5c3_Var99 string
 						templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(sig.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 423, Col: 112}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 424, Col: 112}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 						if templ_7745c5c3_Err != nil {
@@ -1967,7 +1971,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var100 string
 			templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 434, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 435, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 			if templ_7745c5c3_Err != nil {
@@ -1985,7 +1989,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var101 string
 			templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.send_as_note"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 436, Col: 85}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 437, Col: 85}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 			if templ_7745c5c3_Err != nil {
@@ -2012,7 +2016,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var102 string
 			templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.edit.add"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 441, Col: 39}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 442, Col: 39}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 			if templ_7745c5c3_Err != nil {
@@ -2030,7 +2034,7 @@ func accountIdentityForm(data models.AccountIdentitiesData) templ.Component {
 			var templ_7745c5c3_Var103 string
 			templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.save"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 444, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 445, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 			if templ_7745c5c3_Err != nil {
@@ -2098,7 +2102,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var105 string
 		templ_7745c5c3_Var105, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.send_through"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 478, Col: 107}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 479, Col: 107}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var105))
 		if templ_7745c5c3_Err != nil {
@@ -2137,7 +2141,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var108 string
 		templ_7745c5c3_Var108, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.account_server"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 482, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 483, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var108))
 		if templ_7745c5c3_Err != nil {
@@ -2154,7 +2158,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var109 string
 		templ_7745c5c3_Var109, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.other_smtp"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 486, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 487, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var109))
 		if templ_7745c5c3_Err != nil {
@@ -2172,7 +2176,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 			var templ_7745c5c3_Var110 string
 			templ_7745c5c3_Var110, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.jmap_send_through"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 490, Col: 121}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 491, Col: 121}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var110))
 			if templ_7745c5c3_Err != nil {
@@ -2190,7 +2194,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 			var templ_7745c5c3_Var111 string
 			templ_7745c5c3_Var111, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.provider_send_through", "provider", accountProviderName(data.Account.Provider)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 492, Col: 149}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 493, Col: 149}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var111))
 			if templ_7745c5c3_Err != nil {
@@ -2226,7 +2230,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var114 string
 		templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.smtp_server"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 496, Col: 146}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 497, Col: 146}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 		if templ_7745c5c3_Err != nil {
@@ -2247,7 +2251,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var115 string
 		templ_7745c5c3_Var115, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.port"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 501, Col: 139}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 502, Col: 139}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var115))
 		if templ_7745c5c3_Err != nil {
@@ -2268,7 +2272,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var116 string
 		templ_7745c5c3_Var116, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.encryption"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 506, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 507, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var116))
 		if templ_7745c5c3_Err != nil {
@@ -2403,7 +2407,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 					var templ_7745c5c3_Var123 string
 					templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.unencrypted"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 516, Col: 159}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 517, Col: 159}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var123))
 					if templ_7745c5c3_Err != nil {
@@ -2434,7 +2438,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var124 string
 		templ_7745c5c3_Var124, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.username"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 521, Col: 147}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 522, Col: 147}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var124))
 		if templ_7745c5c3_Err != nil {
@@ -2455,7 +2459,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var125 string
 		templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.password"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 525, Col: 147}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 526, Col: 147}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var125))
 		if templ_7745c5c3_Err != nil {
@@ -2483,7 +2487,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var126 string
 		templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(accountIdentitiesPath(data.Account.ID, "/smtp-test"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 536, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 537, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 		if templ_7745c5c3_Err != nil {
@@ -2500,7 +2504,7 @@ func accountIdentitySendThrough(data models.AccountIdentitiesData) templ.Compone
 		var templ_7745c5c3_Var127 string
 		templ_7745c5c3_Var127, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "identities.test"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 544, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 545, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var127))
 		if templ_7745c5c3_Err != nil {
@@ -2559,7 +2563,7 @@ func AccountIdentitySMTPTestResult(result models.ConnectionTestResult) templ.Com
 			var templ_7745c5c3_Var129 string
 			templ_7745c5c3_Var129, templ_7745c5c3_Err = templ.JoinStringErrs(result.Message)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 562, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 563, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var129))
 			if templ_7745c5c3_Err != nil {
@@ -2585,7 +2589,7 @@ func AccountIdentitySMTPTestResult(result models.ConnectionTestResult) templ.Com
 			var templ_7745c5c3_Var130 string
 			templ_7745c5c3_Var130, templ_7745c5c3_Err = templ.JoinStringErrs(result.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 567, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/account_identities.templ`, Line: 568, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var130))
 			if templ_7745c5c3_Err != nil {

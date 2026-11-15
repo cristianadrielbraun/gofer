@@ -65,7 +65,9 @@ func (h *Handler) loadAccountIdentitiesData(w http.ResponseWriter, r *http.Reque
 	}
 	data.CanAddIdentities = data.AccountSendsAnyAddress || data.CanUseOwnSMTP
 	for _, identity := range identities {
-		if identity.Source == models.IdentitySourceManual && !identity.HasOwnSMTP() && !rule.Accepts(identity.Email) {
+		// A shared mailbox's identity sends from that mailbox, which allows
+		// its own address whatever the account's provider lists.
+		if identity.Source == models.IdentitySourceManual && !identity.HasOwnSMTP() && !sharedMailboxSendsAs(identity) && !rule.Accepts(identity.Email) {
 			data.Unusable[identity.ID] = true
 		}
 	}

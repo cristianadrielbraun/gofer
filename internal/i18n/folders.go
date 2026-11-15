@@ -37,6 +37,17 @@ func DefaultFolderName(ctx context.Context, role, name string) (string, bool) {
 	return T(ctx, "folder."+role), true
 }
 
+// SharedFolderName shows a folder of a shared mailbox: by its role there
+// when it has one, such as "Sent" for the server's "Sent Items", or else by
+// its own name.
+func SharedFolderName(ctx context.Context, role, name string) string {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if english, ok := folderRoleNames[role]; ok {
+		return FolderName(ctx, role, english)
+	}
+	return name
+}
+
 // LocalFoldersName is the English name Gofer gives each user's Local folders
 // account, the one with no mail server behind it.
 const LocalFoldersName = "Local folders"

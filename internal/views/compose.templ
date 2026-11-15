@@ -758,20 +758,23 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 				}
 			}
 			for _, identity := range acc.Identities {
-				@dropdown.Item(dropdown.ItemProps{
-					Class: "compose-from-item select-item group relative justify-start py-1 pr-3 text-[13px] font-normal outline-none transition-colors duration-150",
-					Attributes: templ.Attributes{
-						"data-compose-account-item":     "",
-						"data-compose-account-scope":    scope,
-						"data-compose-account-selected": fmt.Sprintf("%t", acc.ID == composeDefaultAccountID(accounts) && identity.ID == composeDefaultIdentityID(accounts)),
-						"data-account-id":               acc.ID,
-						"data-identity-id":              identity.ID,
-						"data-identity-email":           identity.Email,
-						"data-identity-name":            identity.Name,
-						"data-on-click":                 onAction("selectComposeAccount", actionElement, scope == "pane"),
-					},
-				}) {
-					@composeFromAddressText(identity.Name, identity.Email)
+				// A shared mailbox's identity put aside is not offered.
+				if identity.Usable() {
+					@dropdown.Item(dropdown.ItemProps{
+						Class: "compose-from-item select-item group relative justify-start py-1 pr-3 text-[13px] font-normal outline-none transition-colors duration-150",
+						Attributes: templ.Attributes{
+							"data-compose-account-item":     "",
+							"data-compose-account-scope":    scope,
+							"data-compose-account-selected": fmt.Sprintf("%t", acc.ID == composeDefaultAccountID(accounts) && identity.ID == composeDefaultIdentityID(accounts)),
+							"data-account-id":               acc.ID,
+							"data-identity-id":              identity.ID,
+							"data-identity-email":           identity.Email,
+							"data-identity-name":            identity.Name,
+							"data-on-click":                 onAction("selectComposeAccount", actionElement, scope == "pane"),
+						},
+					}) {
+						@composeFromAddressText(identity.Name, identity.Email)
+					}
 				}
 			}
 		}

@@ -1,0 +1,61 @@
+package views
+
+import (
+	"github.com/cristianadrielbraun/gofer/components/badge"
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+// accountIdentitySharedStatus shows, for an identity Gofer made for a shared
+// mailbox, that it is one, whether it is offered in the From menu, what the
+// server said about sending from it, and a switch to turn it off or on.
+templ accountIdentitySharedStatus(data models.AccountIdentitiesData, identity models.Identity) {
+	if identity.SharedMailbox != "" {
+		<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-account-identity-shared={ identity.SharedMailbox } data-account-identity-shared-state={ identity.SharedState }>
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 text-[10px]"}) {
+				{ i18n.T(ctx, "identities.shared.badge") }
+			}
+			switch identity.SharedState {
+				case "inactive":
+					<span class="text-muted-foreground">{ i18n.T(ctx, "identities.shared.inactive") }</span>
+				case "disabled":
+					<span class="text-muted-foreground">{ i18n.T(ctx, "identities.shared.disabled") }</span>
+				case "mailbox_off":
+					<span class="text-muted-foreground">{ i18n.T(ctx, "identities.shared.mailbox_off") }</span>
+			}
+			if identity.SharedState != "inactive" && identity.SharedState != "mailbox_off" {
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-6 px-2 text-xs text-muted-foreground", Attributes: templ.Attributes{
+					"hx-post":                             accountIdentitiesPath(data.Account.ID, "/"+identity.ID+"/shared"),
+					"hx-vals":                             sharedIdentityToggleValues(identity.SharedState),
+					"hx-target":                           "#account-identities-panel",
+					"hx-swap":                             "outerHTML",
+					"data-account-identity-shared-toggle": "",
+				}}) {
+					if identity.SharedState == "disabled" {
+						{ i18n.T(ctx, "identities.shared.turn_on") }
+					} else {
+						{ i18n.T(ctx, "identities.shared.turn_off") }
+					}
+				}
+			}
+		</div>
+		switch identity.SenderCheck {
+			case "rejected":
+				<p class="text-xs text-destructive" data-account-identity-sender-check="rejected">{ i18n.T(ctx, "identities.shared.sender_rejected", "message", identity.SenderCheckMessage) }</p>
+			case "unknown":
+				<p class="text-xs text-muted-foreground" data-account-identity-sender-check="unknown">{ i18n.T(ctx, "identities.shared.sender_unknown", "message", identity.SenderCheckMessage) }</p>
+			case "accepted":
+				<p class="text-xs text-muted-foreground" data-account-identity-sender-check="accepted">{ i18n.T(ctx, "identities.shared.sender_accepted") }</p>
+		}
+	}
+}
+
+// sharedIdentityToggleValues are what turning a shared mailbox's identity on
+// or off sends: the opposite of its state.
+func sharedIdentityToggleValues(state string) string {
+	if state == "disabled" {
+		return `{"active":"true"}`
+	}
+	return `{"active":"false"}`
+}

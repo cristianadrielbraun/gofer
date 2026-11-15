@@ -24,6 +24,7 @@ import (
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/sharedmailbox"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/google/uuid"
 )
@@ -148,10 +149,32 @@ func unifiedFolderRolePredicate(alias, folderID string) (string, []any) {
 	if alias != "" {
 		column = alias + ".role"
 	}
+	roles := []any{folderID}
+	match := column + " = ?"
 	if folderID == "spam" {
-		return column + " IN (?, ?)", []any{"spam", "junk"}
+		roles = []any{"spam", "junk"}
+		match = column + " IN (?, ?)"
 	}
-	return column + " = ?", []any{folderID}
+	if alias == "" {
+		return match, roles
+	}
+	// A shared mailbox's folder of the role joins in too, unless the user
+	// turned the mailbox off or keeps shared mailboxes out of unified
+	// folders.
+	shared := alias + ".shared_role = ?"
+	if folderID == "spam" {
+		shared = alias + ".shared_role IN (?, ?)"
+	}
+	predicate := "(" + match + " OR (" + alias + ".shared_mailbox != '' AND " + shared + " AND " + sharedMailboxOnSQL(alias) + " AND " + sharedMailboxesInUnifiedSQL(alias) + "))"
+	return predicate, append(append([]any{}, roles...), roles...)
+}
+
+// sharedMailboxesInUnifiedSQL is true unless the folder's owner keeps shared
+// mailboxes out of unified folders (sharedmailbox.KeyInUnified).
+func sharedMailboxesInUnifiedSQL(alias string) string {
+	return `COALESCE((SELECT json_extract(unified_setting.value, '$.` + sharedmailbox.KeyInUnified + `')
+		FROM app_settings unified_setting JOIN accounts unified_account ON unified_account.user_id = unified_setting.user_id
+		WHERE unified_account.id = ` + alias + `.account_id AND unified_setting.key = 'ui_settings'), 'true') != 'false'`
 }
 
 func unifiedFolderIDFromRole(role string) string {
@@ -233,6 +256,10 @@ type UpsertFolderInput struct {
 	CountsKnown      bool
 	TotalCount       int
 	UnreadCount      int
+	// SharedMailbox and SharedRole place an IMAP folder in a shared mailbox
+	// (mail/imap/shared.go); "" for the account's own folders.
+	SharedMailbox string
+	SharedRole    string
 }
 
 func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) error {
@@ -243,9 +270,11 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO folders (id, account_id, parent_id, remote_id, provider_remote_id, name, icon, role, selectable, sort_order, total_count, unread_count)
-		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? ELSE 0 END, CASE WHEN ? THEN ? ELSE 0 END)
+		INSERT INTO folders (id, account_id, parent_id, remote_id, provider_remote_id, name, icon, role, selectable, sort_order, total_count, unread_count, shared_mailbox, shared_role)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? ELSE 0 END, CASE WHEN ? THEN ? ELSE 0 END, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
+			shared_mailbox = excluded.shared_mailbox,
+			shared_role = excluded.shared_role,
 			parent_id = NULL,
 			remote_id = excluded.remote_id,
 			provider_remote_id = CASE WHEN excluded.provider_remote_id != '' THEN excluded.provider_remote_id ELSE folders.provider_remote_id END,
@@ -270,6 +299,7 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 		if _, err := stmt.ExecContext(ctx,
 			f.ID, f.AccountID, f.RemoteID, f.ProviderRemoteID, f.Name, f.Icon, f.Role, boolInt(f.Selectable), f.SortOrder,
 			countsKnown, clampNonNegative(f.TotalCount), countsKnown, clampNonNegative(f.UnreadCount),
+			f.SharedMailbox, f.SharedRole,
 			countsKnown, clampNonNegative(f.TotalCount), countsKnown, clampNonNegative(f.UnreadCount),
 		); err != nil {
 			return fmt.Errorf("upsert folder %s: %w", f.ID, err)
@@ -5065,7 +5095,7 @@ func calendarTimestamp(at *time.Time) string {
 
 func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT f.id, f.name, f.icon, f.role, f.unread_count, f.parent_id, COALESCE(appearance.value, ''), COALESCE(icon_appearance.value, ''), COALESCE(style_appearance.value, ''), CAST(folder_order.value AS INTEGER)
+		`SELECT f.id, f.name, f.icon, f.role, f.unread_count, f.parent_id, COALESCE(appearance.value, ''), COALESCE(icon_appearance.value, ''), COALESCE(style_appearance.value, ''), CAST(folder_order.value AS INTEGER), f.shared_mailbox, f.shared_role, `+sharedMailboxNameSQL("f")+`
 		 FROM folders f
 		 JOIN accounts a ON a.id = f.account_id
 		 LEFT JOIN app_settings appearance ON appearance.user_id = a.user_id AND appearance.key = 'folder_color:' || f.id
@@ -5075,6 +5105,8 @@ func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder
 		 WHERE f.account_id = ?
 		   AND COALESCE(f.discovery_state, 'active') = 'active'
 		   AND COALESCE(f.selectable, 1) = 1
+		   AND f.shared_role NOT IN ('root', 'namespace')
+		   AND `+sharedMailboxOnSQL("f")+`
 		   AND (
 		     a.provider != 'gmail'
 		     OR COALESCE(f.provider_remote_id, '') = ''
@@ -5090,12 +5122,17 @@ func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder
 	for rows.Next() {
 		var fr folderRow
 		var role string
-		if err := rows.Scan(&fr.folder.ID, &fr.folder.Name, &fr.folder.Icon, &role, &fr.folder.Unread, &fr.parentID, &fr.folder.Color, &fr.folder.IconOverride, &fr.folder.IconStyle, &fr.place); err != nil {
+		if err := rows.Scan(&fr.folder.ID, &fr.folder.Name, &fr.folder.Icon, &role, &fr.folder.Unread, &fr.parentID, &fr.folder.Color, &fr.folder.IconOverride, &fr.folder.IconStyle, &fr.place, &fr.folder.SharedMailbox, &fr.folder.SharedRole, &fr.folder.SharedMailboxName); err != nil {
 			return nil, fmt.Errorf("scan folder: %w", err)
 		}
 		fr.folder.Role = role
 		fr.folder.IsSystem = role != "custom"
 		fr.folder.Name = i18n.FolderName(ctx, role, fr.folder.Name)
+		if fr.folder.SharedMailbox != "" {
+			// A shared mailbox's special folders show by their role there,
+			// "Sent" for its "Sent Items"; the server's name is kept as is.
+			fr.folder.Name = i18n.SharedFolderName(ctx, fr.folder.SharedRole, fr.folder.Name)
+		}
 		flat = append(flat, fr)
 	}
 
@@ -7579,7 +7616,7 @@ func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folde
 	var remoteMessageID, internetMessageID, threadID, providerThreadID sql.NullString
 	var isRead, isStarred int
 
-	query := `SELECT m.account_id, a.provider, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role,
+	query := `SELECT m.account_id, a.provider, mfs.folder_id, f.remote_id, mfs.remote_uid, ` + effectiveFolderRoleSQL("f") + `,
 	                 ` + stateOrAnyProviderCopyIDSQL("mfs", "m") + `, m.internet_message_id, m.thread_id, m.provider_thread_id,
 	                 mfs.is_read, mfs.is_starred
 			  FROM messages m
@@ -8728,6 +8765,8 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		 WHERE f.account_id = ?
 		   AND COALESCE(f.discovery_state, 'active') = 'active'
 		   AND COALESCE(f.selectable, 1) = 1
+		   AND f.shared_role NOT IN ('root', 'namespace')
+		   AND `+sharedMailboxOnSQL("f")+`
 		   AND (
 		     a.provider != 'gmail'
 		     OR COALESCE(f.provider_remote_id, '') = ''

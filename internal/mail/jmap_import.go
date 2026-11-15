@@ -116,10 +116,15 @@ func (j *JMAPImport) Import(ctx context.Context, mailboxID string, raw []byte, m
 	if err := j.open(ctx); err != nil {
 		return err
 	}
-	if j.storedBefore(ctx, mailboxID, messageID, receivedAt) {
+	// A shared mailbox's folder is in that mailbox's own JMAP account.
+	account, mailboxID, err := jmapAccountOf(j.session, mailboxID)
+	if err != nil {
+		return err
+	}
+	if j.storedBefore(ctx, account, mailboxID, messageID, receivedAt) {
 		return nil
 	}
-	blob, err := j.client.UploadBlob(ctx, j.session, j.account, jmap.ContentTypeMessage, raw)
+	blob, err := j.client.UploadBlob(ctx, j.session, account, jmap.ContentTypeMessage, raw)
 	if err != nil {
 		if errors.Is(err, jmap.ErrUploadTooLarge) {
 			// The session is fine; the message is what's wrong.
@@ -128,7 +133,7 @@ func (j *JMAPImport) Import(ctx context.Context, mailboxID string, raw []byte, m
 		return err
 	}
 	sent := time.Now()
-	_, err = j.client.ImportEmail(ctx, j.session, j.account, blob, mailboxID, keywords, receivedAt)
+	_, err = j.client.ImportEmail(ctx, j.session, account, blob, mailboxID, keywords, receivedAt)
 	if messageID != "" && jmapImportUnanswered(err) {
 		j.unanswered = &jmapUnansweredImport{mailboxID: mailboxID, messageID: messageID, receivedAt: receivedAt, sent: sent}
 	}
@@ -138,7 +143,7 @@ func (j *JMAPImport) Import(ctx context.Context, mailboxID string, raw []byte, m
 // storedBefore reports whether this message is the one whose last import got
 // no answer, and the server has it after all. When the server can't be asked,
 // the import goes ahead: a rare duplicate is better than a lost message.
-func (j *JMAPImport) storedBefore(ctx context.Context, mailboxID, messageID string, receivedAt time.Time) bool {
+func (j *JMAPImport) storedBefore(ctx context.Context, account, mailboxID, messageID string, receivedAt time.Time) bool {
 	last := j.unanswered
 	j.unanswered = nil
 	if last == nil || messageID == "" || last.mailboxID != mailboxID || last.messageID != messageID || !last.receivedAt.Equal(receivedAt) {
@@ -150,7 +155,7 @@ func (j *JMAPImport) storedBefore(ctx context.Context, mailboxID, messageID stri
 	if !receivedAt.IsZero() {
 		windows = append(windows, jmap.Window{From: receivedAt.Add(-time.Second), To: receivedAt.Add(time.Second)})
 	}
-	found, err := j.client.FindEmails(ctx, j.session, j.account, mailboxID, messageID, windows)
+	found, err := j.client.FindEmails(ctx, j.session, account, mailboxID, messageID, windows)
 	return err == nil && len(found) > 0
 }
 

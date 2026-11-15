@@ -181,7 +181,7 @@ func (h *Handler) registerUserMessageMutations(private func(string, http.Handler
 func (h *Handler) queueUserSpamTargets(w http.ResponseWriter, r *http.Request, targets []ownedMessageTarget, disposition spamDisposition) {
 	updated, messages, failed, noSpam := 0, 0, 0, 0
 	for _, target := range targets {
-		destination, _, err := h.spamDestinationFolder(r.Context(), target.Infos[0].AccountID, disposition)
+		destination, _, err := h.spamDestinationFolder(r.Context(), target.Infos[0].AccountID, target.Infos[0].FolderID, disposition)
 		if errors.Is(err, errNoSpamFolder) {
 			noteMissingFolder(w, target.Infos[0].AccountID, "junk")
 			noSpam++

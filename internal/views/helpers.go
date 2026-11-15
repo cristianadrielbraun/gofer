@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/sharedmailbox"
 	"math/rand"
 	"net/url"
 	"sort"
@@ -988,6 +989,35 @@ func mailListAccountDisplay(accounts []models.Account, accountID string) string 
 		return account.ID
 	}
 	return accountID
+}
+
+// mailListSharedMailbox gives the shared mailbox an email's folder is in,
+// by address and by name, "" for one of the account's own folders.
+func mailListSharedMailbox(accounts []models.Account, email models.Email) (string, string) {
+	if email.FolderID == "" {
+		return "", ""
+	}
+	var find func(folders []models.Folder) (string, string)
+	find = func(folders []models.Folder) (string, string) {
+		for _, folder := range folders {
+			if folder.ID == email.FolderID {
+				if folder.SharedMailbox == "" {
+					return "", ""
+				}
+				return folder.SharedMailbox, sharedmailbox.MailboxName(folder.SharedMailbox, folder.SharedMailboxName, "")
+			}
+			if address, name := find(folder.Children); address != "" {
+				return address, name
+			}
+		}
+		return "", ""
+	}
+	for _, account := range accounts {
+		if account.ID == email.AccountID {
+			return find(account.Folders)
+		}
+	}
+	return "", ""
 }
 
 func contactAvatarListFallback(isRead bool) string {
