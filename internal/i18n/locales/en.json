@@ -6354,6 +6354,8 @@
   "settings.folders.rename_label": "Rename {name}",
   "settings.folders.restore_label": "Move {name} out of Trash",
   "settings.folders.move_label": "Move {name}",
+  "settings.list.card_actions_hover.description": "When they're on the card, Star, Read / unread, Archive, Delete, Edit labels and Spam appear only while the pointer is over it. A starred email shows its star even without hover.",
+  "settings.list.card_actions_hover.title": "Show action buttons only on hover",
   "settings.list.description": "Control how messages are summarized in the email list.",
   "settings.list.group.description": "Show a conversation's messages together, as one row in the list. Turn off to list every message on its own.",
   "settings.list.group.title": "Group by conversation (threads)",

@@ -1376,7 +1376,7 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 shrink-0 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
 					</button>
 				} else {
-					<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred">
+					<button class="mail-card-hover-action transition-opacity star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred">
 						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground opacity-70"})
 					</button>
 				}
@@ -1390,6 +1390,8 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 // app.js runs them. They start in the status zone, and the card layout moves
 // them, or hides them, as it does the other fields. Labels that depend on the
 // folder (Archive in Archive, Delete in Trash, Spam in Spam) are set by app.js.
+// Like an unstarred star, they show on hover unless the
+// mail_card_actions_on_hover setting is off (mail-card-hover-action).
 templ mailCardActionButtons(email models.Email) {
 	if email.IsRead {
 		@mailCardActionButton("readAction", "read", i18n.T(ctx, "mail.actions.mark_unread")) {
@@ -1415,7 +1417,7 @@ templ mailCardActionButtons(email models.Email) {
 }
 
 templ mailCardActionButton(field string, action string, label string) {
-	<button type="button" class="mail-card-action-btn shrink-0" data-mail-card-field={ field } data-mail-card-action={ action } aria-label={ label } title={ label }>
+	<button type="button" class="mail-card-action-btn mail-card-hover-action shrink-0" data-mail-card-field={ field } data-mail-card-action={ action } aria-label={ label } title={ label }>
 		{ children... }
 	</button>
 }

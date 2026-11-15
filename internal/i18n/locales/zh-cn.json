@@ -6354,6 +6354,8 @@
   "settings.folders.rename_label": "重命名“{name}”",
   "settings.folders.restore_label": "将“{name}”移出回收站",
   "settings.folders.move_label": "移动“{name}”",
+  "settings.list.card_actions_hover.description": "星标、已读 / 未读、归档、删除、编辑标签和垃圾邮件按钮在卡片上时，仅在指针移到卡片上时显示。已加星标的邮件即使不悬停也会显示星标。",
+  "settings.list.card_actions_hover.title": "仅在悬停时显示操作按钮",
   "settings.list.description": "控制邮件在邮件列表中的摘要显示方式。",
   "settings.list.group.description": "将一个会话中的邮件合并为列表中的一行显示。关闭后，每封邮件都会单独列出。",
   "settings.list.group.title": "按会话分组",

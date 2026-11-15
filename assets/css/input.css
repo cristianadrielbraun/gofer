@@ -3002,6 +3002,16 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   color: var(--color-destructive);
 }
 
+/* The card's buttons, and its star while unstarred, show while the pointer
+   is over the card or the keyboard is on it, unless the "only on hover"
+   setting is off (ui-settings.js). Screens without a pointer that hovers
+   always show them; phones lay their card out on their own. */
+@media (hover: hover) and (min-width: 1024px) {
+  #mail-list-scroll:not([data-mail-card-actions-always]) .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible) {
+    opacity: 0;
+  }
+}
+
 .mail-list-card-empty-icon-slot {
   display: inline-flex;
   width: 1rem;

@@ -266,6 +266,22 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 					}
 				</div>
 			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<span id="mail-card-actions-on-hover-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.card_actions_hover.title") }</span>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.card_actions_hover.description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
+						@switchcomp.Switch(switchcomp.Props{
+							ID:         "mail-card-actions-on-hover",
+							Name:       "mail_card_actions_on_hover",
+							Checked:    uiSettingGet(uiSettings, "mail_card_actions_on_hover", "true") != "false",
+							Attributes: templ.Attributes{"aria-labelledby": "mail-card-actions-on-hover-label", "data-ui-setting-switch": "mail_card_actions_on_hover"},
+						})
+					}
+				</div>
+			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.mark_read.title") }</h4>

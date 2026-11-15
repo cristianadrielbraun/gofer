@@ -6354,6 +6354,8 @@
   "settings.folders.rename_label": "Cambiar el nombre de {name}",
   "settings.folders.restore_label": "Sacar {name} de la Papelera",
   "settings.folders.move_label": "Mover {name}",
+  "settings.list.card_actions_hover.description": "Si están en la tarjeta, Destacado, Leído / no leído, Archivar, Eliminar, Editar etiquetas y Spam aparecen solo al pasar el cursor sobre ella. Un correo destacado muestra su estrella aunque el cursor no esté encima.",
+  "settings.list.card_actions_hover.title": "Mostrar los botones de acción solo al pasar el cursor",
   "settings.list.description": "Controla cómo se resumen los mensajes en la lista de correo.",
   "settings.list.group.description": "Muestra juntos los mensajes de una conversación, en una sola fila de la lista. Desactívalo para ver cada mensaje por separado.",
   "settings.list.group.title": "Agrupar por conversación",

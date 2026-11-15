@@ -681,6 +681,8 @@ var GoferSettings;
       scroll.toggleAttribute("data-mail-date-time", _cache.mail_card_date_time === "true");
       // On unless turned off, so settings saved before the option keep it.
       scroll.toggleAttribute("data-mail-account-no-marker", _cache.mail_card_account_marker === "false");
+      // The card's buttons show on hover only unless this is turned off.
+      scroll.toggleAttribute("data-mail-card-actions-always", _cache.mail_card_actions_on_hover === "false");
     }
     MAIL_CARD.applyToScopes(scope, layout);
     // The card buttons whose label follows the folder (app.js).
@@ -925,7 +927,7 @@ var GoferSettings;
       _cache.mail_card_layout = MAIL_CARD.serialize(MAIL_CARD.normalize(_cache.mail_card_layout, _cache.mail_card_fields));
       applyMailCardSettings();
     }
-    if (key === "mail_card_date_time" || key === "mail_card_account_marker") {
+    if (key === "mail_card_date_time" || key === "mail_card_account_marker" || key === "mail_card_actions_on_hover") {
       applyMailCardSettings();
     }
     if (key === "mail_card_layout") {

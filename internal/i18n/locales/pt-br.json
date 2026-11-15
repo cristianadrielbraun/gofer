@@ -6354,6 +6354,8 @@
   "settings.folders.rename_label": "Renomear {name}",
   "settings.folders.restore_label": "Tirar {name} da Lixeira",
   "settings.folders.move_label": "Mover {name}",
+  "settings.list.card_actions_hover.description": "Quando estão no cartão, Estrela, Lida / não lida, Arquivar, Excluir, Editar marcadores e Spam aparecem só ao passar o cursor sobre ele. Um e-mail com estrela mostra a estrela mesmo sem o cursor em cima.",
+  "settings.list.card_actions_hover.title": "Mostrar os botões de ação só ao passar o cursor",
   "settings.list.description": "Controle como as mensagens são resumidas na lista de e-mails.",
   "settings.list.group.description": "Mostre as mensagens de uma conversa juntas, em uma só linha da lista. Desative para listar cada mensagem separadamente.",
   "settings.list.group.title": "Agrupar por conversa",
