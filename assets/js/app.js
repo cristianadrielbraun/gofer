@@ -3174,18 +3174,29 @@ document.addEventListener("DOMContentLoaded", function () {
       performMailSelectionAction(button ? mailSelectionActionName(button) : action, target ? mailRowById(target.id) : null)
     }
 
-    // A card's action buttons (mailCardActionButtons) act on that card's
-    // message alone, or its whole thread when the card stands for one, like
-    // the context menu does on the row it opened on.
+    // A card's action buttons (mailCardActionButtons) act on the selection
+    // when their card is in it, as the context menu does. Otherwise they act
+    // on that card's message alone, or its whole thread when the card stands
+    // for one, and leave the selection as it is.
     function runMailCardAction(button) {
       var row = button.closest(".mail-list-item[data-email-id]")
       if (!row || !row.dataset.emailId) return
       var action = mailCardActionName(button, row)
-      selectedMailIds.clear()
-      setMailSelected(row.dataset.emailId, true)
-      lastSelectedMailId = row.dataset.emailId
-      syncMailSelectionControls()
-      performMailSelectionAction(action, button)
+      var only = selectedMailIds.has(row.dataset.emailId) ? null : [{ id: row.dataset.emailId, thread: row.dataset.hasThread === "true" }]
+      var run = function () { performMailSelectionAction(action, button, only) }
+      // In Trash, Delete is for good. The button is a single click away on
+      // every card, so it asks first.
+      if (action === "delete" && mailFolderIsTrash(currentMailListFolderID())) {
+        var count = only ? 1 : selectedMailIds.size
+        window.goferConfirm({
+          title: goferTn("js.mail.delete.confirm_title", count),
+          message: goferTn("js.mail.delete.in_trash", count),
+          destructive: true,
+          confirmLabel: goferT("js.mail.delete.permanently"),
+        }).then(function (accepted) { if (accepted) run() })
+        return
+      }
+      run()
     }
 
     // What a card button does here: Read follows the message's state, Spam
@@ -3217,9 +3228,25 @@ document.addEventListener("DOMContentLoaded", function () {
       button.title = label
     }
 
+    // Labels the card buttons under root as the cards are drawn, for screen
+    // readers that read a card without hovering or focusing it. ui-settings.js
+    // calls this as it lays the cards out. Hidden buttons aren't read out, so
+    // a layout that shows none is left alone.
+    function syncMailCardActionLabels(root) {
+      var scroll = document.getElementById("mail-list-scroll")
+      if (!scroll || !/Action(,|$)/.test(scroll.dataset.mailCardFields || "")) return
+      var buttons = (root && root !== document ? root : scroll).querySelectorAll("[data-mail-card-action]")
+      for (var i = 0; i < buttons.length; i++) syncMailCardActionLabel(buttons[i])
+    }
+
     function setupMailCardActionLabels() {
+      window.syncMailCardActionLabels = syncMailCardActionLabels
       if (document.body._goferMailCardActionLabelsBound) return
       document.body._goferMailCardActionLabelsBound = true
+      // Cards drawn before this ran.
+      syncMailCardActionLabels()
+      // Hovering or focusing a button catches up with what changed since,
+      // such as Read after the message was marked read.
       var sync = function (e) {
         var button = e.target.closest && e.target.closest("#mail-list-scroll [data-mail-card-action]")
         if (button) syncMailCardActionLabel(button)
@@ -5353,10 +5380,10 @@ document.addEventListener("DOMContentLoaded", function () {
       return action
     }
 
-    function markSelectedReadInBackground(ids) {
-      var targets = selectedMailTargets(ids)
+    // finish is what performMailSelectionAction does with the selection.
+    function markSelectedReadInBackground(ids, targets, finish) {
       for (var i = 0; i < ids.length; i++) applyOptimisticRead(ids[i])
-      clearMailSelection()
+      finish()
 
       sendBulkMessageAction("/api/messages/read", targets).then(function () {
         if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -5428,14 +5455,19 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // anchor is where the action was asked for, for a popover about it.
-    function performMailSelectionAction(action, anchor) {
-      if (mailSelectionBusy || selectedMailIds.size === 0) return
-      var ids = Array.from(selectedMailIds)
-      if (action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) && archiveSelectionBlocked(ids, anchor)) return
+    // only, when given, is what to act on instead of the selection, as
+    // { id, thread } targets, and the selection then stays as it is: a
+    // card's button on a card outside the selection.
+    function performMailSelectionAction(action, anchor, only) {
+      if (mailSelectionBusy || (!only && selectedMailIds.size === 0)) return
+      var ids = only ? only.map(function (target) { return target.id }) : Array.from(selectedMailIds)
+      var actionTargets = function () { return only || selectedMailTargets(ids) }
+      var finish = only ? function () {} : clearMailSelection
+      if (action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) && archiveSelectionBlocked(ids, anchor, only)) return
       if (action === "labels") {
-        var labelTargets = selectedMailTargets(ids)
+        var labelTargets = actionTargets()
         openLabelsDialog(labelTargets, function () {
-          clearMailSelection()
+          finish()
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
             virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
           }
@@ -5447,12 +5479,12 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       if (action === "read") {
-        markSelectedReadInBackground(ids)
+        markSelectedReadInBackground(ids, actionTargets(), finish)
         return
       }
       if (action === "unread") {
-        var unreadTargets = selectedMailTargets(ids)
-        clearMailSelection()
+        var unreadTargets = actionTargets()
+        finish()
         sendBulkMessageAction("/api/messages/read", unreadTargets, { state: "unread" }).then(function () {
           for (var u = 0; u < ids.length; u++) invalidateMailListItem(ids[u])
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -5465,13 +5497,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (action === "archive" && mailFolderIsArchive(currentMailListFolderID())) action = "unarchive"
       if (action === "archive" || action === "unarchive" || action === "delete" || action === "star" || action === "unstar" || action === "spam" || action === "not-spam") {
-        var targets = selectedMailTargets(ids)
+        var targets = actionTargets()
         var current = virtualMailList && virtualMailList.selectedEmailId
         var starring = action === "star" || action === "unstar"
         var removesFromFolder = !starring
         if (removesFromFolder && current && ids.indexOf(current) !== -1) setMailViewEmpty()
         if (removesFromFolder) applyOptimisticRemove(ids)
-        clearMailSelection()
+        finish()
         var path = action === "unarchive" ? "/api/messages/unarchive" : action === "archive" ? "/api/messages/archive" : (action === "delete" ? "/api/messages/delete" : (action === "spam" ? "/api/messages/spam" : (action === "not-spam" ? "/api/messages/not-spam" : "/api/messages/star")))
         var extra = starring ? { state: action === "star" ? "starred" : "unstarred" } : null
         if (action === "delete") extra = { folder_id: currentMailListFolderID() }
@@ -5501,7 +5533,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var mailView = document.getElementById("mail-view")
         var current = virtualMailList && virtualMailList.selectedEmailId
         if ((action === "archive" || action === "delete") && current && ids.indexOf(current) !== -1 && mailView) setMailViewEmpty()
-        clearMailSelection()
+        finish()
         for (var i = 0; i < ids.length; i++) invalidateMailListItem(ids[i])
         if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
           virtualMailList.refreshCurrentFolder({ noAnimation: action === "read" }).catch(function () {})
@@ -5524,8 +5556,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // archiveSelectionBlocked shows why ids can't all be archived and returns
     // true, or returns false when they can. When some of them can, the
-    // popover offers to archive just those.
-    function archiveSelectionBlocked(ids, anchor) {
+    // popover offers to archive just those. only is performMailSelectionAction's.
+    function archiveSelectionBlocked(ids, anchor, only) {
       var missing = selectionWithoutArchive(ids)
       if (!missing.length) return false
       var archivable = ids.filter(function (id) { return missing.indexOf(mailRowAccountID(id)) === -1 })
@@ -5534,6 +5566,10 @@ document.addEventListener("DOMContentLoaded", function () {
         anchor = button && button.offsetParent ? button : mailRowById(ids[0])
       }
       showArchiveUnavailable(anchor, missing, archivable.length ? function () {
+        if (only) {
+          performMailSelectionAction("archive", null, only.filter(function (target) { return archivable.indexOf(target.id) !== -1 }))
+          return
+        }
         selectedMailIds.clear()
         archivable.forEach(function (id) { setMailSelected(id, true) })
         syncMailSelectionControls()

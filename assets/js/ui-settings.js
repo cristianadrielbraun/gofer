@@ -683,6 +683,8 @@ var GoferSettings;
       scroll.toggleAttribute("data-mail-account-no-marker", _cache.mail_card_account_marker === "false");
     }
     MAIL_CARD.applyToScopes(scope, layout);
+    // The card buttons whose label follows the folder (app.js).
+    if (typeof window.syncMailCardActionLabels === "function") window.syncMailCardActionLabels(scope);
   }
 
   // Lays the contact cards out: their fields in their zones, and the card as
