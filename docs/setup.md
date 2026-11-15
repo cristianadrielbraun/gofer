@@ -4,6 +4,15 @@
 
 Everything about configuring, upgrading, and deploying Gofer. For a quick start, see the [README](../README.md).
 
+## guides by topic
+
+- [Raspberry Pi installation](./raspberry-pi.md): install the ARM64 release and choose the next setup steps.
+- [Linux service](./linux-service.md): run Gofer under systemd and start it at boot.
+- [Private network access](./lan-access.md): reach Gofer over plain HTTP on a home or office LAN.
+- [HTTPS with Tailscale](./tailscale.md): provide a private HTTPS address for your devices.
+- [Gmail and Google Workspace](./gmail.md): configure app passwords or Google OAuth.
+- [Linux binary updates](./binary-updates.md): back up, upgrade, and roll back an installation.
+
 ## auth modes and storage
 
 Gofer runs in `personal` mode by default: one protected profile with multiple mailboxes. Choose `GOFER_AUTH_MODE=managed` for multiple users with separate administrator accounts. Both modes guide you through first-run setup using a token printed in the terminal. `GOFER_AUTH_MODE=open` has no login and is intended for local use. See [`.env.example`](../.env.example) for configuration options.
@@ -14,7 +23,7 @@ Upgrading a managed installation from before 0.5.0, or switching an existing ope
 
 ## accounts
 
-Generic IMAP/SMTP accounts need no OAuth application credentials. Gmail and Outlook currently require your own provider client ID and secret.
+Generic IMAP/SMTP accounts need no OAuth application credentials. Gmail and Outlook currently require your own provider client ID and secret. See [Gmail and Google Workspace](./gmail.md) for Google OAuth setup and the IMAP/SMTP app-password option.
 
 iCloud is an IMAP/SMTP account with Apple's servers filled in. Apple doesn't let other mail apps sign in with your Apple Account password, so create an app-specific password at [account.apple.com](https://account.apple.com) under **Sign-In and Security** (this needs two-factor authentication) and enter it when adding the account. Contacts and Calendar use the same login through CardDAV and CalDAV. Changing your Apple Account password revokes app-specific passwords, so you'll need to create a new one and enter it under **Edit account**. iCloud+ custom-domain addresses should work by signing in with your @icloud.com address, but haven't been tested yet. Mailbox authorization and optional Google/Microsoft application sign-in use separate clients and callbacks.
 
@@ -38,6 +47,10 @@ Gofer looks up sender pictures from Gravatar, Libravatar, BIMI, and the sender d
 Set `GOFER_GOOGLE_FONTS=true` to let people pick text and heading fonts from the Google Fonts library under Settings, Appearance. The fonts apply to every style except Express. Gofer fetches the family list, stylesheets and font files itself, keeps them in `google-fonts/` next to the database, and serves them from its own address.
 
 Runtime data is stored in `data/` by default. Protect the data directory, configuration, and secrets, and back them up together before upgrades. Shared databases apply schema migrations at startup, and managed mode converts them to per-user storage as described in [pre-0.5.0-migration.md](./pre-0.5.0-migration.md). Going back to an older version may require restoring its matching backup, and the retained shared database does not include changes made after conversion. I recommend testing your providers and access setup before relying on Gofer for anything critical.
+
+## appearance
+
+Messages follow the app theme by default, so a dark theme also darkens email content. To show emails as their senders designed them, go to **Settings → Appearance → Messages → Message style** and choose **Original**. The Dark, Light and Original buttons on a message change only that message.
 
 ## outlook change notifications
 
