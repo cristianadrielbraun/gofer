@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/netguard"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -50,7 +51,7 @@ func (s *AccountStore) SaveOutboundProxy(ctx context.Context, input OutboundProx
 	}
 	owner := strings.TrimSpace(input.OwnerUserID)
 	if owner != "" {
-		allowed, err := s.policyDB.PeopleMayAddOutboundProxies(ctx)
+		allowed, err := s.PeopleMayAddOutboundProxiesFor(ctx, owner)
 		if err != nil {
 			return "", err
 		}
@@ -136,15 +137,51 @@ func (s *AccountStore) ListOwnOutboundProxies(ctx context.Context, userID string
 	return s.policyDB.ListOwnOutboundProxies(ctx, userID)
 }
 
-// OutboundProxiesForUser returns the proxies a person's accounts may use.
+// OutboundProxiesForUser returns the proxies a person's accounts may use:
+// their own only while their policies let them.
 func (s *AccountStore) OutboundProxiesForUser(ctx context.Context, userID string) ([]storage.OutboundProxy, error) {
-	return s.policyDB.OutboundProxiesForUser(ctx, userID)
+	offered, err := s.policyDB.OutboundProxiesForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	own, err := s.PeopleMayAddOutboundProxiesFor(ctx, userID)
+	if err != nil || own {
+		return offered, err
+	}
+	proxies := offered[:0:0]
+	for _, p := range offered {
+		if p.OwnerUserID == "" {
+			proxies = append(proxies, p)
+		}
+	}
+	return proxies, nil
 }
 
-// PeopleMayAddOutboundProxies reports whether people may save proxies for
-// their own accounts.
+// PeopleMayAddOutboundProxies reports whether the Default policy lets
+// people save proxies for their own accounts: the switch on the Mail
+// security page.
 func (s *AccountStore) PeopleMayAddOutboundProxies(ctx context.Context) (bool, error) {
 	return s.policyDB.PeopleMayAddOutboundProxies(ctx)
+}
+
+// PeopleMayAddOutboundProxiesFor reports whether the person may save
+// proxies for their own accounts and connect through them: their policies
+// say, or the Default policy's switch. Nobody in particular may not.
+func (s *AccountStore) PeopleMayAddOutboundProxiesFor(ctx context.Context, userID string) (bool, error) {
+	if strings.TrimSpace(userID) == "" {
+		return false, nil
+	}
+	return policy.OwnProxiesAllowed(ctx, s.policyDB.Read(), userID)
+}
+
+// outboundProxyAvailable reports whether the person's accounts may use p:
+// it's offered to them, and when it's their own, their policies let them.
+func (s *AccountStore) outboundProxyAvailable(ctx context.Context, p storage.OutboundProxy, owner string) (bool, error) {
+	available, err := s.policyDB.OutboundProxyAvailableTo(ctx, p, owner)
+	if err != nil || !available || p.OwnerUserID == "" {
+		return available, err
+	}
+	return s.PeopleMayAddOutboundProxiesFor(ctx, owner)
 }
 
 // DeleteOutboundProxy removes a proxy of ownerUserID's, or of the
@@ -188,7 +225,7 @@ func (s *AccountStore) ResolveProxyChoice(ctx context.Context, owner, choice str
 			return nil, fmt.Errorf("read proxy: %w", err)
 		}
 		if err == nil {
-			available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+			available, err := s.outboundProxyAvailable(ctx, saved, owner)
 			if err != nil {
 				return nil, fmt.Errorf("check proxy: %w", err)
 			}
@@ -204,7 +241,7 @@ func (s *AccountStore) ResolveProxyChoice(ctx context.Context, owner, choice str
 	if !ok {
 		return nil, nil
 	}
-	available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+	available, err := s.outboundProxyAvailable(ctx, saved, owner)
 	if err != nil {
 		return nil, fmt.Errorf("check default proxy: %w", err)
 	}
@@ -260,7 +297,7 @@ func (s *AccountStore) checkProxyChoice(ctx context.Context, owner, choice strin
 	if err != nil {
 		return err
 	}
-	available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+	available, err := s.outboundProxyAvailable(ctx, saved, owner)
 	if err != nil {
 		return err
 	}
@@ -305,7 +342,7 @@ func (s *AccountStore) DefaultOutboundProxyName(ctx context.Context, owner strin
 	if err != nil || !ok {
 		return "", err
 	}
-	available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+	available, err := s.outboundProxyAvailable(ctx, saved, owner)
 	if err != nil || !available {
 		return "", err
 	}

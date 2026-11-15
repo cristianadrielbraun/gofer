@@ -7,8 +7,9 @@ import (
 )
 
 // On a managed installation, people's own proxies appear in their security
-// settings only once the administrator allows them, are saved as theirs, and
-// must have a public address.
+// settings only while their policies allow them, are saved as theirs, and
+// must have a public address. Taken away, they stay saved, and the settings
+// say so.
 func TestUserOwnProxiesInSecuritySettings(t *testing.T) {
 	// The routes with the account repository, as a managed server has them.
 	f := newUserStorageFixtureConfigured(t, true, nil)
@@ -48,5 +49,35 @@ func TestUserOwnProxiesInSecuritySettings(t *testing.T) {
 	}
 	if page := f.request("bob", "GET", "/settings/security", ""); strings.Contains(page.Body.String(), "8.8.8.8") {
 		t.Fatal("bob's settings show alice's proxy")
+	}
+
+	// The Default policy stops everyone; a policy of Bob's lets him still.
+	if err := f.system.SetPeopleMayAddOutboundProxies(t.Context(), false); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO policies (id, name, name_normalized, is_default, priority, created_at, updated_at) VALUES ('travel', 'Travel', 'travel', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES ('travel', 'mail.own_proxies', 'true', CURRENT_TIMESTAMP)`,
+		`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES ('travel', 'user', 'bob', CURRENT_TIMESTAMP)`,
+	} {
+		if _, err := f.system.Write().Exec(statement); err != nil {
+			t.Fatal(statement, err)
+		}
+	}
+	page = f.request("alice", "GET", "/settings/security", "")
+	if body := page.Body.String(); page.Code != 200 || strings.Contains(body, `action="/settings/security/proxies"`) || strings.Contains(body, "8.8.8.8") ||
+		!strings.Contains(body, "data-own-proxies-off") || !strings.Contains(body, "The 1 proxy you saved stays, unused") {
+		t.Fatalf("alice's settings without own proxies = %d; want the unused note alone", page.Code)
+	}
+	form.Set("name", "Second")
+	form.Set("_csrf", userSecurityProof(t, f, "alice", path))
+	if rec := f.request("alice", "POST", path, form.Encode()); rec.Code != 303 || !strings.Contains(rec.Header().Get("Location"), "proxy_error=") {
+		t.Fatalf("alice's proxy while not allowed = %d %q, want refused", rec.Code, rec.Header().Get("Location"))
+	}
+	if page := f.request("bob", "GET", "/settings/security", ""); !strings.Contains(page.Body.String(), `action="/settings/security/proxies"`) {
+		t.Fatal("bob's settings don't offer own proxies, which Travel allows him")
+	}
+	if own, _ := f.system.ListOwnOutboundProxies(t.Context(), "alice"); len(own) != 1 {
+		t.Fatalf("alice's proxies = %+v, want hers kept", own)
 	}
 }

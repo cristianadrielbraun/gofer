@@ -3938,7 +3938,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_security_settings"), http.StatusInternalServerError)
 		return
 	}
-	if data.OwnProxies, err = h.ownProxiesData(r); err != nil {
+	if data.OwnProxies, data.UnusedOwnProxies, err = h.ownProxiesData(r); err != nil {
 		log.Printf("load own proxies: %v", err)
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_security_settings"), http.StatusInternalServerError)
 		return

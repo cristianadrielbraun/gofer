@@ -21,13 +21,6 @@ import (
 // at once; a search narrows them. Groups are all offered.
 const adminPolicyCandidatesShown = 30
 
-// adminPolicyNotApplied are the settings a named policy saves that don't
-// take effect per person yet: proxies only read the Default policy's value
-// until they're wired to the resolver.
-var adminPolicyNotApplied = map[string]bool{
-	policy.OwnProxies.Key: true,
-}
-
 // adminPolicyChoices are what a named policy can set each setting to, with
 // what each means. Two-factor sign-in's "passkey" sets both it and
 // MFAPasskeyCounts.
@@ -431,9 +424,6 @@ func adminNamedPolicyRow(ctx context.Context, policyID string, setting *policy.S
 			row.Value = adminPolicyListText(ctx, setting, decoded)
 		}
 	}
-	if adminPolicyNotApplied[setting.Key] {
-		row.Note = i18n.T(ctx, "admin.policies.not_applied")
-	}
 	return row
 }
 
@@ -451,7 +441,7 @@ func adminNamedPolicyDialog(ctx context.Context, found policy.Policy, setting *p
 	dialog := &views.AdminNamedPolicySettingDialog{
 		Key: setting.Key, Title: i18n.T(ctx, setting.Label), Help: i18n.T(ctx, setting.Help),
 		Action: action, CSRFToken: auth.CSRFToken(ctx, http.MethodPost, action), Version: found.Version,
-		NotApplied: adminPolicyNotApplied[setting.Key], TwoFactor: setting == policy.MFARequired,
+		TwoFactor: setting == policy.MFARequired,
 	}
 	for _, choice := range adminPolicyChoices[setting.Key] {
 		dialog.Choices = append(dialog.Choices, views.AdminPolicyChoice{Value: choice.value, Label: i18n.T(ctx, choice.label), Detail: i18n.T(ctx, choice.detail)})

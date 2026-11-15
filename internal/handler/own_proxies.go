@@ -40,22 +40,26 @@ func (h *Handler) registerOwnProxiesRoutes(register func(string, http.HandlerFun
 
 // ownProxiesData loads the signed-in person's own proxies for their security
 // settings. It is nil where the owner manages proxies with the exceptions,
-// and while people may not add their own.
-func (h *Handler) ownProxiesData(r *http.Request) (*models.MailSecurityAdminData, error) {
+// and while their policies don't let them use their own; unused then counts
+// the ones they saved, which stay.
+func (h *Handler) ownProxiesData(r *http.Request) (data *models.MailSecurityAdminData, unused int, err error) {
 	store := h.proxyStore()
 	if h.ownerManagesMailSecurity() || store == nil {
-		return nil, nil
+		return nil, 0, nil
 	}
 	ctx := r.Context()
-	allowed, err := store.PeopleMayAddOutboundProxies(ctx)
-	if err != nil || !allowed {
-		return nil, err
+	allowed, err := store.PeopleMayAddOutboundProxiesFor(ctx, h.userID(ctx))
+	if err != nil {
+		return nil, 0, err
 	}
 	own, err := store.ListOwnOutboundProxies(ctx, h.userID(ctx))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	data := &models.MailSecurityAdminData{
+	if !allowed {
+		return nil, len(own), nil
+	}
+	data = &models.MailSecurityAdminData{
 		ActionBase:          ownProxiesBase,
 		OwnProxies:          true,
 		PeopleMayAddProxies: true,
@@ -69,7 +73,7 @@ func (h *Handler) ownProxiesData(r *http.Request) (*models.MailSecurityAdminData
 	for _, action := range outboundProxyActions(ownProxiesBase, data.Proxies, false) {
 		data.CSRFTokens[action] = auth.CSRFToken(ctx, http.MethodPost, action)
 	}
-	return data, nil
+	return data, 0, nil
 }
 
 func (h *Handler) handleSaveOwnProxy(w http.ResponseWriter, r *http.Request) {

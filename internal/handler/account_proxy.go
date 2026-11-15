@@ -97,7 +97,7 @@ func (h *Handler) accountProxyData(ctx context.Context, accountID string) (*mode
 	// administrator lets them.
 	if h.ownerManagesMailSecurity() {
 		data.ManageURL = "/settings/security#outbound-proxies"
-	} else if own, err := h.accountStore.PeopleMayAddOutboundProxies(ctx); err != nil {
+	} else if own, err := h.accountStore.PeopleMayAddOutboundProxiesFor(ctx, owner); err != nil {
 		return nil, err
 	} else if own {
 		data.ManageURL = "/settings/security#outbound-proxies"
@@ -325,7 +325,7 @@ func (h *Handler) handleAccountProxyAddDialog(w http.ResponseWriter, r *http.Req
 	if h.ownerManagesMailSecurity() {
 		data.ManageURL = "/settings/security#outbound-proxies"
 	} else if store := h.proxyStore(); store != nil {
-		if own, err := store.PeopleMayAddOutboundProxies(r.Context()); err == nil && own {
+		if own, err := store.PeopleMayAddOutboundProxiesFor(r.Context(), h.userID(r.Context())); err == nil && own {
 			data.ManageURL = "/settings/security#outbound-proxies"
 		}
 	}

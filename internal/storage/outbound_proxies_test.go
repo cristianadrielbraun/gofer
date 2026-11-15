@@ -108,11 +108,13 @@ func TestOutboundProxiesMigrationKeepsSavedProxies(t *testing.T) {
 	if ok, _ := db.OutboundProxyAvailableTo(ctx, own, "ben"); !ok {
 		t.Fatal("ben's own proxy isn't available to ben")
 	}
+	// Whether ben may use it is his policies' to say (internal/config):
+	// it stays offered to him here.
 	if err := db.SetPeopleMayAddOutboundProxies(ctx, false); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := db.OutboundProxyAvailableTo(ctx, own, "ben"); ok {
-		t.Fatal("ben's own proxy is still used after people were stopped from adding their own")
+	if ok, _ := db.OutboundProxyAvailableTo(ctx, own, "ben"); !ok {
+		t.Fatal("ben's own proxy isn't offered to ben")
 	}
 	// An administrator's proxy for chosen people.
 	if err := db.SetOutboundProxyEveryone(ctx, "office", false); err != nil {
@@ -131,8 +133,8 @@ func TestOutboundProxiesMigrationKeepsSavedProxies(t *testing.T) {
 	if ok, _ := db.OutboundProxyAvailableTo(ctx, office, ""); !ok {
 		t.Fatal("office isn't available to work for nobody in particular")
 	}
-	if listed, _ := db.OutboundProxiesForUser(ctx, "ben"); len(listed) != 0 {
-		t.Fatalf("ben is offered %+v", listed)
+	if listed, _ := db.OutboundProxiesForUser(ctx, "ben"); len(listed) != 1 || listed[0].ID != "ben-own" {
+		t.Fatalf("ben is offered %+v, want his own proxy alone", listed)
 	}
 }
 

@@ -115,3 +115,74 @@ func TestMailRefusalsFollowEveryChangeToTheRules(t *testing.T) {
 		t.Fatalf("the page checked again: stopped %v, reconnected %v", stopped, restarted)
 	}
 }
+
+// When someone's policies stop letting them use the proxies they saved, or
+// let them again, the worker's next check reconnects their mailboxes, and
+// nobody else's.
+func TestOwnProxyChangesReconnectTheirOwners(t *testing.T) {
+	f := newOwnedAdminDiagnosticFixture(t)
+	if _, err := f.system.Write().Exec(`UPDATE sessions SET step_up_at=CURRENT_TIMESTAMP,step_up_method='totp' WHERE user_id='administrator'`); err != nil {
+		t.Fatal(err)
+	}
+	var reconnected []string
+	f.admin.mailRefusals.reconnect = func(_ context.Context, owner string) { reconnected = append(reconnected, owner) }
+	check := func(want ...string) {
+		t.Helper()
+		reconnected = nil
+		f.admin.checkMailRefusalsIfChanged(davTestContext(t))
+		if !slices.Equal(reconnected, want) {
+			t.Fatalf("reconnected %v, want %v", reconnected, want)
+		}
+	}
+	saveProxy := func(owner string) {
+		t.Helper()
+		if _, err := f.system.Write().Exec(`INSERT INTO outbound_proxies (id, name, type, host, port, owner_user_id) VALUES (?, 'Mine', 'socks5', 'proxy.example.test', 1080, ?)`, owner+"-proxy", owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := davTestContext(t)
+	actor, session := "administrator", f.session.ID
+
+	check()
+	if err := f.system.SetPeopleMayAddOutboundProxies(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	saveProxy("alice")
+	check()
+
+	// A policy of Alice's takes them away from her.
+	noProxies, err := f.manager.CreatePolicy(ctx, auth.CreatePolicyOptions{ActorUserID: actor, ActorSessionID: session, Name: "No own proxies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.manager.SetPolicyValues(ctx, auth.SetPolicyValuesOptions{ActorUserID: actor, ActorSessionID: session, PolicyID: noProxies.ID, Version: noProxies.Version,
+		Changes: []policy.ValueChange{{Key: policy.OwnProxies.Key, JSON: []byte(`false`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	aliceOnly := auth.ChangePolicyAssignmentsOptions{ActorUserID: actor, ActorSessionID: session, PolicyID: noProxies.ID, Targets: []policy.Target{{Kind: policy.TargetUser, ID: "alice"}}}
+	if _, err := f.manager.AssignPolicy(ctx, aliceOnly); err != nil {
+		t.Fatal(err)
+	}
+	check("alice")
+	check()
+
+	// Bob saves his first proxy, and the Default policy takes them away
+	// from everyone before the next check: his mailboxes reconnect, and
+	// Alice's, whose policy said no already, don't.
+	saveProxy("bob")
+	if err := f.system.SetPeopleMayAddOutboundProxies(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	check("bob")
+
+	// Taking Alice's policy away leaves her on the Default policy, still
+	// without them; turning it on again gives them back to both.
+	if _, err := f.manager.UnassignPolicy(ctx, aliceOnly); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	if err := f.system.SetPeopleMayAddOutboundProxies(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	check("alice", "bob")
+}

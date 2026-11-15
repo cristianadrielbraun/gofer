@@ -255,13 +255,14 @@ func (db *DB) ListOwnOutboundProxies(ctx context.Context, userID string) ([]Outb
 	return db.queryOutboundProxies(ctx, `owner_user_id = ?`, userID)
 }
 
-// OutboundProxiesForUser returns the proxies a person's accounts may use: the
-// administrator's that are for everyone or for them, and, while the
-// administrator lets people add their own, their own.
+// OutboundProxiesForUser returns the proxies offered to a person's accounts:
+// the administrator's that are for everyone or for them, and their own.
+// Whether they may use their own is their policies' to say
+// (internal/config).
 func (db *DB) OutboundProxiesForUser(ctx context.Context, userID string) ([]OutboundProxy, error) {
 	return db.queryOutboundProxies(ctx, `(owner_user_id IS NULL AND (everyone = 1
 		OR EXISTS (SELECT 1 FROM outbound_proxy_users u WHERE u.proxy_id = outbound_proxies.id AND u.user_id = ?)))
-		OR (owner_user_id = ? AND EXISTS (SELECT 1 FROM outbound_proxy_policy WHERE singleton = 1 AND people_add = 1))`, userID, userID)
+		OR owner_user_id = ?`, userID, userID)
 }
 
 // GetOutboundProxy returns the saved proxy with id, or
@@ -274,15 +275,14 @@ func (db *DB) GetOutboundProxy(ctx context.Context, id string) (OutboundProxy, e
 	return p, err
 }
 
-// OutboundProxyAvailableTo reports whether the person's accounts may use p.
-// An empty userID is work for nobody in particular, which may use any of the
-// administrator's proxies.
+// OutboundProxyAvailableTo reports whether p is offered to the person's
+// accounts: one of the administrator's for them, or their own, which their
+// policies must also let them use (internal/config). An empty userID is
+// work for nobody in particular, which may use any of the administrator's
+// proxies.
 func (db *DB) OutboundProxyAvailableTo(ctx context.Context, p OutboundProxy, userID string) (bool, error) {
 	if p.OwnerUserID != "" {
-		if p.OwnerUserID != userID {
-			return false, nil
-		}
-		return db.PeopleMayAddOutboundProxies(ctx)
+		return p.OwnerUserID == userID, nil
 	}
 	if p.Everyone || userID == "" {
 		return true, nil

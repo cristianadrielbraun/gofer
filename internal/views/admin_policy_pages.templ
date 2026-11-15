@@ -168,9 +168,6 @@ type AdminNamedPolicySettingDialog struct {
 	// when the policy doesn't set it.
 	Choices []AdminPolicyChoice
 	Current string
-	// NotApplied: the setting is saved, but doesn't take effect per person
-	// yet.
-	NotApplied bool
 	// TwoFactor shows what each way of signing in will need under the
 	// chosen requirement; ProviderSignIn says Google, Microsoft or an
 	// organization's sign-in is offered.
@@ -492,11 +489,6 @@ templ adminNamedPolicySettingDialog(d AdminNamedPolicySettingDialog, verifying b
 						PasskeyCounts: d.Current != "true", ProviderSignIn: d.ProviderSignIn,
 						ShownFor: "passkey true", Hidden: d.Current != "passkey" && d.Current != "true",
 					})
-				}
-				if d.NotApplied {
-					<p class="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100" data-admin-policy-not-applied>
-						{ i18n.T(ctx, "admin.policies.not_applied_detail") }
-					</p>
 				}
 				@dialog.Footer() {
 					@dialog.Close(dialog.CloseProps{For: adminPolicySettingDialogID}) {

@@ -39,6 +39,9 @@ func TestTheQueriesAgreeWithTheResolver(t *testing.T) {
 			if r.Intn(2) == 0 {
 				exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, id, MFAPasskeyCounts.Key, []string{"true", "false"}[r.Intn(2)])
 			}
+			if choice := r.Intn(4); choice > 0 {
+				exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, id, OwnProxies.Key, []string{"true", "false", `"maybe"`}[choice-1])
+			}
 			switch r.Intn(4) {
 			case 1:
 				exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES (?, ?, 'true', CURRENT_TIMESTAMP)`, id, MFARequired.Key)
@@ -57,6 +60,24 @@ func TestTheQueriesAgreeWithTheResolver(t *testing.T) {
 					exec(`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES (?, 'group', ?, CURRENT_TIMESTAMP)`, id, group)
 				}
 			}
+		}
+		// The Default policy's own-proxy switch, either way, and proxies of
+		// their own for some.
+		exec(`INSERT INTO outbound_proxy_policy (singleton, people_add) VALUES (1, ?) ON CONFLICT (singleton) DO UPDATE SET people_add = excluded.people_add`, r.Intn(2))
+		withProxies := map[string]bool{}
+		for _, person := range people {
+			for n := r.Intn(3); n > 0; n-- {
+				exec(`INSERT INTO outbound_proxies (id, name, type, host, port, owner_user_id) VALUES (?, ?, 'socks5', 'proxy.example.test', 1080, ?)`,
+					fmt.Sprintf("%s-proxy-%d", person, n), fmt.Sprintf("proxy %d", n), person)
+				withProxies[person] = true
+			}
+		}
+		owners, err := OwnProxyOwners(t.Context(), db.Read())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(owners) != len(withProxies) {
+			t.Fatalf("round %d: %d people with proxies of their own, the query found %d: %v", round, len(withProxies), len(owners), owners)
 		}
 		named := map[string]bool{}
 		deciding := map[string]string{}
@@ -104,6 +125,16 @@ func TestTheQueriesAgreeWithTheResolver(t *testing.T) {
 				for _, value := range values {
 					wantPasskey = wantPasskey || value.Key == MFAPasskeyCounts.Key && string(value.JSON) == "true"
 				}
+			}
+			ownProxies, err := OwnProxiesAllowed(t.Context(), db.Read(), person)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ownProxies != effective.Bool(OwnProxies) {
+				t.Fatalf("round %d, %s: own proxies by the query %v, by the resolver %v (%s)", round, person, ownProxies, effective.Bool(OwnProxies), effective.describe())
+			}
+			if allowed, ok := owners[person]; ok != withProxies[person] || ok && allowed != ownProxies {
+				t.Fatalf("round %d, %s: own proxies for everyone %v (listed %v), for one %v", round, person, allowed, ok, ownProxies)
 			}
 			if passkeys[person] != wantPasskey || onePasskey != wantPasskey {
 				t.Fatalf("round %d, %s: a passkey counts by the queries %v and %v, by the deciding policy %v", round, person, passkeys[person], onePasskey, wantPasskey)

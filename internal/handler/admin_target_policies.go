@@ -115,15 +115,8 @@ func adminUserPolicySettings(ctx context.Context, person views.AdminUserData, fo
 }
 
 func adminUserPolicySetting(ctx context.Context, person views.AdminUserData, setting *policy.Setting, found *auth.PersonPolicies) views.AdminPolicySetting {
-	resolved := found.Effective.Get(setting)
-	applied := resolved
+	applied := found.Effective.Get(setting)
 	row := views.AdminPolicySetting{Key: setting.Key, Label: i18n.T(ctx, setting.Label), Help: i18n.T(ctx, setting.Help)}
-	if adminPolicyNotApplied[setting.Key] && resolved.Source.Kind == policy.SourcePolicy {
-		// Saved on their policy, but only the Default policy's value
-		// takes effect yet.
-		applied = found.Instance.Get(setting)
-		row.Note = i18n.T(ctx, "admin.user.policy.not_applied", "policy", resolved.Source.PolicyName, "value", adminPolicyValueLabel(ctx, setting, resolved.Value))
-	}
 	row.Value = adminPolicyValueText(ctx, setting, applied.Value)
 	if setting == policy.MFARequired && applied.Source.Kind == policy.SourcePolicy && applied.Value == true && found.MFAPasskeyCounts {
 		row.Value = i18n.T(ctx, "admin.policies.mfa.required_passkey")

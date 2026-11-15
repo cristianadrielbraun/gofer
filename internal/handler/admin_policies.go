@@ -472,8 +472,11 @@ func (h *Handler) setDefaultPolicyOwnProxies(w http.ResponseWriter, r *http.Requ
 		h.refuseDefaultPolicyChange(w, r, actor, setting, http.StatusInternalServerError, i18n.T(ctx, "admin.proxies.policy_failed"), false, nil)
 		return
 	}
-	if !allowed {
-		// Accounts that used their owner's proxies go back to the default.
+	// The mailboxes of the people it changes it for reconnect: through the
+	// default route, or back through their own proxies.
+	if h.ownedMailbox != nil {
+		h.checkMailRefusalsIfChanged(ctx)
+	} else if !allowed {
 		h.reconnectAllAccounts(ctx)
 	}
 	notice := "admin.proxies.policy_off"

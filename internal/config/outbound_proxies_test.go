@@ -372,6 +372,77 @@ func TestOutboundProxiesForPeople(t *testing.T) {
 	}
 }
 
+// A named policy says whether the people it reaches may save proxies of
+// their own and use them, before the Default policy's switch; taking it
+// away leaves their proxies saved, unused.
+func TestOwnOutboundProxiesFollowThePolicies(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.Write().ExecContext(ctx, query, args...); err != nil {
+			t.Fatal(query, err)
+		}
+	}
+	exec(`INSERT INTO users (id, username, username_normalized, name) VALUES ('ana', 'ana', 'ana', 'Ana'), ('ben', 'ben', 'ben', 'Ben')`)
+	exec(`INSERT INTO policies (id, name, name_normalized, is_default, priority, created_at, updated_at) VALUES
+		('travel', 'Travel', 'travel', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+		('locked', 'Locked', 'locked', 0, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
+	exec(`INSERT INTO policy_values (policy_id, setting_key, value_json, updated_at) VALUES
+		('travel', 'mail.own_proxies', 'true', CURRENT_TIMESTAMP), ('locked', 'mail.own_proxies', 'false', CURRENT_TIMESTAMP)`)
+	exec(`INSERT INTO directory_groups (id, name, name_normalized, created_at, updated_at) VALUES ('field', 'Field', 'field', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
+	exec(`INSERT INTO directory_group_members (group_id, user_id, added_at) VALUES ('field', 'ana', CURRENT_TIMESTAMP)`)
+	exec(`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES ('travel', 'group', 'field', CURRENT_TIMESTAMP)`)
+
+	// The Default policy's switch is off: Travel lets ana, through her
+	// group, and nothing lets ben.
+	for person, want := range map[string]bool{"ana": true, "ben": false, "": false} {
+		if allowed, err := store.PeopleMayAddOutboundProxiesFor(ctx, person); err != nil || allowed != want {
+			t.Fatalf("%q may add own proxies = %v, %v; want %v", person, allowed, err, want)
+		}
+	}
+	mine, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{Name: "Mine", Type: "socks5", Host: "8.8.8.8", Port: 1080, OwnerUserID: "ana"}, "ana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{Name: "Mine", Type: "socks5", Host: "8.8.4.4", Port: 1080, OwnerUserID: "ben"}, "ben"); !errors.Is(err, ErrOwnOutboundProxiesOff) {
+		t.Fatalf("ben's own proxy without a policy that allows it: %v", err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ana", mine); err != nil || proxy == nil || proxy.Host != "8.8.8.8" {
+		t.Fatalf("ana through her own proxy = %+v, %v", proxy, err)
+	}
+	seedAccountStoreTestUser(t, ctx, db)
+	exec(`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('ana-mail', 'ana', 'imap', 'ana@example.test')`)
+	if err := store.SetAccountProxy(ctx, "ana", "ana-mail", mine); err != nil {
+		t.Fatal(err)
+	}
+
+	// The switch on: Locked, put before Travel and on ana herself, takes it
+	// away from her; ben gets it from the Default policy.
+	if err := db.SetPeopleMayAddOutboundProxies(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	exec(`UPDATE policies SET priority = 3 WHERE id = 'travel'`)
+	exec(`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES ('locked', 'user', 'ana', CURRENT_TIMESTAMP)`)
+	for person, want := range map[string]bool{"ana": false, "ben": true} {
+		if allowed, err := store.PeopleMayAddOutboundProxiesFor(ctx, person); err != nil || allowed != want {
+			t.Fatalf("%q may add own proxies = %v, %v; want %v", person, allowed, err, want)
+		}
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ana", mine); err != nil || proxy != nil {
+		t.Fatalf("ana through her own proxy while Locked = %+v, %v; want direct", proxy, err)
+	}
+	if listed, err := store.OutboundProxiesForUser(ctx, "ana"); err != nil || len(listed) != 0 {
+		t.Fatalf("ana is offered %+v, %v while Locked", listed, err)
+	}
+	if err := store.SetAccountProxy(ctx, "ana", "ana-mail", mine); !errors.Is(err, storage.ErrOutboundProxyNotFound) {
+		t.Fatalf("ana choosing her own proxy while Locked: %v", err)
+	}
+	if kept, err := store.ListOwnOutboundProxies(ctx, "ana"); err != nil || len(kept) != 1 {
+		t.Fatalf("ana's saved proxies while Locked = %+v, %v; want hers kept", kept, err)
+	}
+}
+
 // A person's own proxy on the local network needs an administrator's Proxy
 // private target exception for that exact host and port, and stops being
 // reachable when the exception is revoked.

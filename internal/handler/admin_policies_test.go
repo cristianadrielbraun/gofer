@@ -251,14 +251,14 @@ func TestPoliciesAreCreatedOrderedAssignedAndDeleted(t *testing.T) {
 		t.Fatalf("order after moving = %q", list)
 	}
 
-	// A setting on a named policy: two-factor sign-in applies, people's
-	// own proxies are flagged as not applied yet.
+	// A setting on a named policy: every one applies, none is flagged as
+	// not applied yet.
 	page := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(finance, ""), sessionCookie).Body.String()
 	if !strings.Contains(page, `data-admin-policy-setting="auth.mfa_required"`) || !strings.Contains(page, "Not set") ||
 		strings.Contains(page, "not applied yet") || strings.Contains(page, "audit.security_retention_days") {
 		t.Fatalf("Finance's Sign-in tab = %q", page)
 	}
-	if mail := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(finance, views.AdminPolicyTabMail), sessionCookie).Body.String(); !strings.Contains(mail, "not applied yet") {
+	if mail := getSecuritySettingsPath(t, stack, views.AdminPolicyPath(finance, views.AdminPolicyTabMail), sessionCookie).Body.String(); !strings.Contains(mail, `data-admin-policy-setting="mail.own_proxies"`) || strings.Contains(mail, "not applied yet") {
 		t.Fatalf("Finance's Mail tab = %q", mail)
 	}
 	settingPath := views.AdminNamedPolicySettingPath(finance, "auth.mfa_required")

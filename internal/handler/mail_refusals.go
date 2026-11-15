@@ -19,6 +19,10 @@ import (
 // move with every change to policies, their assignments and groups, and
 // works the refusals out again when either does. Mail security works them
 // out right after its own changes, and lists the last result.
+//
+// The same check finds the people whose policies stopped letting them use
+// the proxies they saved, or let them again, and reconnects their
+// mailboxes: through the default route, or back through their own.
 const (
 	mailRefusalPoll = 5 * time.Second
 	// mailRefusalStale is how old a result Mail security lists before it
@@ -38,10 +42,14 @@ type mailRefusalState struct {
 	policyRevision, membershipRevision int64
 	at                                 time.Time
 	refused                            []mailAllowlistRefusal
+	// ownProxies is, for each person with proxies of their own, whether
+	// they could use them.
+	ownProxies map[string]bool
 	// stop and restart, when set, replace stopping and reconnecting a
-	// mailbox, for tests.
-	stop    func(id string)
-	restart func(ctx context.Context, id string) error
+	// mailbox, and reconnect reconnecting someone's mailboxes, for tests.
+	stop      func(id string)
+	restart   func(ctx context.Context, id string) error
+	reconnect func(ctx context.Context, owner string)
 }
 
 // StartMailRefusalWorker checks the refusals at startup and whenever the
@@ -111,9 +119,9 @@ func (h *Handler) currentMailRefusals(ctx context.Context) ([]mailAllowlistRefus
 }
 
 // checkMailRefusals works out which mailboxes the rules refuse, stops the
-// ones newly refused and reconnects the ones let in again. When it can't
-// tell, it ends every mail session, so each connects again through the
-// checks.
+// ones newly refused and reconnects the ones let in again, and reconnects
+// the mailboxes of people whose own proxies it changed. When it can't tell,
+// it ends every mail session, so each connects again through the checks.
 func (h *Handler) checkMailRefusals(ctx context.Context) ([]mailAllowlistRefusal, time.Time, error) {
 	state := &h.mailRefusals
 	state.run.Lock()
@@ -125,6 +133,10 @@ func (h *Handler) checkMailRefusals(ctx context.Context) ([]mailAllowlistRefusal
 		return nil, time.Time{}, err
 	}
 	refused, err := h.mailRefusalsNow(ctx)
+	var ownProxies map[string]bool
+	if err == nil {
+		ownProxies, err = policy.OwnProxyOwners(ctx, h.db.Read())
+	}
 	if err != nil {
 		if h.ownedMailbox != nil && h.ownedMailbox.userIMAP != nil {
 			h.ownedMailbox.userIMAP.StopMailSecuritySessions()
@@ -133,11 +145,16 @@ func (h *Handler) checkMailRefusals(ctx context.Context) ([]mailAllowlistRefusal
 	}
 	at := time.Now()
 	state.mu.Lock()
-	before := state.refused
+	before, ownBefore, checkedBefore := state.refused, state.ownProxies, state.checked
 	state.checked, state.policyRevision, state.membershipRevision = true, policyRevision, membershipRevision
-	state.at, state.refused = at, refused
+	state.at, state.refused, state.ownProxies = at, refused, ownProxies
 	state.mu.Unlock()
 	h.applyMailAllowlistChange(ctx, before, refused)
+	// The first check since Gofer started has nothing to compare: mailboxes
+	// connect with the rules as they are.
+	if checkedBefore {
+		h.applyOwnProxyChange(ctx, ownBefore, ownProxies)
+	}
 	return refused, at, nil
 }
 
@@ -208,5 +225,26 @@ func (h *Handler) applyMailAllowlistChange(ctx context.Context, before, after []
 		if err := restart(ctx, id); err != nil {
 			log.Printf("allowed mail lists: reconnect account %s: %v", id, err)
 		}
+	}
+}
+
+// applyOwnProxyChange reconnects the mailboxes of the people whose own
+// proxies before and after don't agree on. Someone not in before saved
+// their first proxy since, while they could use it: their mailboxes
+// reconnect only when they can't now.
+func (h *Handler) applyOwnProxyChange(ctx context.Context, before, after map[string]bool) {
+	reconnect := h.mailRefusals.reconnect
+	if reconnect == nil {
+		reconnect = h.reconnectUserAccounts
+	}
+	owners := make([]string, 0, len(after))
+	for owner, allowed := range after {
+		if could, saved := before[owner]; saved && could != allowed || !saved && !allowed {
+			owners = append(owners, owner)
+		}
+	}
+	sort.Strings(owners)
+	for _, owner := range owners {
+		reconnect(ctx, owner)
 	}
 }

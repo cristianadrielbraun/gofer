@@ -31,9 +31,6 @@ type PersonPolicies struct {
 	// Effective is every setting's value for them, and where it comes
 	// from.
 	Effective *policy.Effective
-	// Instance is the Default policy's values alone, which settings that
-	// only read the Default policy give everyone.
-	Instance *policy.Effective
 	// Policies are the ones that apply to them, in order.
 	Policies []TargetPolicy
 	// MFAPasskeyCounts: the policy that requires two-factor sign-in of them
@@ -62,9 +59,6 @@ func (m *Manager) PoliciesOfPerson(ctx context.Context, actorUserID, userID stri
 	err := m.readPolicies(ctx, actorUserID, func(tx *sql.Tx) error {
 		var err error
 		if result.Effective, err = policy.ForUser(ctx, tx, userID); err != nil {
-			return err
-		}
-		if result.Instance, err = policy.ForInstance(ctx, tx); err != nil {
 			return err
 		}
 		if _, result.MFAPasskeyCounts, err = policyTwoFactor(ctx, tx, userID); err != nil {

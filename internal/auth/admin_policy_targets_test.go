@@ -68,13 +68,9 @@ func TestPoliciesOfGroupsAndPeopleSayHowEachReachesThem(t *testing.T) {
 		!reflect.DeepEqual(got.Groups, wantGroups) || !reflect.DeepEqual(got.Keys, []string{policy.MFARequired.Key}) {
 		t.Fatalf("Finance for Ines = %#v", got)
 	}
-	// The resolver credits her direct assignment; what applies yet is the
-	// Default policy's.
+	// The resolver credits her direct assignment.
 	if source := ines.Effective.Get(policy.MFARequired).Source; source.Kind != policy.SourcePolicy || source.PolicyID != finance || source.GroupID != "" {
 		t.Fatalf("Ines's two-factor source = %#v", source)
-	}
-	if applied := ines.Instance.Get(policy.MFARequired); applied.Value != false {
-		t.Fatalf("the Default policy's two-factor = %#v", applied)
 	}
 
 	pavel, err := manager.PoliciesOfPerson(ctx, "administrator", "pavel")

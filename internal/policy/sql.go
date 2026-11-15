@@ -1,6 +1,9 @@
 package policy
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -65,3 +68,52 @@ func TwoFactorPoliciesSQL() string {
 func TwoFactorForUserSQL() string {
 	return `SELECT COUNT(*) > 0, COALESCE(MAX(passkey_counts), 0) FROM (` + twoFactorSQL(true) + `)`
 }
+
+// OwnProxiesAllowed reports whether the person may save proxies of their
+// own and connect through them: the first named policy reaching them that
+// says, or else the Default policy's switch. It's read with q, inside the
+// caller's transaction when it has one.
+func OwnProxiesAllowed(ctx context.Context, q Querier, userID string) (bool, error) {
+	var value string
+	err := q.QueryRowContext(ctx, `SELECT named.value_json FROM (`+namedValuesSQL(OwnProxies, ownProxyValues, true)+`) named`, userID, userID).Scan(&value)
+	if err == nil {
+		return value == "true", nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("check whether a policy lets someone use their own proxies: %w", err)
+	}
+	var allowed bool
+	if err := q.QueryRowContext(ctx, `SELECT `+peopleAddSQL).Scan(&allowed); err != nil {
+		return false, fmt.Errorf("read whether people may add proxies: %w", err)
+	}
+	return allowed, nil
+}
+
+// OwnProxyOwners reports, for everyone who saved proxies of their own,
+// whether they may use them, as OwnProxiesAllowed does for one person.
+func OwnProxyOwners(ctx context.Context, q Querier) (map[string]bool, error) {
+	rows, err := q.QueryContext(ctx, `
+		SELECT owners.owner_user_id, COALESCE(named.value_json = 'true', `+peopleAddSQL+`)
+		FROM (SELECT DISTINCT owner_user_id FROM outbound_proxies WHERE owner_user_id IS NOT NULL) owners
+		LEFT JOIN (`+namedValuesSQL(OwnProxies, ownProxyValues, false)+`) named ON named.user_id = owners.owner_user_id`)
+	if err != nil {
+		return nil, fmt.Errorf("check whose policies let them use their own proxies: %w", err)
+	}
+	defer rows.Close()
+	owners := map[string]bool{}
+	for rows.Next() {
+		var owner string
+		var allowed bool
+		if err := rows.Scan(&owner, &allowed); err != nil {
+			return nil, err
+		}
+		owners[owner] = allowed
+	}
+	return owners, rows.Err()
+}
+
+// ownProxyValues are OwnProxies' valid values; peopleAddSQL is the Default
+// policy's switch for it (outbound_proxy_policy.people_add).
+var ownProxyValues = []string{"true", "false"}
+
+const peopleAddSQL = `EXISTS (SELECT 1 FROM outbound_proxy_policy WHERE singleton = 1 AND people_add = 1)`
