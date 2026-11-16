@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,7 +189,8 @@ func withUserStorageMigrationSource(ctx context.Context, sourcePath string, dest
 	if os.SameFile(sourceInfo, destinationInfo) {
 		return errors.New("migration destination aliases source")
 	}
-	uri := url.URL{Scheme: "file", Path: filepath.ToSlash(abs), RawQuery: "mode=ro"}
+	uri := sqliteFileURL(abs)
+	uri.RawQuery = "mode=ro"
 	conn, err := destination.Write().Conn(ctx)
 	if err != nil {
 		return err
