@@ -3407,3 +3407,13 @@ function editToggleSmtpAuth(checked) {
     });
   });
 })();
+
+// The account wizards move between steps with a transform; their viewport
+// never scrolls. Focus moving into a hidden step, as Tab from a step's last
+// field does, would scroll it sideways and show the wrong step, or none.
+document.addEventListener('scroll', function(event) {
+  var viewport = event.target;
+  if (viewport && viewport.classList && viewport.classList.contains('account-wizard-viewport') && viewport.scrollLeft !== 0) {
+    viewport.scrollLeft = 0;
+  }
+}, true);

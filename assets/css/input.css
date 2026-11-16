@@ -7515,10 +7515,12 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 
   /* The step bar. It neither scrolls nor rounds its corners, so the cells at its
-     edges are not clipped. */
+     edges are not clipped. One column per section: three, and a fourth when
+     the Proxy row shows. The columns are explicit so mail's sub-steps, on a
+     row below, span the whole bar. */
   .account-wizard-dialog .account-wizard-shell > aside {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.375rem;
     min-height: 0;
     overflow: visible;
@@ -7526,6 +7528,16 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     border-radius: 0;
     background: transparent;
     padding: 0;
+  }
+
+  .account-wizard-dialog .account-wizard-shell > aside:has([data-account-proxy-row]) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  /* The add wizard keeps its Proxy row in a container of its own; the row is
+     the cell, and with no proxies the empty container takes no place. */
+  .account-wizard-dialog #add-account-proxy-row {
+    display: contents;
   }
 
   .account-wizard-shell > aside > :first-child {
@@ -7711,6 +7723,7 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 
   .account-wizard-dialog .account-wizard-scroll {
+    max-height: none;
     padding: 6px 6px 1rem;
   }
 
@@ -8633,4 +8646,31 @@ html:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:not([da
 html.dark:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:not([data-email-body-style-toggle]) [data-tui-tabs-indicator] {
   background: color-mix(in oklab, var(--input) 30%, transparent) !important;
   border-color: var(--input) !important;
+}
+
+/* === ACCOUNT IDENTITIES DIALOG ===
+   An account with many From addresses makes a list taller than the screen:
+   the list scrolls under the title. On a phone the whole page scrolls, as the
+   signatures dialog does. */
+
+.account-identities-dialog > [data-tui-dialog-panel] {
+  max-height: calc(100dvh - 2rem);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.account-identities-dialog #account-identities-panel {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  margin-inline: -0.25rem;
+  padding-inline: 0.25rem;
+}
+
+@media (max-width: 1023.98px) {
+  .account-identities-dialog > [data-tui-dialog-panel] {
+    height: 100%;
+    max-height: none;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
 }
