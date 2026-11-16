@@ -7445,11 +7445,12 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 
   /* The step bar. It neither scrolls nor rounds its corners, so the cells at its
-     edges are not clipped. */
+     edges are not clipped. One column per section: three, and a fourth when
+     the Proxy row shows. The columns are explicit so mail's sub-steps, on a
+     row below, span the whole bar. */
   .account-wizard-dialog .account-wizard-shell > aside {
     display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.375rem;
     min-height: 0;
     overflow: visible;
@@ -7457,6 +7458,16 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     border-radius: 0;
     background: transparent;
     padding: 0;
+  }
+
+  .account-wizard-dialog .account-wizard-shell > aside:has([data-account-proxy-row]) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  /* The add wizard keeps its Proxy row in a container of its own; the row is
+     the cell, and with no proxies the empty container takes no place. */
+  .account-wizard-dialog #add-account-proxy-row {
+    display: contents;
   }
 
   .account-wizard-shell > aside > :first-child {
