@@ -414,3 +414,113 @@ func TestOwnOutboundProxiesOnTheLocalNetwork(t *testing.T) {
 		t.Fatalf("LAN proxy after its exception was revoked = %+v, %v; want it public only", proxy, err)
 	}
 }
+
+func TestAccountGroupProxyThreeStateInheritance(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+
+	_, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{
+		Name: "Default", Type: "http", Host: "198.51.100.1", Port: 3128, IsDefault: true,
+	}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentProxy, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{
+		Name: "ParentProxy", Type: "socks5", Host: "198.51.100.2", Port: 1080,
+	}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	childProxy, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{
+		Name: "ChildProxy", Type: "http", Host: "198.51.100.3", Port: 8080,
+	}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accProxy, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{
+		Name: "AccountProxy", Type: "socks5", Host: "198.51.100.4", Port: 1080,
+	}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parentGroup, err := db.CreateAccountGroup(ctx, "default", "", "Parent", parentProxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childGroup, err := db.CreateAccountGroup(ctx, "default", parentGroup.ID, "Child", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO accounts (id, user_id, provider, email_address, group_id, proxy_id)
+		VALUES ('acc-1', 'default', 'imap', 'acc1@example.test', ?, '')
+	`, childGroup.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Account "" + Child "" -> inherits ParentProxy.
+	got, err := store.AccountProxy(ctx, "acc-1")
+	if err != nil || got == nil || got.Host != "198.51.100.2" {
+		t.Fatalf("inherited parent group proxy = %+v, %v; want 198.51.100.2", got, err)
+	}
+
+	// 2. Child overrides with ChildProxy -> Account "" inherits ChildProxy.
+	if err := db.SetAccountGroupProxyChoice(ctx, "default", childGroup.ID, childProxy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.AccountProxy(ctx, "acc-1")
+	if err != nil || got == nil || got.Host != "198.51.100.3" {
+		t.Fatalf("inherited child group proxy = %+v, %v; want 198.51.100.3", got, err)
+	}
+
+	// 3. Child forces "direct" -> Account "" connects directly even with ParentProxy and Default.
+	if err := db.SetAccountGroupProxyChoice(ctx, "default", childGroup.ID, storage.AccountProxyDirect); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.AccountProxy(ctx, "acc-1")
+	if err != nil || got != nil {
+		t.Fatalf("inherited child direct = %+v, %v; want nil (direct)", got, err)
+	}
+
+	// 4. Account overrides with AccountProxy -> overrides Child "direct".
+	if err := store.SetAccountProxy(ctx, "default", "acc-1", accProxy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.AccountProxy(ctx, "acc-1")
+	if err != nil || got == nil || got.Host != "198.51.100.4" {
+		t.Fatalf("explicit account proxy = %+v, %v; want 198.51.100.4", got, err)
+	}
+
+	// 5. All "" in chain -> falls back to instance Default proxy.
+	if err := store.SetAccountProxy(ctx, "default", "acc-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAccountGroupProxyChoice(ctx, "default", childGroup.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAccountGroupProxyChoice(ctx, "default", parentGroup.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.AccountProxy(ctx, "acc-1")
+	if err != nil || got == nil || got.Host != "198.51.100.1" {
+		t.Fatalf("fallback to default proxy = %+v, %v; want 198.51.100.1", got, err)
+	}
+
+	// 6. Deleted group proxy falls through to ancestor / default.
+	if err := db.SetAccountGroupProxyChoice(ctx, "default", childGroup.ID, childProxy); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAccountGroupProxyChoice(ctx, "default", parentGroup.ID, parentProxy); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteOutboundProxy(ctx, "", childProxy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.AccountProxy(ctx, "acc-1")
+	if err != nil || got == nil || got.Host != "198.51.100.2" {
+		t.Fatalf("deleted child proxy fallback = %+v, %v; want parent 198.51.100.2", got, err)
+	}
+}
+

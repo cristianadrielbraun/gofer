@@ -988,13 +988,9 @@ func ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSetti
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, account := range accounts {
-			if contactSidebarAccountVisible(account) {
-				templ_7745c5c3_Err = ContactsSidebarAccountSection(account, filters, uiSettings).Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
+		templ_7745c5c3_Err = SidebarContactsAccountNodes(buildSidebarAccountTree(filterContactsSidebarAccounts(accounts)), filters, uiSettings).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</nav><div class=\"shrink-0 px-3 pb-2\" data-contacts-sidebar-trash><hr class=\"divider-etched mx-1 mb-2\">")
 		if templ_7745c5c3_Err != nil {
@@ -1059,7 +1055,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(sectionID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 185, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 181, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 		if templ_7745c5c3_Err != nil {
@@ -1082,7 +1078,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", collapsed))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 185, Col: 157}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 181, Col: 157}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 		if templ_7745c5c3_Err != nil {
@@ -1111,7 +1107,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(sectionID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 190, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 186, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 			if templ_7745c5c3_Err != nil {
@@ -1124,7 +1120,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 			var templ_7745c5c3_Var45 string
 			templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", !collapsed))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 191, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 187, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 			if templ_7745c5c3_Err != nil {
@@ -1137,7 +1133,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 			var templ_7745c5c3_Var46 string
 			templ_7745c5c3_Var46, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(accountColorStyle(account.Color))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 193, Col: 96}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 189, Col: 96}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 			if templ_7745c5c3_Err != nil {
@@ -1150,7 +1146,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 			var templ_7745c5c3_Var47 string
 			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 193, Col: 131}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 189, Col: 131}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 			if templ_7745c5c3_Err != nil {
@@ -1163,7 +1159,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 			var templ_7745c5c3_Var48 string
 			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(contactSidebarAccountName(account))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 194, Col: 129}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 190, Col: 129}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {
@@ -1194,7 +1190,7 @@ func ContactsSidebarAccountSection(account models.Account, filters models.Contac
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(sectionID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 198, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 194, Col: 79}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 		if templ_7745c5c3_Err != nil {
@@ -1319,7 +1315,7 @@ func contactsSidebarItemLink(target string, label string, filters models.Contact
 		var templ_7745c5c3_Var54 templ.SafeURL
 		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(contactSidebarURL(filters, target)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 228, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 224, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 		if templ_7745c5c3_Err != nil {
@@ -1332,7 +1328,7 @@ func contactsSidebarItemLink(target string, label string, filters models.Contact
 		var templ_7745c5c3_Var55 string
 		templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, target)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 229, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 225, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 		if templ_7745c5c3_Err != nil {
@@ -1345,7 +1341,7 @@ func contactsSidebarItemLink(target string, label string, filters models.Contact
 		var templ_7745c5c3_Var56 string
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, target)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 232, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 228, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 		if templ_7745c5c3_Err != nil {
@@ -1358,7 +1354,7 @@ func contactsSidebarItemLink(target string, label string, filters models.Contact
 		var templ_7745c5c3_Var57 string
 		templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(target)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 234, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 230, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 		if templ_7745c5c3_Err != nil {
@@ -1400,7 +1396,7 @@ func contactsSidebarItemLink(target string, label string, filters models.Contact
 		var templ_7745c5c3_Var59 string
 		templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 250, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 246, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 		if templ_7745c5c3_Err != nil {
@@ -1453,7 +1449,7 @@ func ContactsSidebarTrashItem(filters models.ContactFilters) templ.Component {
 		var templ_7745c5c3_Var62 templ.SafeURL
 		templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(contactSidebarURL(filters, "trash")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 259, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 255, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 		if templ_7745c5c3_Err != nil {
@@ -1466,7 +1462,7 @@ func ContactsSidebarTrashItem(filters models.ContactFilters) templ.Component {
 		var templ_7745c5c3_Var63 string
 		templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, "trash")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 260, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 256, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 		if templ_7745c5c3_Err != nil {
@@ -1479,7 +1475,7 @@ func ContactsSidebarTrashItem(filters models.ContactFilters) templ.Component {
 		var templ_7745c5c3_Var64 string
 		templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, "trash")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 263, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 259, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 		if templ_7745c5c3_Err != nil {
@@ -1513,7 +1509,7 @@ func ContactsSidebarTrashItem(filters models.ContactFilters) templ.Component {
 		var templ_7745c5c3_Var66 string
 		templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "folder.trash"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 275, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 271, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 		if templ_7745c5c3_Err != nil {
@@ -1567,7 +1563,7 @@ func ContactsSidebarUnresolvedItem() templ.Component {
 		var templ_7745c5c3_Var68 string
 		templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.unresolved.title"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 295, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 291, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 		if templ_7745c5c3_Err != nil {
@@ -1612,7 +1608,7 @@ func ContactsUnresolvedCount(count int) templ.Component {
 			var templ_7745c5c3_Var70 string
 			templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(count))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 304, Col: 233}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 300, Col: 233}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 			if templ_7745c5c3_Err != nil {
@@ -1658,7 +1654,7 @@ func ContactsTrashCount(count int) templ.Component {
 			var templ_7745c5c3_Var72 string
 			templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(count))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 312, Col: 99}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 308, Col: 99}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 			if templ_7745c5c3_Err != nil {
@@ -1723,7 +1719,7 @@ func ContactsSidebarBookItem(account models.Account, book models.ContactAddressB
 			var templ_7745c5c3_Var76 templ.SafeURL
 			templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(contactSidebarURL(filters, target)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 321, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 317, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 			if templ_7745c5c3_Err != nil {
@@ -1736,7 +1732,7 @@ func ContactsSidebarBookItem(account models.Account, book models.ContactAddressB
 			var templ_7745c5c3_Var77 string
 			templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, target)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 322, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 318, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 			if templ_7745c5c3_Err != nil {
@@ -1749,7 +1745,7 @@ func ContactsSidebarBookItem(account models.Account, book models.ContactAddressB
 			var templ_7745c5c3_Var78 string
 			templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, target)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 325, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 321, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 			if templ_7745c5c3_Err != nil {
@@ -1762,7 +1758,7 @@ func ContactsSidebarBookItem(account models.Account, book models.ContactAddressB
 			var templ_7745c5c3_Var79 string
 			templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(target)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 327, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 323, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 			if templ_7745c5c3_Err != nil {
@@ -1796,7 +1792,7 @@ func ContactsSidebarBookItem(account models.Account, book models.ContactAddressB
 			var templ_7745c5c3_Var81 string
 			templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(contactSidebarBookName(ctx, book))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 337, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 333, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 			if templ_7745c5c3_Err != nil {
@@ -1866,7 +1862,7 @@ func ContactsSidebarAccountItem(account models.Account, filters models.ContactFi
 			var templ_7745c5c3_Var85 templ.SafeURL
 			templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(contactSidebarURL(filters, target)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 347, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 343, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 			if templ_7745c5c3_Err != nil {
@@ -1879,7 +1875,7 @@ func ContactsSidebarAccountItem(account models.Account, filters models.ContactFi
 			var templ_7745c5c3_Var86 string
 			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, target)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 348, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 344, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 			if templ_7745c5c3_Err != nil {
@@ -1892,7 +1888,7 @@ func ContactsSidebarAccountItem(account models.Account, filters models.ContactFi
 			var templ_7745c5c3_Var87 string
 			templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(contactSidebarURL(filters, target)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 351, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 347, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 			if templ_7745c5c3_Err != nil {
@@ -1905,7 +1901,7 @@ func ContactsSidebarAccountItem(account models.Account, filters models.ContactFi
 			var templ_7745c5c3_Var88 string
 			templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(target)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 353, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 349, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 			if templ_7745c5c3_Err != nil {
@@ -1939,7 +1935,7 @@ func ContactsSidebarAccountItem(account models.Account, filters models.ContactFi
 			var templ_7745c5c3_Var90 string
 			templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(contactSidebarAccountItemName(ctx, account))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 363, Col: 77}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 359, Col: 77}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 			if templ_7745c5c3_Err != nil {
@@ -2098,7 +2094,7 @@ func SettingsSidebar(activeTab string, width string) templ.Component {
 		var templ_7745c5c3_Var92 string
 		templ_7745c5c3_Var92, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("width:" + width)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 480, Col: 128}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 476, Col: 128}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 		if templ_7745c5c3_Err != nil {
@@ -2119,7 +2115,7 @@ func SettingsSidebar(activeTab string, width string) templ.Component {
 		var templ_7745c5c3_Var93 string
 		templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.section.default.title"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 484, Col: 168}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 480, Col: 168}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 		if templ_7745c5c3_Err != nil {
@@ -2136,7 +2132,7 @@ func SettingsSidebar(activeTab string, width string) templ.Component {
 		var templ_7745c5c3_Var94 string
 		templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.back_to_inbox"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 488, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 484, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 		if templ_7745c5c3_Err != nil {
@@ -2149,7 +2145,7 @@ func SettingsSidebar(activeTab string, width string) templ.Component {
 		var templ_7745c5c3_Var95 string
 		templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.categories"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 493, Col: 139}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 489, Col: 139}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 		if templ_7745c5c3_Err != nil {
@@ -2265,7 +2261,7 @@ func SettingsSidebarItem(activeTab string, value string, label string) templ.Com
 		var templ_7745c5c3_Var98 templ.SafeURL
 		templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(settingsSectionHref(value)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 518, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 514, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 		if templ_7745c5c3_Err != nil {
@@ -2278,7 +2274,7 @@ func SettingsSidebarItem(activeTab string, value string, label string) templ.Com
 		var templ_7745c5c3_Var99 string
 		templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(settingsSectionHref(value)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 519, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 515, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 		if templ_7745c5c3_Err != nil {
@@ -2291,7 +2287,7 @@ func SettingsSidebarItem(activeTab string, value string, label string) templ.Com
 		var templ_7745c5c3_Var100 string
 		templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(settingsSectionHref(value)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 523, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 519, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 		if templ_7745c5c3_Err != nil {
@@ -2304,7 +2300,7 @@ func SettingsSidebarItem(activeTab string, value string, label string) templ.Com
 		var templ_7745c5c3_Var101 string
 		templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 525, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 521, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 		if templ_7745c5c3_Err != nil {
@@ -2348,7 +2344,7 @@ func SettingsSidebarItem(activeTab string, value string, label string) templ.Com
 		var templ_7745c5c3_Var103 string
 		templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 536, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 532, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 		if templ_7745c5c3_Err != nil {
@@ -2532,7 +2528,7 @@ func GoferLogo(class string, label string) templ.Component {
 			var templ_7745c5c3_Var110 string
 			templ_7745c5c3_Var110, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 580, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 576, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var110))
 			if templ_7745c5c3_Err != nil {
@@ -2591,7 +2587,7 @@ func SidebarHeader(accounts []models.Account, activeApp string) templ.Component 
 		var templ_7745c5c3_Var112 string
 		templ_7745c5c3_Var112, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(sidebarAppIndicatorStyle(activeApp))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 596, Col: 234}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 592, Col: 234}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var112))
 		if templ_7745c5c3_Err != nil {
@@ -2626,7 +2622,7 @@ func SidebarHeader(accounts []models.Account, activeApp string) templ.Component 
 		var templ_7745c5c3_Var114 string
 		templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "app.mail"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 608, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 604, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 		if templ_7745c5c3_Err != nil {
@@ -2660,7 +2656,7 @@ func SidebarHeader(accounts []models.Account, activeApp string) templ.Component 
 		var templ_7745c5c3_Var116 string
 		templ_7745c5c3_Var116, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "app.mail"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 616, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 612, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var116))
 		if templ_7745c5c3_Err != nil {
@@ -2695,7 +2691,7 @@ func SidebarHeader(accounts []models.Account, activeApp string) templ.Component 
 		var templ_7745c5c3_Var118 string
 		templ_7745c5c3_Var118, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.title"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 629, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 625, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var118))
 		if templ_7745c5c3_Err != nil {
@@ -2729,7 +2725,7 @@ func SidebarHeader(accounts []models.Account, activeApp string) templ.Component 
 		var templ_7745c5c3_Var120 string
 		templ_7745c5c3_Var120, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.title"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 637, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 633, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var120))
 		if templ_7745c5c3_Err != nil {
@@ -2764,7 +2760,7 @@ func SidebarHeader(accounts []models.Account, activeApp string) templ.Component 
 		var templ_7745c5c3_Var122 string
 		templ_7745c5c3_Var122, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "app.calendar"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 650, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 646, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var122))
 		if templ_7745c5c3_Err != nil {
@@ -2798,7 +2794,7 @@ func SidebarHeader(accounts []models.Account, activeApp string) templ.Component 
 		var templ_7745c5c3_Var124 string
 		templ_7745c5c3_Var124, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "app.calendar"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 658, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 654, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var124))
 		if templ_7745c5c3_Err != nil {
@@ -2874,7 +2870,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var128 string
 						templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.refresh_all"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 683, Col: 61}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 679, Col: 61}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 						if templ_7745c5c3_Err != nil {
@@ -2900,7 +2896,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var129 string
 						templ_7745c5c3_Var129, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.none_selected"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 688, Col: 212}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 684, Col: 212}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var129))
 						if templ_7745c5c3_Err != nil {
@@ -2949,7 +2945,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var131 string
 						templ_7745c5c3_Var131, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.refresh_all_tip"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 695, Col: 59}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 691, Col: 59}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var131))
 						if templ_7745c5c3_Err != nil {
@@ -2967,7 +2963,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var132 string
 						templ_7745c5c3_Var132, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.none_selected_tip"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 697, Col: 61}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 693, Col: 61}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var132))
 						if templ_7745c5c3_Err != nil {
@@ -3031,7 +3027,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 					var templ_7745c5c3_Var135 string
 					templ_7745c5c3_Var135, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "sync.choose_account"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 707, Col: 54}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 703, Col: 54}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var135))
 					if templ_7745c5c3_Err != nil {
@@ -3078,7 +3074,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 					var templ_7745c5c3_Var137 string
 					templ_7745c5c3_Var137, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.by_account"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 713, Col: 132}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 709, Col: 132}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var137))
 					if templ_7745c5c3_Err != nil {
@@ -3096,7 +3092,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var138 string
 						templ_7745c5c3_Var138, templ_7745c5c3_Err = templ.JoinStringErrs(sidebarCalendarAccountSyncValues(account.ID))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 719, Col: 63}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 715, Col: 63}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var138))
 						if templ_7745c5c3_Err != nil {
@@ -3109,7 +3105,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var139 string
 						templ_7745c5c3_Var139, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 728, Col: 55}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 724, Col: 55}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var139))
 						if templ_7745c5c3_Err != nil {
@@ -3122,7 +3118,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var140 string
 						templ_7745c5c3_Var140, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.refresh_account", "account", calendarAccountName(ctx, account)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 730, Col: 112}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 726, Col: 112}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var140))
 						if templ_7745c5c3_Err != nil {
@@ -3143,7 +3139,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var141 string
 						templ_7745c5c3_Var141, templ_7745c5c3_Err = templ.JoinStringErrs(calendarAccountName(ctx, account))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 734, Col: 86}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 730, Col: 86}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var141))
 						if templ_7745c5c3_Err != nil {
@@ -3156,7 +3152,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var142 string
 						templ_7745c5c3_Var142, templ_7745c5c3_Err = templ.JoinStringErrs(accountAddressIn(ctx, account))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 735, Col: 107}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 731, Col: 107}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var142))
 						if templ_7745c5c3_Err != nil {
@@ -3230,7 +3226,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var145 string
 						templ_7745c5c3_Var145, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.sync.all"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 759, Col: 53}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 755, Col: 53}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var145))
 						if templ_7745c5c3_Err != nil {
@@ -3256,7 +3252,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var146 string
 						templ_7745c5c3_Var146, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.force_all"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 772, Col: 55}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 768, Col: 55}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var146))
 						if templ_7745c5c3_Err != nil {
@@ -3305,7 +3301,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var148 string
 						templ_7745c5c3_Var148, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.sync.tip"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 780, Col: 47}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 776, Col: 47}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var148))
 						if templ_7745c5c3_Err != nil {
@@ -3323,7 +3319,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var149 string
 						templ_7745c5c3_Var149, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.force_tip"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 782, Col: 80}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 778, Col: 80}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var149))
 						if templ_7745c5c3_Err != nil {
@@ -3377,7 +3373,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 					var templ_7745c5c3_Var152 string
 					templ_7745c5c3_Var152, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "sync.choose_account"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 791, Col: 54}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 787, Col: 54}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var152))
 					if templ_7745c5c3_Err != nil {
@@ -3425,7 +3421,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var154 string
 						templ_7745c5c3_Var154, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.sync.by_account"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 798, Col: 133}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 794, Col: 133}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var154))
 						if templ_7745c5c3_Err != nil {
@@ -3444,7 +3440,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var155 string
 								templ_7745c5c3_Var155, templ_7745c5c3_Err = templ.JoinStringErrs(sidebarContactSyncValues(account.ID))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 805, Col: 57}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 801, Col: 57}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var155))
 								if templ_7745c5c3_Err != nil {
@@ -3457,7 +3453,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var156 string
 								templ_7745c5c3_Var156, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 809, Col: 56}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 805, Col: 56}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var156))
 								if templ_7745c5c3_Err != nil {
@@ -3470,7 +3466,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var157 string
 								templ_7745c5c3_Var157, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.sync.account", "account", contactSidebarAccountName(account)))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 811, Col: 107}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 807, Col: 107}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var157))
 								if templ_7745c5c3_Err != nil {
@@ -3491,7 +3487,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var158 string
 								templ_7745c5c3_Var158, templ_7745c5c3_Err = templ.JoinStringErrs(contactSidebarAccountName(account))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 815, Col: 89}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 811, Col: 89}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var158))
 								if templ_7745c5c3_Err != nil {
@@ -3504,7 +3500,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var159 string
 								templ_7745c5c3_Var159, templ_7745c5c3_Err = templ.JoinStringErrs(accountAddressIn(ctx, account))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 816, Col: 109}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 812, Col: 109}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var159))
 								if templ_7745c5c3_Err != nil {
@@ -3528,7 +3524,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 						var templ_7745c5c3_Var160 string
 						templ_7745c5c3_Var160, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.by_account"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 823, Col: 129}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 819, Col: 129}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var160))
 						if templ_7745c5c3_Err != nil {
@@ -3548,7 +3544,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var161 string
 								templ_7745c5c3_Var161, templ_7745c5c3_Err = templ.JoinStringErrs("/api/mail/sync/accounts/" + account.ID)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 831, Col: 60}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 827, Col: 60}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var161))
 								if templ_7745c5c3_Err != nil {
@@ -3561,7 +3557,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var162 string
 								templ_7745c5c3_Var162, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 835, Col: 53}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 831, Col: 53}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var162))
 								if templ_7745c5c3_Err != nil {
@@ -3574,7 +3570,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var163 string
 								templ_7745c5c3_Var163, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.force_account", "account", account.Name))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 837, Col: 87}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 833, Col: 87}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var163))
 								if templ_7745c5c3_Err != nil {
@@ -3595,7 +3591,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var164 string
 								templ_7745c5c3_Var164, templ_7745c5c3_Err = templ.JoinStringErrs(account.Name)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 841, Col: 67}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 837, Col: 67}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var164))
 								if templ_7745c5c3_Err != nil {
@@ -3608,7 +3604,7 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 								var templ_7745c5c3_Var165 string
 								templ_7745c5c3_Var165, templ_7745c5c3_Err = templ.JoinStringErrs(account.Email)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 842, Col: 92}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 838, Col: 92}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var165))
 								if templ_7745c5c3_Err != nil {
@@ -3762,7 +3758,7 @@ func SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) templ.Compone
 				var templ_7745c5c3_Var171 string
 				templ_7745c5c3_Var171, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "mail.sync.issues", mailSyncErrorCount(accounts)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 896, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 892, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var171))
 				if templ_7745c5c3_Err != nil {
@@ -3815,7 +3811,7 @@ func SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) templ.Compone
 						var templ_7745c5c3_Var173 string
 						templ_7745c5c3_Var173, templ_7745c5c3_Err = templ.JoinStringErrs(account.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 906, Col: 57}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 902, Col: 57}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var173))
 						if templ_7745c5c3_Err != nil {
@@ -3828,7 +3824,7 @@ func SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) templ.Compone
 						var templ_7745c5c3_Var174 string
 						templ_7745c5c3_Var174, templ_7745c5c3_Err = templ.JoinStringErrs(account.Email)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 907, Col: 67}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 903, Col: 67}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var174))
 						if templ_7745c5c3_Err != nil {
@@ -3846,7 +3842,7 @@ func SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) templ.Compone
 							var templ_7745c5c3_Var175 string
 							templ_7745c5c3_Var175, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.last_failure", "time", formatAccountSyncErrorAt(ctx, account.EmailSyncErrorAt, nil)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 909, Col: 146}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 905, Col: 146}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var175))
 							if templ_7745c5c3_Err != nil {
@@ -3864,7 +3860,7 @@ func SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) templ.Compone
 						var templ_7745c5c3_Var176 string
 						templ_7745c5c3_Var176, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 911, Col: 113}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 907, Col: 113}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var176))
 						if templ_7745c5c3_Err != nil {
@@ -3933,13 +3929,9 @@ func SidebarFolderTree(accounts []models.Account, activeFolder string, uiSetting
 				return templ_7745c5c3_Err
 			}
 		}
-		for _, account := range accounts {
-			if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden {
-				templ_7745c5c3_Err = SidebarAccountSection(account, activeFolder, uiSettings, filters).Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
+		templ_7745c5c3_Err = SidebarMailAccountNodes(buildSidebarAccountTree(filterMailSidebarAccounts(accounts)), activeFolder, uiSettings, filters).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 231, "</nav>")
 		if templ_7745c5c3_Err != nil {
@@ -4031,7 +4023,7 @@ func SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSet
 			var templ_7745c5c3_Var180 string
 			templ_7745c5c3_Var180, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", collapsed))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 950, Col: 158}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 942, Col: 158}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var180))
 			if templ_7745c5c3_Err != nil {
@@ -4044,7 +4036,7 @@ func SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSet
 			var templ_7745c5c3_Var181 string
 			templ_7745c5c3_Var181, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", !collapsed))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 955, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 947, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var181))
 			if templ_7745c5c3_Err != nil {
@@ -4065,7 +4057,7 @@ func SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSet
 			var templ_7745c5c3_Var182 string
 			templ_7745c5c3_Var182, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.unified_folders"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 960, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 952, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var182))
 			if templ_7745c5c3_Err != nil {
@@ -4132,7 +4124,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var184 string
 		templ_7745c5c3_Var184, templ_7745c5c3_Err = templ.JoinStringErrs("sidebar-account-" + account.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 978, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 970, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var184))
 		if templ_7745c5c3_Err != nil {
@@ -4145,7 +4137,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var185 string
 		templ_7745c5c3_Var185, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 978, Col: 93}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 970, Col: 93}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var185))
 		if templ_7745c5c3_Err != nil {
@@ -4168,7 +4160,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var186 string
 		templ_7745c5c3_Var186, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", collapsed))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 978, Col: 197}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 970, Col: 197}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var186))
 		if templ_7745c5c3_Err != nil {
@@ -4181,7 +4173,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var187 string
 		templ_7745c5c3_Var187, templ_7745c5c3_Err = templ.JoinStringErrs(account.Provider)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 978, Col: 248}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 970, Col: 248}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var187))
 		if templ_7745c5c3_Err != nil {
@@ -4204,7 +4196,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var188 string
 		templ_7745c5c3_Var188, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 982, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 974, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var188))
 		if templ_7745c5c3_Err != nil {
@@ -4217,7 +4209,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var189 string
 		templ_7745c5c3_Var189, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", !collapsed))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 983, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 975, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var189))
 		if templ_7745c5c3_Err != nil {
@@ -4230,7 +4222,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var190 string
 		templ_7745c5c3_Var190, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(accountColorStyle(account.Color))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 985, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 977, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var190))
 		if templ_7745c5c3_Err != nil {
@@ -4243,7 +4235,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var191 string
 		templ_7745c5c3_Var191, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 985, Col: 130}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 977, Col: 130}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var191))
 		if templ_7745c5c3_Err != nil {
@@ -4256,7 +4248,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var192 string
 		templ_7745c5c3_Var192, templ_7745c5c3_Err = templ.JoinStringErrs(account.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 986, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 978, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var192))
 		if templ_7745c5c3_Err != nil {
@@ -4283,7 +4275,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		var templ_7745c5c3_Var193 string
 		templ_7745c5c3_Var193, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 992, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 984, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var193))
 		if templ_7745c5c3_Err != nil {
@@ -4343,7 +4335,7 @@ func SidebarTagGroup(labels []models.Label, activeFolder string, filters models.
 			var templ_7745c5c3_Var195 string
 			templ_7745c5c3_Var195, templ_7745c5c3_Err = templ.JoinStringErrs(sidebarTagGroupID(accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1010, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1002, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var195))
 			if templ_7745c5c3_Err != nil {
@@ -4366,7 +4358,7 @@ func SidebarTagGroup(labels []models.Label, activeFolder string, filters models.
 			var templ_7745c5c3_Var196 string
 			templ_7745c5c3_Var196, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", collapsed))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1012, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1004, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var196))
 			if templ_7745c5c3_Err != nil {
@@ -4379,7 +4371,7 @@ func SidebarTagGroup(labels []models.Label, activeFolder string, filters models.
 			var templ_7745c5c3_Var197 string
 			templ_7745c5c3_Var197, templ_7745c5c3_Err = templ.JoinStringErrs(sidebarTagGroupID(accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1017, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1009, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var197))
 			if templ_7745c5c3_Err != nil {
@@ -4392,7 +4384,7 @@ func SidebarTagGroup(labels []models.Label, activeFolder string, filters models.
 			var templ_7745c5c3_Var198 string
 			templ_7745c5c3_Var198, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", !collapsed))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1018, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1010, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var198))
 			if templ_7745c5c3_Err != nil {
@@ -4413,7 +4405,7 @@ func SidebarTagGroup(labels []models.Label, activeFolder string, filters models.
 			var templ_7745c5c3_Var199 string
 			templ_7745c5c3_Var199, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.tags"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1023, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1015, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var199))
 			if templ_7745c5c3_Err != nil {
@@ -4434,7 +4426,7 @@ func SidebarTagGroup(labels []models.Label, activeFolder string, filters models.
 			var templ_7745c5c3_Var200 string
 			templ_7745c5c3_Var200, templ_7745c5c3_Err = templ.JoinStringErrs(sidebarTagGroupID(accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1026, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1018, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var200))
 			if templ_7745c5c3_Err != nil {
@@ -4498,7 +4490,7 @@ func SidebarTagFilterLink(label models.Label, folderID string, activeFolder stri
 		var templ_7745c5c3_Var203 templ.SafeURL
 		templ_7745c5c3_Var203, templ_7745c5c3_Err = templ.JoinURLErrs(sidebarTagFilterURL(folderID, label, accountID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1040, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1032, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var203))
 		if templ_7745c5c3_Err != nil {
@@ -4511,7 +4503,7 @@ func SidebarTagFilterLink(label models.Label, folderID string, activeFolder stri
 		var templ_7745c5c3_Var204 string
 		templ_7745c5c3_Var204, templ_7745c5c3_Err = templ.JoinStringErrs(strings.TrimSpace(label.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1042, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1034, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var204))
 		if templ_7745c5c3_Err != nil {
@@ -4524,7 +4516,7 @@ func SidebarTagFilterLink(label models.Label, folderID string, activeFolder stri
 		var templ_7745c5c3_Var205 string
 		templ_7745c5c3_Var205, templ_7745c5c3_Err = templ.JoinStringErrs(label.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1043, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1035, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var205))
 		if templ_7745c5c3_Err != nil {
@@ -4537,7 +4529,7 @@ func SidebarTagFilterLink(label models.Label, folderID string, activeFolder stri
 		var templ_7745c5c3_Var206 string
 		templ_7745c5c3_Var206, templ_7745c5c3_Err = templ.JoinStringErrs(strings.TrimSpace(accountID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1044, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1036, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var206))
 		if templ_7745c5c3_Err != nil {
@@ -4581,7 +4573,7 @@ func SidebarTagFilterLink(label models.Label, folderID string, activeFolder stri
 		var templ_7745c5c3_Var208 string
 		templ_7745c5c3_Var208, templ_7745c5c3_Err = templ.JoinStringErrs(strings.TrimSpace(label.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1057, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1049, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var208))
 		if templ_7745c5c3_Err != nil {
@@ -4627,7 +4619,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var210 string
 			templ_7745c5c3_Var210, templ_7745c5c3_Err = templ.JoinStringErrs(groupID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1068, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1060, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var210))
 			if templ_7745c5c3_Err != nil {
@@ -4650,7 +4642,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var211 string
 			templ_7745c5c3_Var211, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", collapsed))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1070, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1062, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var211))
 			if templ_7745c5c3_Err != nil {
@@ -4675,7 +4667,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var213 templ.SafeURL
 			templ_7745c5c3_Var213, templ_7745c5c3_Err = templ.JoinURLErrs(sidebarFolderHref(folder.ID, accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1073, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1065, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var213))
 			if templ_7745c5c3_Err != nil {
@@ -4688,7 +4680,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var214 string
 			templ_7745c5c3_Var214, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(fmt.Sprintf("/folder/%s", folder.ID)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1074, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1066, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var214))
 			if templ_7745c5c3_Err != nil {
@@ -4701,7 +4693,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var215 string
 			templ_7745c5c3_Var215, templ_7745c5c3_Err = templ.JoinStringErrs(folder.Role)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1077, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1069, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var215))
 			if templ_7745c5c3_Err != nil {
@@ -4724,7 +4716,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var216 string
 			templ_7745c5c3_Var216, templ_7745c5c3_Err = templ.JoinStringErrs(folder.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1079, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1071, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var216))
 			if templ_7745c5c3_Err != nil {
@@ -4737,7 +4729,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var217 string
 			templ_7745c5c3_Var217, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1080, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1072, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var217))
 			if templ_7745c5c3_Err != nil {
@@ -4763,7 +4755,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var219 string
 			templ_7745c5c3_Var219, templ_7745c5c3_Err = templ.JoinStringErrs(groupID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1087, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1079, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var219))
 			if templ_7745c5c3_Err != nil {
@@ -4776,7 +4768,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var220 string
 			templ_7745c5c3_Var220, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.folder.toggle", "folder", i18n.FolderName(ctx, folder.Role, folder.Name)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1088, Col: 108}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1080, Col: 108}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var220))
 			if templ_7745c5c3_Err != nil {
@@ -4789,7 +4781,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var221 string
 			templ_7745c5c3_Var221, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", !collapsed))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1089, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1081, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var221))
 			if templ_7745c5c3_Err != nil {
@@ -4810,7 +4802,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var222 string
 			templ_7745c5c3_Var222, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.FolderName(ctx, folder.Role, folder.Name))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1094, Col: 92}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1086, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var222))
 			if templ_7745c5c3_Err != nil {
@@ -4836,7 +4828,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 				var templ_7745c5c3_Var224 string
 				templ_7745c5c3_Var224, templ_7745c5c3_Err = templ.JoinStringErrs(folder.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1097, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1089, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var224))
 				if templ_7745c5c3_Err != nil {
@@ -4862,7 +4854,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 				var templ_7745c5c3_Var226 string
 				templ_7745c5c3_Var226, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", folder.Unread))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1104, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1096, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var226))
 				if templ_7745c5c3_Err != nil {
@@ -4880,7 +4872,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var227 string
 			templ_7745c5c3_Var227, templ_7745c5c3_Err = templ.JoinStringErrs(folder.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1111, Col: 42}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1103, Col: 42}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var227))
 			if templ_7745c5c3_Err != nil {
@@ -4901,7 +4893,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var228 string
 			templ_7745c5c3_Var228, templ_7745c5c3_Err = templ.JoinStringErrs(groupID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1116, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1108, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var228))
 			if templ_7745c5c3_Err != nil {
@@ -4968,7 +4960,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 		var templ_7745c5c3_Var231 templ.SafeURL
 		templ_7745c5c3_Var231, templ_7745c5c3_Err = templ.JoinURLErrs(sidebarFolderHref(folder.ID, accountID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1131, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1123, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var231))
 		if templ_7745c5c3_Err != nil {
@@ -4981,7 +4973,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 		var templ_7745c5c3_Var232 string
 		templ_7745c5c3_Var232, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL(fmt.Sprintf("/folder/%s", folder.ID)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1132, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1124, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var232))
 		if templ_7745c5c3_Err != nil {
@@ -4994,7 +4986,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 		var templ_7745c5c3_Var233 string
 		templ_7745c5c3_Var233, templ_7745c5c3_Err = templ.JoinStringErrs(folder.Role)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1135, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1127, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var233))
 		if templ_7745c5c3_Err != nil {
@@ -5017,7 +5009,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 		var templ_7745c5c3_Var234 string
 		templ_7745c5c3_Var234, templ_7745c5c3_Err = templ.JoinStringErrs(folder.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1137, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1129, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var234))
 		if templ_7745c5c3_Err != nil {
@@ -5030,7 +5022,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 		var templ_7745c5c3_Var235 string
 		templ_7745c5c3_Var235, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1138, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1130, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var235))
 		if templ_7745c5c3_Err != nil {
@@ -5064,7 +5056,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 		var templ_7745c5c3_Var237 string
 		templ_7745c5c3_Var237, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.FolderName(ctx, folder.Role, folder.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1149, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1141, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var237))
 		if templ_7745c5c3_Err != nil {
@@ -5090,7 +5082,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var239 string
 			templ_7745c5c3_Var239, templ_7745c5c3_Err = templ.JoinStringErrs(folder.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1152, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1144, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var239))
 			if templ_7745c5c3_Err != nil {
@@ -5116,7 +5108,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 			var templ_7745c5c3_Var241 string
 			templ_7745c5c3_Var241, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", folder.Unread))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1159, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1151, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var241))
 			if templ_7745c5c3_Err != nil {
@@ -5187,7 +5179,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var245 string
 				templ_7745c5c3_Var245, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1169, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1161, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var245))
 				if templ_7745c5c3_Err != nil {
@@ -5200,7 +5192,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var246 string
 				templ_7745c5c3_Var246, templ_7745c5c3_Err = templ.JoinStringErrs(account.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1170, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1162, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var246))
 				if templ_7745c5c3_Err != nil {
@@ -5213,7 +5205,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var247 string
 				templ_7745c5c3_Var247, templ_7745c5c3_Err = templ.JoinStringErrs(account.Email)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1171, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1163, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var247))
 				if templ_7745c5c3_Err != nil {
@@ -5226,7 +5218,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var248 string
 				templ_7745c5c3_Var248, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1172, Col: 101}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1164, Col: 101}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var248))
 				if templ_7745c5c3_Err != nil {
@@ -5239,7 +5231,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var249 string
 				templ_7745c5c3_Var249, templ_7745c5c3_Err = templ.JoinStringErrs(strings.TrimSpace(account.EmailSyncErrorAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1173, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1165, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var249))
 				if templ_7745c5c3_Err != nil {
@@ -5252,7 +5244,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var250 string
 				templ_7745c5c3_Var250, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.failed"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1175, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1167, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var250))
 				if templ_7745c5c3_Err != nil {
@@ -5299,7 +5291,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var252 string
 				templ_7745c5c3_Var252, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.failed"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1182, Col: 64}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1174, Col: 64}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var252))
 				if templ_7745c5c3_Err != nil {
@@ -5317,7 +5309,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 					var templ_7745c5c3_Var253 string
 					templ_7745c5c3_Var253, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.last_failure_label"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1185, Col: 51}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1177, Col: 51}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var253))
 					if templ_7745c5c3_Err != nil {
@@ -5330,7 +5322,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 					var templ_7745c5c3_Var254 string
 					templ_7745c5c3_Var254, templ_7745c5c3_Err = templ.JoinStringErrs(strings.TrimSpace(account.EmailSyncErrorAt))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1186, Col: 84}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1178, Col: 84}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var254))
 					if templ_7745c5c3_Err != nil {
@@ -5343,7 +5335,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 					var templ_7745c5c3_Var255 string
 					templ_7745c5c3_Var255, templ_7745c5c3_Err = templ.JoinStringErrs(formatAccountSyncErrorAt(ctx, account.EmailSyncErrorAt, uiSettings))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1187, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1179, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var255))
 					if templ_7745c5c3_Err != nil {
@@ -5361,7 +5353,7 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 				var templ_7745c5c3_Var256 string
 				templ_7745c5c3_Var256, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.details", "details", i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError))))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1191, Col: 150}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1183, Col: 150}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var256))
 				if templ_7745c5c3_Err != nil {
@@ -5505,7 +5497,7 @@ func SidebarFooter() templ.Component {
 		var templ_7745c5c3_Var259 string
 		templ_7745c5c3_Var259, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.section.default.title"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1234, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1226, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var259))
 		if templ_7745c5c3_Err != nil {
@@ -5546,7 +5538,7 @@ func SidebarFooter() templ.Component {
 				var templ_7745c5c3_Var262 string
 				templ_7745c5c3_Var262, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "shortcuts.show"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1241, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1233, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var262))
 				if templ_7745c5c3_Err != nil {
@@ -5593,7 +5585,7 @@ func SidebarFooter() templ.Component {
 				var templ_7745c5c3_Var264 string
 				templ_7745c5c3_Var264, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "shortcuts.title"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1248, Col: 153}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1240, Col: 153}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var264))
 				if templ_7745c5c3_Err != nil {
@@ -5606,7 +5598,7 @@ func SidebarFooter() templ.Component {
 				var templ_7745c5c3_Var265 string
 				templ_7745c5c3_Var265, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "shortcuts.description"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1249, Col: 114}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1241, Col: 114}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var265))
 				if templ_7745c5c3_Err != nil {
@@ -5732,7 +5724,7 @@ func SidebarShortcutHint(label string, keys string) templ.Component {
 		var templ_7745c5c3_Var267 string
 		templ_7745c5c3_Var267, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1276, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1268, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var267))
 		if templ_7745c5c3_Err != nil {
@@ -5745,7 +5737,7 @@ func SidebarShortcutHint(label string, keys string) templ.Component {
 		var templ_7745c5c3_Var268 string
 		templ_7745c5c3_Var268, templ_7745c5c3_Err = templ.JoinStringErrs(keys)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1277, Col: 206}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1269, Col: 206}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var268))
 		if templ_7745c5c3_Err != nil {
@@ -5788,7 +5780,7 @@ func WebmailSidebarLogout() templ.Component {
 			var templ_7745c5c3_Var270 string
 			templ_7745c5c3_Var270, templ_7745c5c3_Err = templ.JoinStringErrs(auth.CSRFToken(ctx, "POST", "/auth/logout"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1284, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1276, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var270))
 			if templ_7745c5c3_Err != nil {
@@ -5805,7 +5797,7 @@ func WebmailSidebarLogout() templ.Component {
 			var templ_7745c5c3_Var271 string
 			templ_7745c5c3_Var271, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "auth.log_out"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1287, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1279, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var271))
 			if templ_7745c5c3_Err != nil {
@@ -5851,7 +5843,7 @@ func MobileTopBar() templ.Component {
 		var templ_7745c5c3_Var273 string
 		templ_7745c5c3_Var273, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "nav.open"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1298, Col: 112}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1290, Col: 112}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var273))
 		if templ_7745c5c3_Err != nil {
@@ -5880,7 +5872,7 @@ func MobileTopBar() templ.Component {
 		var templ_7745c5c3_Var274 string
 		templ_7745c5c3_Var274, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.search.label"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1312, Col: 132}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1304, Col: 132}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var274))
 		if templ_7745c5c3_Err != nil {
@@ -5901,7 +5893,7 @@ func MobileTopBar() templ.Component {
 		var templ_7745c5c3_Var275 string
 		templ_7745c5c3_Var275, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sort.label"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1315, Col: 128}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1307, Col: 128}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var275))
 		if templ_7745c5c3_Err != nil {
@@ -5922,7 +5914,7 @@ func MobileTopBar() templ.Component {
 		var templ_7745c5c3_Var276 string
 		templ_7745c5c3_Var276, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.filters.title"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1318, Col: 142}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1310, Col: 142}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var276))
 		if templ_7745c5c3_Err != nil {
@@ -5971,7 +5963,7 @@ func MobileTopBar() templ.Component {
 				var templ_7745c5c3_Var279 string
 				templ_7745c5c3_Var279, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.actions"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1325, Col: 101}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1317, Col: 101}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var279))
 				if templ_7745c5c3_Err != nil {
@@ -6034,7 +6026,7 @@ func MobileTopBar() templ.Component {
 					var templ_7745c5c3_Var282 string
 					templ_7745c5c3_Var282, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.import_vcard"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1333, Col: 46}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1325, Col: 46}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var282))
 					if templ_7745c5c3_Err != nil {
@@ -6061,7 +6053,7 @@ func MobileTopBar() templ.Component {
 				var templ_7745c5c3_Var283 string
 				templ_7745c5c3_Var283, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.export_all"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1338, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1330, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var283))
 				if templ_7745c5c3_Err != nil {
@@ -6090,7 +6082,7 @@ func MobileTopBar() templ.Component {
 		var templ_7745c5c3_Var284 string
 		templ_7745c5c3_Var284, templ_7745c5c3_Err = templ.JoinStringErrs(assetver.URL("/assets/js/mobile-nav.js"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1346, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1338, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var284))
 		if templ_7745c5c3_Err != nil {
@@ -6152,7 +6144,7 @@ func contactSidebarRow(target contactSidebarMenuTarget, buttonPlace string) temp
 		var templ_7745c5c3_Var288 string
 		templ_7745c5c3_Var288, templ_7745c5c3_Err = templ.JoinStringErrs(target.Kind)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1355, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1347, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var288))
 		if templ_7745c5c3_Err != nil {
@@ -6165,7 +6157,7 @@ func contactSidebarRow(target contactSidebarMenuTarget, buttonPlace string) temp
 		var templ_7745c5c3_Var289 string
 		templ_7745c5c3_Var289, templ_7745c5c3_Err = templ.JoinStringErrs(target.Place)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1356, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1348, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var289))
 		if templ_7745c5c3_Err != nil {
@@ -6178,7 +6170,7 @@ func contactSidebarRow(target contactSidebarMenuTarget, buttonPlace string) temp
 		var templ_7745c5c3_Var290 string
 		templ_7745c5c3_Var290, templ_7745c5c3_Err = templ.JoinStringErrs(target.AccountID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1357, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1349, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var290))
 		if templ_7745c5c3_Err != nil {
@@ -6191,7 +6183,7 @@ func contactSidebarRow(target contactSidebarMenuTarget, buttonPlace string) temp
 		var templ_7745c5c3_Var291 string
 		templ_7745c5c3_Var291, templ_7745c5c3_Err = templ.JoinStringErrs(target.BookID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1358, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1350, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var291))
 		if templ_7745c5c3_Err != nil {
@@ -6204,7 +6196,7 @@ func contactSidebarRow(target contactSidebarMenuTarget, buttonPlace string) temp
 		var templ_7745c5c3_Var292 string
 		templ_7745c5c3_Var292, templ_7745c5c3_Err = templ.JoinStringErrs(target.Provider)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1359, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1351, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var292))
 		if templ_7745c5c3_Err != nil {
@@ -6217,7 +6209,7 @@ func contactSidebarRow(target contactSidebarMenuTarget, buttonPlace string) temp
 		var templ_7745c5c3_Var293 string
 		templ_7745c5c3_Var293, templ_7745c5c3_Err = templ.JoinStringErrs(target.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1360, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1352, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var293))
 		if templ_7745c5c3_Err != nil {
@@ -6256,7 +6248,7 @@ func contactSidebarRow(target contactSidebarMenuTarget, buttonPlace string) temp
 		var templ_7745c5c3_Var296 string
 		templ_7745c5c3_Var296, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.sidebar_menu.options", "place", target.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1366, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1358, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var296))
 		if templ_7745c5c3_Err != nil {
@@ -6652,7 +6644,7 @@ func ContactsSidebarOtherBooks(account models.Account) templ.Component {
 				var templ_7745c5c3_Var312 string
 				templ_7745c5c3_Var312, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.other_books.title"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1429, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1421, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var312))
 				if templ_7745c5c3_Err != nil {
@@ -6699,7 +6691,7 @@ func ContactsSidebarOtherBooks(account models.Account) templ.Component {
 					var templ_7745c5c3_Var315 string
 					templ_7745c5c3_Var315, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.other_books.discover"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1436, Col: 326}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1428, Col: 326}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var315))
 					if templ_7745c5c3_Err != nil {
@@ -6742,7 +6734,7 @@ func ContactsSidebarOtherBooks(account models.Account) templ.Component {
 					var templ_7745c5c3_Var317 string
 					templ_7745c5c3_Var317, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.other_books.discover"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1443, Col: 51}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1435, Col: 51}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var317))
 					if templ_7745c5c3_Err != nil {
@@ -6783,7 +6775,7 @@ func ContactsSidebarOtherBooks(account models.Account) templ.Component {
 				var templ_7745c5c3_Var319 string
 				templ_7745c5c3_Var319, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.other_books.for", "account", contactSidebarAccountName(account)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1448, Col: 147}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1440, Col: 147}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var319))
 				if templ_7745c5c3_Err != nil {
@@ -6910,7 +6902,7 @@ func ContactsBookStopDialog() templ.Component {
 						var templ_7745c5c3_Var325 string
 						templ_7745c5c3_Var325, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.title_fallback"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1480, Col: 56}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1472, Col: 56}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var325))
 						if templ_7745c5c3_Err != nil {
@@ -6941,7 +6933,7 @@ func ContactsBookStopDialog() templ.Component {
 						var templ_7745c5c3_Var327 string
 						templ_7745c5c3_Var327, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.note"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1483, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1475, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var327))
 						if templ_7745c5c3_Err != nil {
@@ -6974,7 +6966,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var328 string
 				templ_7745c5c3_Var328, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.remove"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1493, Col: 91}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1485, Col: 91}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var328))
 				if templ_7745c5c3_Err != nil {
@@ -6987,7 +6979,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var329 string
 				templ_7745c5c3_Var329, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.remove_detail"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1494, Col: 108}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1486, Col: 108}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var329))
 				if templ_7745c5c3_Err != nil {
@@ -7000,7 +6992,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var330 string
 				templ_7745c5c3_Var330, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.choose"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1502, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1494, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var330))
 				if templ_7745c5c3_Err != nil {
@@ -7021,7 +7013,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var331 string
 				templ_7745c5c3_Var331, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.keep"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1509, Col: 88}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1501, Col: 88}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var331))
 				if templ_7745c5c3_Err != nil {
@@ -7034,7 +7026,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var332 string
 				templ_7745c5c3_Var332, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.keep_detail"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1510, Col: 105}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1502, Col: 105}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var332))
 				if templ_7745c5c3_Err != nil {
@@ -7047,7 +7039,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var333 string
 				templ_7745c5c3_Var333, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.last"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1515, Col: 203}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1507, Col: 203}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var333))
 				if templ_7745c5c3_Err != nil {
@@ -7088,7 +7080,7 @@ func ContactsBookStopDialog() templ.Component {
 						var templ_7745c5c3_Var336 string
 						templ_7745c5c3_Var336, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1518, Col: 230}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1510, Col: 230}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var336))
 						if templ_7745c5c3_Err != nil {
@@ -7111,7 +7103,7 @@ func ContactsBookStopDialog() templ.Component {
 					var templ_7745c5c3_Var337 string
 					templ_7745c5c3_Var337, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_stop.confirm"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1521, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1513, Col: 50}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var337))
 					if templ_7745c5c3_Err != nil {
@@ -7158,7 +7150,7 @@ func ContactsBookStopDialog() templ.Component {
 						var templ_7745c5c3_Var340 string
 						templ_7745c5c3_Var340, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.title"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1529, Col: 47}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1521, Col: 47}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var340))
 						if templ_7745c5c3_Err != nil {
@@ -7189,7 +7181,7 @@ func ContactsBookStopDialog() templ.Component {
 						var templ_7745c5c3_Var342 string
 						templ_7745c5c3_Var342, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.note"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1532, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1524, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var342))
 						if templ_7745c5c3_Err != nil {
@@ -7214,7 +7206,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var343 string
 				templ_7745c5c3_Var343, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.pending"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1538, Col: 133}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1530, Col: 133}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var343))
 				if templ_7745c5c3_Err != nil {
@@ -7235,7 +7227,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var344 string
 				templ_7745c5c3_Var344, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.select_all"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1543, Col: 167}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1535, Col: 167}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var344))
 				if templ_7745c5c3_Err != nil {
@@ -7248,7 +7240,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var345 string
 				templ_7745c5c3_Var345, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.pending"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1547, Col: 263}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1539, Col: 263}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var345))
 				if templ_7745c5c3_Err != nil {
@@ -7261,7 +7253,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var346 string
 				templ_7745c5c3_Var346, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.all_placed"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1548, Col: 147}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1540, Col: 147}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var346))
 				if templ_7745c5c3_Err != nil {
@@ -7274,7 +7266,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var347 string
 				templ_7745c5c3_Var347, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.places"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1551, Col: 131}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1543, Col: 131}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var347))
 				if templ_7745c5c3_Err != nil {
@@ -7361,7 +7353,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var351 string
 				templ_7745c5c3_Var351, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.local_note"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1580, Col: 146}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1572, Col: 146}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var351))
 				if templ_7745c5c3_Err != nil {
@@ -7510,7 +7502,7 @@ func ContactsBookStopDialog() templ.Component {
 				var templ_7745c5c3_Var358 string
 				templ_7745c5c3_Var358, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.show"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1603, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1595, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var358))
 				if templ_7745c5c3_Err != nil {
@@ -7551,7 +7543,7 @@ func ContactsBookStopDialog() templ.Component {
 					var templ_7745c5c3_Var360 string
 					templ_7745c5c3_Var360, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.book_sort.rest_local"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1625, Col: 52}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1617, Col: 52}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var360))
 					if templ_7745c5c3_Err != nil {
@@ -7564,7 +7556,7 @@ func ContactsBookStopDialog() templ.Component {
 					var templ_7745c5c3_Var361 string
 					templ_7745c5c3_Var361, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.done"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1628, Col: 34}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1620, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var361))
 					if templ_7745c5c3_Err != nil {

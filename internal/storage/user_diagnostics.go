@@ -63,11 +63,16 @@ type AdminMailbox struct {
 	SyncEnabled bool
 	SyncError   string
 	SyncErrorAt *time.Time
-	// ProxyID is the account's proxy choice: "" the default, "direct" none,
-	// else an outbound proxy's ID.
-	ProxyID   string
-	Hidden    bool
-	CreatedAt time.Time
+	// ProxyID is the account's own proxy choice: "" inherits GroupProxyChain
+	// or the installation default, "direct" connects directly, otherwise an
+	// outbound proxy's id.
+	ProxyID string
+	// GroupProxyChain is the proxy choices of the groups around an account
+	// that inherits them, nearest group first. Empty when the account chose
+	// its own proxy or sits in no group.
+	GroupProxyChain []string
+	Hidden          bool
+	CreatedAt       time.Time
 }
 
 func (r *AccountRouting) ValidateDiagnosticsAdministrator(ctx context.Context, actor DiagnosticsActor) error {
@@ -182,7 +187,7 @@ func (db *DB) ListAdminMailboxes(ctx context.Context, owner string) ([]AdminMail
 		byID[transport.ID] = transport
 	}
 	rows, err := db.Read().QueryContext(ctx, `SELECT id, COALESCE(display_name,''), COALESCE(email_sync_enabled,1),
- COALESCE(email_sync_error,''), email_sync_error_at, COALESCE(proxy_id,''), COALESCE(hidden,0), created_at
+ COALESCE(email_sync_error,''), email_sync_error_at, COALESCE(proxy_id,''), COALESCE(group_id,''), COALESCE(hidden,0), created_at
  FROM accounts WHERE user_id=? AND COALESCE(is_deleting,0)=0 AND provider != 'local'
  ORDER BY sort_order, id`, owner)
 	if err != nil {
@@ -190,12 +195,13 @@ func (db *DB) ListAdminMailboxes(ctx context.Context, owner string) ([]AdminMail
 	}
 	defer rows.Close()
 	result := make([]AdminMailbox, 0)
+	var groupIDs []string
 	for rows.Next() {
 		var mailbox AdminMailbox
-		var id string
+		var id, groupID string
 		var errorAt sql.NullTime
 		if err := rows.Scan(&id, &mailbox.DisplayName, &mailbox.SyncEnabled, &mailbox.SyncError, &errorAt,
-			&mailbox.ProxyID, &mailbox.Hidden, &mailbox.CreatedAt); err != nil {
+			&mailbox.ProxyID, &groupID, &mailbox.Hidden, &mailbox.CreatedAt); err != nil {
 			return nil, err
 		}
 		transport, ok := byID[id]
@@ -208,8 +214,22 @@ func (db *DB) ListAdminMailboxes(ctx context.Context, owner string) ([]AdminMail
 			mailbox.SyncErrorAt = &at
 		}
 		result = append(result, mailbox)
+		groupIDs = append(groupIDs, groupID)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range result {
+		if result[i].ProxyID != "" || groupIDs[i] == "" {
+			continue
+		}
+		chain, err := db.GetGroupProxyChain(ctx, owner, groupIDs[i])
+		if err != nil {
+			return nil, err
+		}
+		result[i].GroupProxyChain = chain
+	}
+	return result, nil
 }
 
 // withDiagnosticsStore is private: callers receive copied typed results, never a

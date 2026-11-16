@@ -12,6 +12,7 @@ import (
 // owned by someone else. Provider resource IDs and Internet Message-IDs are not
 // local keys and must never be inferred as local references.
 var userStorageMigrationOptionalLinks = []migrationLink{
+	{"accounts", "account_groups", []string{"group_id"}, []string{"id"}},
 	{"contact_cards", "accounts", []string{"account_id"}, []string{"id"}},
 	{"contact_cards", "account_contact_address_books", []string{"address_book_id"}, []string{"id"}},
 	{"contact_conflicts", "accounts", []string{"account_id"}, []string{"id"}},

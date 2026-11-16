@@ -18,12 +18,21 @@ func (h *Handler) handleAccountOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
+	items := r.PostForm["item"]
+	for i := range items {
+		items[i] = strings.TrimSpace(items[i])
+	}
 	ids := r.PostForm["account_id"]
 	for i := range ids {
 		ids[i] = strings.TrimSpace(ids[i])
 	}
+	_, hasGroup := r.PostForm["group_id"]
+	groupID := strings.TrimSpace(r.PostFormValue("group_id"))
 	ctx, owner := r.Context(), h.userID(r.Context())
 	err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
+		if len(items) > 0 || hasGroup {
+			return db.SetAccountContainerOrder(ctx, owner, groupID, items)
+		}
 		return db.SetAccountOrder(ctx, owner, ids)
 	})
 	if errors.Is(err, storage.ErrAccountOrderChanged) {

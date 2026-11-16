@@ -21,6 +21,7 @@ func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
 		userID := local.userID(ctx)
 		uiSettings := local.db.GetUISettings(ctx, userID)
+		ctx = views.WithUISettings(ctx, uiSettings)
 		accounts, _ := local.db.GetAccounts(ctx, userID)
 		h.markCalendarFullAccess(ctx, userID, accounts)
 		month := calendarDataFromRequest(r, uiSettings)

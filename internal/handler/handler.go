@@ -541,6 +541,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/{id}/duplicate", h.handleDuplicateContact)
 	mux.HandleFunc("POST /api/accounts/discover", h.handleDiscoverAccount)
 	mux.HandleFunc("POST /api/accounts/order", h.handleAccountOrder)
+	mux.HandleFunc("GET /api/account-groups/new", h.handleNewAccountGroup)
+	mux.HandleFunc("POST /api/account-groups", h.handleCreateAccountGroup)
+	mux.HandleFunc("GET /api/account-groups/{id}/edit", h.handleEditAccountGroup)
+	mux.HandleFunc("POST /api/account-groups/{id}", h.handleUpdateAccountGroup)
+	mux.HandleFunc("DELETE /api/account-groups/{id}", h.handleDeleteAccountGroup)
+	mux.HandleFunc("GET /api/account-groups/{id}/proxy/manage", h.handleManageAccountGroupProxy)
+	mux.HandleFunc("POST /api/account-groups/{id}/proxy", h.handleSaveAccountGroupProxy)
+	mux.HandleFunc("GET /api/account-groups/{id}/accounts/manage", h.handleManageAccountGroupAccounts)
+	mux.HandleFunc("POST /api/account-groups/{id}/accounts", h.handleSaveAccountGroupAccounts)
+	mux.HandleFunc("GET /api/accounts/{id}/group/manage", h.handleManageAccountGroupMembership)
+	mux.HandleFunc("POST /api/accounts/{id}/group", h.handleSaveAccountGroupMembership)
 	mux.HandleFunc("GET /api/accounts/server-check", h.handleAccountServerCheck)
 	mux.HandleFunc("POST /api/accounts/test", h.handleTestNewAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/test-changes", h.handleTestAccountChanges)
@@ -3028,7 +3039,7 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	// Discovery connects through the proxy the new account will use.
-	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"))
+	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"), r.FormValue("group_id"))
 	if err != nil {
 		writeJSONError(w, r, http.StatusBadRequest, i18n.T(r.Context(), "account_proxy.gone"))
 		return
@@ -3104,7 +3115,7 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := accountRequestFromForm(r)
-	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), req.ProxyID)
+	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), req.ProxyID, req.GroupID)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
 		views.AccountFormError(i18n.T(r.Context(), "account_proxy.gone")).Render(r.Context(), w)
@@ -3141,6 +3152,9 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		message := fmt.Sprintf("Failed to create account: %v", err)
 		if errors.Is(err, config.ErrMailboxExists) {
 			message = "This mailbox is already connected to Gofer."
+		} else if errors.Is(err, storage.ErrAccountGroupNotFound) {
+			views.AccountFormError(i18n.T(r.Context(), "account_group.error.parent_gone")).Render(r.Context(), w)
+			return
 		}
 		views.AccountFormError(serverText(r.Context(), message)).Render(r.Context(), w)
 		return
@@ -3740,13 +3754,17 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
-	displayAccounts, err := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
+	displayAccounts, err := h.db.GetAccountsIncludingDeleting(ctx, userID)
 	if err != nil {
 		displayAccounts = accounts
 	}
+	if groups, groupErr := h.loadAccountGroupsForView(ctx, h.db, userID); groupErr == nil {
+		ctx = views.WithAccountGroups(ctx, groups)
+	}
 	syncSettings := h.buildSyncSettings(ctx, accounts)
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	uiSettings := h.db.GetUISettings(ctx, userID)
 	signatureData := h.buildAccountSignatureData(ctx, accounts)
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -3781,15 +3799,19 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
 	displayAccounts := accounts
 	if tab == "accounts" {
-		if includingDeleting, err := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx)); err == nil {
+		if includingDeleting, err := h.db.GetAccountsIncludingDeleting(ctx, userID); err == nil {
 			displayAccounts = includingDeleting
+		}
+		if groups, groupErr := h.loadAccountGroupsForView(ctx, h.db, userID); groupErr == nil {
+			ctx = views.WithAccountGroups(ctx, groups)
 		}
 	}
 	syncSettings := h.buildSyncSettings(ctx, accounts)
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	uiSettings := h.db.GetUISettings(ctx, userID)
 	signatureData := h.buildAccountSignatureData(ctx, accounts)
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -7753,6 +7775,19 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		http.Error(w, i18n.T(r.Context(), "server.error.authenticated_user_required"), http.StatusUnauthorized)
 		return
 	}
+	if formData["flow_action"] == "reconnect" && h.db != nil {
+		var existingID string
+		err := h.db.Read().QueryRowContext(
+			r.Context(),
+			`SELECT id FROM accounts WHERE user_id = ? AND provider = ? AND email_address = ? COLLATE NOCASE AND auth_method = 'oauth2' AND COALESCE(is_deleting, 0) = 0`,
+			user.ID,
+			provider,
+			strings.TrimSpace(formData["email_address"]),
+		).Scan(&existingID)
+		if err == nil && existingID != "" {
+			formData["account_id"] = existingID
+		}
+	}
 	// Signing in goes through the proxy the account will use.
 	proxyCtx, err := h.oauthFlowProxyContext(r.Context(), user.ID, formData)
 	if err != nil {
@@ -7831,6 +7866,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	req := providers.GmailAccountRequest(info.Email, displayName, info.Sub)
 	req.Password = "_oauth2_"
 	req.ProxyID = formData["proxy"]
+	req.GroupID = formData["group_id"]
 
 	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(r.Context(), userID, req)
@@ -7929,6 +7965,7 @@ func (h *Handler) finishMicrosoftAccount(ctx context.Context, flow *mailauth.Acc
 	req := providers.OutlookAccountRequest(outlookEmail, displayName, providerAccountID)
 	req.Password = "_oauth2_"
 	req.ProxyID = formData["proxy"]
+	req.GroupID = formData["group_id"]
 
 	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(ctx, userID, req)

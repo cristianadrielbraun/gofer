@@ -72,7 +72,8 @@ func (h *Handler) defaultProxyFor(ctx context.Context, owner string) (*netguard.
 // It returns nil for an account that isn't theirs, and for Local folders,
 // which connect nowhere.
 func (h *Handler) accountProxyData(ctx context.Context, accountID string) (*models.AccountProxyData, error) {
-	account, err := h.accountStore.GetAccountByIDForUser(ctx, h.userID(ctx), accountID)
+	owner := h.userID(ctx)
+	account, err := h.accountStore.GetAccountByIDForUser(ctx, owner, accountID)
 	if err != nil || account == nil || account.Provider == providers.ProviderLocal {
 		return nil, err
 	}
@@ -80,8 +81,11 @@ func (h *Handler) accountProxyData(ctx context.Context, accountID string) (*mode
 	if err != nil {
 		return nil, err
 	}
-	owner := h.userID(ctx)
-	saved, err := h.accountStore.OutboundProxiesForUser(ctx, owner)
+	store := h.proxyStore()
+	if store == nil {
+		store = h.accountStore
+	}
+	saved, err := store.OutboundProxiesForUser(ctx, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -89,15 +93,24 @@ func (h *Handler) accountProxyData(ctx context.Context, accountID string) (*mode
 	for _, p := range saved {
 		data.Proxies = append(data.Proxies, models.OutboundProxyView{ID: p.ID, Name: p.Name, Type: p.Type, Host: p.Host, Port: p.Port, IsDefault: p.IsDefault})
 	}
-	if data.Default, err = h.accountStore.DefaultOutboundProxyName(ctx, owner); err != nil {
+	if data.Default, err = store.DefaultOutboundProxyName(ctx, owner); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(account.GroupID) != "" {
+		groups, err := h.db.ListAccountGroups(ctx, owner)
+		if err != nil {
+			return nil, err
+		}
+		if err := h.populateInheritedGroupProxy(ctx, owner, store, groups, account.GroupID, data); err != nil {
+			return nil, err
+		}
 	}
 	// Where the person can add proxies themselves: with the exceptions in
 	// personal and open mode, or as their own when a managed installation's
 	// administrator lets them.
 	if h.ownerManagesMailSecurity() {
 		data.ManageURL = "/settings/security#outbound-proxies"
-	} else if own, err := h.accountStore.PeopleMayAddOutboundProxies(ctx); err != nil {
+	} else if own, err := store.PeopleMayAddOutboundProxies(ctx); err != nil {
 		return nil, err
 	} else if own {
 		data.ManageURL = "/settings/security#outbound-proxies"
@@ -227,13 +240,25 @@ func (h *Handler) defaultProxyContext(ctx context.Context, owner string) (contex
 }
 
 // proxyChoiceContext marks ctx with the proxy chosen in a form for an account
-// being added, refusing one the owner may not use.
-func (h *Handler) proxyChoiceContext(ctx context.Context, owner, choice string) (context.Context, error) {
+// being added, inheriting from groupID when choice is empty and refusing one
+// the owner may not use.
+func (h *Handler) proxyChoiceContext(ctx context.Context, owner, choice string, groupID ...string) (context.Context, error) {
 	store := h.proxyStore()
 	if store == nil {
 		return netguard.WithProxy(ctx, nil), nil
 	}
-	proxy, err := store.ProxyChoice(ctx, owner, choice)
+	var groupChain []string
+	if len(groupID) > 0 && strings.TrimSpace(groupID[0]) != "" {
+		gid := strings.TrimSpace(groupID[0])
+		if err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
+			var err error
+			groupChain, err = db.GetGroupProxyChain(ctx, owner, gid)
+			return err
+		}); err != nil {
+			return nil, err
+		}
+	}
+	proxy, err := store.ProxyChoiceWithGroup(ctx, owner, choice, groupChain...)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +269,7 @@ func (h *Handler) proxyChoiceContext(ctx context.Context, owner, choice string) 
 // through the proxy its form chose, and answers it when the choice is
 // refused.
 func (h *Handler) withProxyChoice(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
-	ctx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"))
+	ctx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"), r.FormValue("group_id"))
 	if err != nil {
 		if errors.Is(err, storage.ErrOutboundProxyNotFound) {
 			http.Error(w, i18n.T(r.Context(), "account_proxy.gone"), http.StatusBadRequest)
@@ -268,12 +293,15 @@ func (h *Handler) withAccountProxyFor(w http.ResponseWriter, r *http.Request, id
 	return r.WithContext(ctx), true
 }
 
-// addProxyChoiceToFlow keeps the proxy chosen in an OAuth sign-in form for
-// the account it connects. Reconnect forms have no choice, so their account
-// keeps its own.
+// addProxyChoiceToFlow keeps the proxy and target group chosen in an OAuth
+// sign-in form for the account it connects. Reconnect forms have no choice, so
+// their account keeps its own.
 func addProxyChoiceToFlow(r *http.Request, form map[string]string) {
 	if _, chosen := r.Form["proxy"]; chosen {
 		form["proxy"] = strings.TrimSpace(r.FormValue("proxy"))
+	}
+	if _, chosen := r.Form["group_id"]; chosen {
+		form["group_id"] = strings.TrimSpace(r.FormValue("group_id"))
 	}
 }
 
@@ -282,12 +310,12 @@ func addProxyChoiceToFlow(r *http.Request, form map[string]string) {
 // account's own, or else the owner's default.
 func (h *Handler) oauthFlowProxyContext(ctx context.Context, owner string, form map[string]string) (context.Context, error) {
 	if choice, chosen := form["proxy"]; chosen {
-		return h.proxyChoiceContext(ctx, owner, choice)
+		return h.proxyChoiceContext(ctx, owner, choice, form["group_id"])
 	}
 	if id := form["account_id"]; id != "" {
 		return h.accountProxyContext(ctx, owner, id)
 	}
-	return h.proxyChoiceContext(ctx, owner, storage.AccountProxyDefault)
+	return h.proxyChoiceContext(ctx, owner, storage.AccountProxyDefault, form["group_id"])
 }
 
 // handleAccountProxyChoice renders the proxy setting of an account dialog:
@@ -301,6 +329,7 @@ func (h *Handler) handleAccountProxyChoice(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	data.Sidebar = r.URL.Query().Get("sidebar") == "1"
+	data.ForGroup = r.URL.Query().Get("for_group") == "1"
 	if r.URL.Query().Get("form") == "account-form" {
 		// The add wizard's setting sits in its sidebar, outside its form,
 		// and goes with it, also when it adds mail to an existing account.
@@ -370,6 +399,16 @@ func (h *Handler) newAccountProxyData(w http.ResponseWriter, r *http.Request) (*
 		log.Printf("account proxy choice: %v", err)
 		http.Error(w, i18n.T(ctx, "account_proxy.failed"), http.StatusInternalServerError)
 		return nil, false
+	}
+	if groupID := strings.TrimSpace(r.URL.Query().Get("group")); groupID != "" {
+		var groups []models.AccountGroup
+		if err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
+			var err error
+			groups, err = db.ListAccountGroups(ctx, owner)
+			return err
+		}); err == nil {
+			_ = h.populateInheritedGroupProxy(ctx, owner, store, groups, groupID, data)
+		}
 	}
 	return data, true
 }

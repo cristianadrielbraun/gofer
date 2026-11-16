@@ -112,17 +112,24 @@ type OutboundProxyView struct {
 }
 
 // AccountProxyData is the dialog where a person picks the proxy one of their
-// accounts connects through.
+// accounts or account groups connects through.
 type AccountProxyData struct {
 	AccountID string
+	GroupID   string
 	Name      string
 	Email     string
 	Color     string
-	// Choice is "" for the default, "direct", or a proxy's id.
+	// Choice is "" to inherit (parent group or default), "direct", or a
+	// proxy's id.
 	Choice  string
 	Proxies []OutboundProxyView
 	// Default is the default proxy's name, or "" for direct connections.
 	Default string
+	// InheritedGroup is the parent group Choice "" inherits from; when set,
+	// InheritedProxy is the proxy name that group resolves to, or "" when it
+	// resolves to direct connections.
+	InheritedGroup string
+	InheritedProxy string
 	// ManageURL is where this person adds and changes proxies, or "" when
 	// only an administrator can.
 	ManageURL string
@@ -130,7 +137,9 @@ type AccountProxyData struct {
 	Error     string
 	// Form is the form a Connect through field being added with belongs to,
 	// when it sits outside it; Sidebar is set when it sits in a wizard's
-	// sidebar, as a setting of the whole account.
-	Form    string
-	Sidebar bool
+	// sidebar, as a setting of the whole account; ForGroup is set when creating
+	// an account group.
+	Form     string
+	Sidebar  bool
+	ForGroup bool
 }

@@ -2053,6 +2053,35 @@ document.addEventListener("DOMContentLoaded", function () {
       if (window.GoferSettings) GoferSettings.set("sidebar_folder_collapsed", JSON.stringify(state))
     }
 
+    function readAccountGroupState() {
+      var raw = window.GoferSettings ? GoferSettings.get("sidebar_account_group_collapsed") : null
+      try {
+        return JSON.parse(raw || "{}") || {}
+      } catch (_) {
+        return {}
+      }
+    }
+
+    function writeAccountGroupState(state) {
+      if (window.GoferSettings) GoferSettings.set("sidebar_account_group_collapsed", JSON.stringify(state))
+    }
+
+    function setAccountGroupCollapsed(group, collapsed) {
+      var toggle = null
+      for (var i = 0; i < group.children.length; i++) {
+        if (group.children[i].hasAttribute && group.children[i].hasAttribute("data-sidebar-account-group-toggle")) {
+          toggle = group.children[i]
+          break
+        }
+      }
+      group.setAttribute("data-sidebar-account-group-collapsed", collapsed ? "true" : "false")
+      if (toggle) toggle.setAttribute("aria-expanded", collapsed ? "false" : "true")
+    }
+
+    function accountGroupHasActiveDescendant(group) {
+      return group.hasAttribute("data-sidebar-account-group-active") || !!group.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent, a[data-sidebar-tag-filter].bg-sidebar-accent, a[data-contact-sidebar-link].bg-sidebar-accent')
+    }
+
     function setCollapsed(section, collapsed) {
       var toggle = section.querySelector("[data-sidebar-account-toggle]")
       section.setAttribute("data-sidebar-account-collapsed", collapsed ? "true" : "false")
@@ -2115,9 +2144,34 @@ document.addEventListener("DOMContentLoaded", function () {
         var folderCollapsed = folderState[folderGroupId] === true && !folderGroupHasActiveDescendant(folderGroup)
         setFolderCollapsed(folderGroup, folderCollapsed)
       }
+      var accountGroupState = readAccountGroupState()
+      var accountGroups = (root || document).querySelectorAll("[data-sidebar-account-group]")
+      for (var m = 0; m < accountGroups.length; m++) {
+        var accountGroup = accountGroups[m]
+        var accountGroupId = accountGroup.getAttribute("data-sidebar-account-group")
+        var accountGroupCollapsed = accountGroupState[accountGroupId] === true && !accountGroupHasActiveDescendant(accountGroup)
+        setAccountGroupCollapsed(accountGroup, accountGroupCollapsed)
+      }
       var initialStyle = document.querySelector("[data-sidebar-account-collapse-style]")
       if (initialStyle) initialStyle.remove()
     }
+
+    document.addEventListener("click", function (e) {
+      var toggle = e.target.closest("[data-sidebar-account-group-toggle]")
+      if (!toggle) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      var group = toggle.closest("[data-sidebar-account-group]")
+      if (!group) return
+      var groupId = group.getAttribute("data-sidebar-account-group")
+      var collapsed = group.getAttribute("data-sidebar-account-group-collapsed") !== "true"
+      var state = readAccountGroupState()
+      state[groupId] = collapsed
+      writeAccountGroupState(state)
+      setAccountGroupCollapsed(group, collapsed)
+    })
 
     document.addEventListener("click", function (e) {
       var toggle = e.target.closest("[data-sidebar-account-toggle]")
@@ -2173,7 +2227,7 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.body.addEventListener("htmx:afterSettle", function (evt) {
-      if (evt.target && evt.target.querySelector && (evt.target.querySelector("[data-sidebar-account]") || evt.target.querySelector("[data-sidebar-tag-group]") || evt.target.querySelector("[data-sidebar-folder]"))) {
+      if (evt.target && evt.target.querySelector && (evt.target.querySelector("[data-sidebar-account-group]") || evt.target.querySelector("[data-sidebar-account]") || evt.target.querySelector("[data-sidebar-tag-group]") || evt.target.querySelector("[data-sidebar-folder]"))) {
         hydrate(evt.target)
       }
     })

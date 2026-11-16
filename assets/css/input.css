@@ -1451,6 +1451,29 @@ input[role="switch"] + .gofer-switch-track::after {
   transform: rotate(-90deg);
 }
 
+.sidebar-account-group-children {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-top: 0.125rem;
+  transition: grid-template-rows 220ms ease, opacity 160ms ease, margin-top 220ms ease;
+}
+
+.sidebar-account-group-children-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+[data-sidebar-account-group-collapsed="true"] > .sidebar-account-group-children {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: 0;
+}
+
+[data-sidebar-account-group-collapsed="true"] > [data-sidebar-account-group-toggle] .sidebar-account-group-chevron {
+  transform: rotate(-90deg);
+}
+
 .sidebar-tag-children {
   display: grid;
   grid-template-rows: 1fr;
@@ -7264,9 +7287,9 @@ body.mail-list-column-resizing {
   }
 }
 
-/* With a single account there is nothing to reorder. Accounts being
-   deleted don't count, since they can't be moved. */
-[data-account-order-list]:not(:has(> [data-settings-account-card][data-account-deleting="false"] ~ [data-settings-account-card][data-account-deleting="false"])) [data-account-order-handle] {
+/* With a single movable item in a container there is nothing to reorder.
+   Accounts being deleted don't count, since they can't be moved. */
+[data-account-order-list]:not(:has(> :is([data-settings-account-card][data-account-deleting="false"], [data-settings-account-group]) ~ :is([data-settings-account-card][data-account-deleting="false"], [data-settings-account-group]))) > :is([data-settings-account-card], [data-settings-account-group]) > :is(.settings-account-card, .settings-account-group-card) > :first-child [data-account-order-handle] {
   display: none;
 }
 
@@ -7296,6 +7319,7 @@ body.mail-list-column-resizing {
 /* The account card or rule being dragged floats above the others under the
    pointer. */
 [data-settings-account-card][data-order-dragging],
+[data-settings-account-group][data-order-dragging],
 [data-mail-rule-row][data-order-dragging],
 [data-folder-order-item][data-order-dragging],
 [data-tag-order-item][data-order-dragging],
@@ -7306,11 +7330,13 @@ body.mail-list-column-resizing {
 }
 
 [data-settings-account-card] > .settings-account-card,
+[data-settings-account-group] > .settings-account-group-card,
 [data-mail-rule-row] > .mail-rule-card {
   transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
 }
 
 [data-settings-account-card][data-order-dragging] > .settings-account-card,
+[data-settings-account-group][data-order-dragging] > .settings-account-group-card,
 [data-mail-rule-row][data-order-dragging] > .mail-rule-card {
   border-color: color-mix(in srgb, var(--ring) 70%, transparent);
   background-color: var(--card);
@@ -7318,6 +7344,7 @@ body.mail-list-column-resizing {
 }
 
 [data-settings-account-card][data-order-dragging] [data-account-order-handle],
+[data-settings-account-group][data-order-dragging] > .settings-account-group-card > :first-child [data-account-order-handle],
 [data-mail-rule-row][data-order-dragging] [data-mail-rule-order-handle],
 [data-folder-order-item][data-order-dragging] > [data-folder-order-row] [data-folder-order-handle],
 [data-tag-order-item][data-order-dragging] [data-tag-order-handle],

@@ -11,9 +11,13 @@ The browser-facing handler layer uses these ownership shapes:
 
 - Messages, threads, bodies, fetch information, remote content, and
   attachments join through `accounts.user_id` and exclude deleting accounts.
-- Accounts and folders are loaded from `GetAccounts*`, `GetAccountIDs`,
+- Accounts, account groups, and folders are loaded from `GetAccounts*`,
+  `ListAccountGroups`, `GetAccountGroup`, `GetAccountIDs`,
   `GetEmailSyncAccountIDs`, `ResolveFolderIDForUser`, or the account store's
-  `GetAccountByIDForUser`.
+  `GetAccountByIDForUser`. Account group writes (`CreateAccountGroup`,
+  `UpdateAccountGroup`, `DeleteAccountGroup`, `SetAccountGroupProxyChoice`,
+  `MoveAccountToGroup`, and `SetAccountContainerOrder`) carry `userID`
+  directly and enforce ownership in SQL.
 - Contacts, contact profiles/cards/fields, signatures, settings, suppressed
   contacts, and Web Push subscriptions carry `userID` directly.
 - Draft, outgoing-send, and mail-operation HTTP reads and retries use their

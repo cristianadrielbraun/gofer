@@ -143,6 +143,7 @@ func CalendarLoadingTemplates(accounts []models.Account, uiSettings map[string]s
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		ctx = WithUISettings(ctx, uiSettings)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<template id=\"calendar-event-loading\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -164,7 +165,7 @@ func CalendarLoadingTemplates(accounts []models.Account, uiSettings map[string]s
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs("calendar-loading-" + view)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_loading.templ`, Line: 46, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_loading.templ`, Line: 47, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {

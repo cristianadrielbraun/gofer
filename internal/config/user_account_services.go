@@ -29,8 +29,9 @@ type AccountServiceSnapshot struct {
 	connection, contacts, calendar, smtp                      [32]byte
 	// proxy is the account's proxy, read when the snapshot was taken, or
 	// proxyErr why it couldn't be.
-	proxy    *netguard.Proxy
-	proxyErr error
+	proxyChain []string
+	proxy      *netguard.Proxy
+	proxyErr   error
 }
 
 func (s *AccountServiceSnapshot) OwnerID() string   { return s.owner }
@@ -147,9 +148,9 @@ func (s *AccountServiceSnapshot) SMTPConfig(ctx context.Context) (*models.Accoun
 }
 
 // Proxy is the proxy the account's connections go through, or nil for direct
-// connections, from the copied choice and the central saved proxies.
+// connections, from the copied choice chain and the central saved proxies.
 func (s *AccountServiceSnapshot) Proxy(ctx context.Context) (*netguard.Proxy, error) {
-	return s.repository.base.ResolveProxyChoice(ctx, s.owner, s.data.ProxyID)
+	return s.repository.base.ResolveProxyChain(ctx, s.owner, s.proxyChain...)
 }
 
 // DAVProxy is the account's proxy as read when the snapshot was taken, for
@@ -269,13 +270,13 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	var emailEnabled int
 	err := tx.QueryRowContext(ctx, `SELECT a.provider,a.provider_account_id,a.email_address,a.display_name,a.sender_name,
  a.username,a.auth_method,a.imap_host,a.smtp_host,a.smtp_port,a.encrypted_password,COALESCE(a.email_sync_enabled,1),
- a.smtp_tls_mode,COALESCE(a.smtp_username,''),a.encrypted_smtp_password,COALESCE(a.jmap_session_url,''),a.proxy_id
+ a.smtp_tls_mode,COALESCE(a.smtp_username,''),a.encrypted_smtp_password,COALESCE(a.jmap_session_url,''),a.proxy_id,a.group_id
  FROM accounts a JOIN users u ON u.id=a.user_id
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND u.status='active' AND u.deletion_pending=0`, id, owner).Scan(
 		&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName, &data.SenderName,
 		&data.Username, &data.AuthMethod, &data.IMAPHost, &data.SMTPHost, &data.SMTPPort, &snapshot.password, &emailEnabled,
-		&data.SMTPTLSMode, &data.SmtpUsername, &snapshot.smtpPassword, &data.JMAPSessionURL, &data.ProxyID)
+		&data.SMTPTLSMode, &data.SmtpUsername, &snapshot.smtpPassword, &data.JMAPSessionURL, &data.ProxyID, &data.GroupID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, storage.ErrAccountRoute
 	}
@@ -283,9 +284,17 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 		return nil, err
 	}
 	data.EmailSyncEnabled = emailEnabled == 1
+	snapshot.proxyChain = []string{data.ProxyID}
+	if data.GroupID != "" {
+		groups, err := storage.GetGroupProxyChainTx(ctx, tx, owner, data.GroupID)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.proxyChain = append(snapshot.proxyChain, groups...)
+	}
 	// Display metadata and mail-only sync controls are not service identity.
 	snapshot.connection, err = serviceStateHash([]any{data.Provider, data.ProviderAccountID, data.EmailAddress,
-		data.Username, data.AuthMethod, data.IMAPHost, data.SMTPHost, data.SMTPPort, snapshot.password, data.JMAPSessionURL, data.ProxyID})
+		data.Username, data.AuthMethod, data.IMAPHost, data.SMTPHost, data.SMTPPort, snapshot.password, data.JMAPSessionURL, snapshot.proxyChain})
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +385,7 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	// Read now for the CalDAV and CardDAV work done with the snapshot, which
 	// mustn't open databases while it talks to a server. A proxy that can't
 	// be read fails that work, not the snapshot.
-	snapshot.proxy, snapshot.proxyErr = s.base.ResolveProxyChoice(ctx, owner, data.ProxyID)
+	snapshot.proxy, snapshot.proxyErr = s.base.ResolveProxyChain(ctx, owner, snapshot.proxyChain...)
 	return snapshot, nil
 }
 

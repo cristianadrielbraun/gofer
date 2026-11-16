@@ -45,11 +45,14 @@ CREATE TABLE IF NOT EXISTS accounts (
     sender_name TEXT NOT NULL DEFAULT '',
     -- The account_identities id new messages start from; '' is the account's
     -- own address.
-    default_identity_id TEXT NOT NULL DEFAULT ''
+    default_identity_id TEXT NOT NULL DEFAULT '',
+    -- The account_groups id the account sits in; '' puts it at the top level.
+    group_id TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_local_folders ON accounts(COALESCE(user_id, '')) WHERE provider = 'local';
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_accounts_user_group ON accounts(user_id, group_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_provider_identity ON accounts(provider, provider_account_id);
 
 -- Folders
@@ -2036,4 +2039,21 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (150);
+-- Groups of connected accounts, which may sit inside another group and pick a
+-- proxy for the accounts under them.
+CREATE TABLE IF NOT EXISTS account_groups (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES account_groups(id) ON DELETE SET NULL,
+    name TEXT NOT NULL CHECK (name <> ''),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    -- '' inherits from parent_id (or the default proxy at the top level),
+    -- 'direct' uses none, else an outbound_proxies id.
+    proxy_id TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_account_groups_user_parent
+    ON account_groups(user_id, parent_id, sort_order, id);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (151);
