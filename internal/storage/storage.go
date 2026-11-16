@@ -106,6 +106,10 @@ func New(dbPath string) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("repair contact homes: %w", err)
 	}
+	if err := forgetStatusKeywordLabels(db.write); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("forget status keyword labels: %w", err)
+	}
 	db.watchContactTables()
 	log.Printf("storage: schema migration check complete")
 	log.Printf("storage: threading backfill deferred to background startup worker")
@@ -172,6 +176,10 @@ func OpenExisting(dbPath string) (*DB, error) {
 	if err := repairFolderThreadTriggers(db.write); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("repair conversation summary triggers: %w", err)
+	}
+	if err := forgetStatusKeywordLabels(db.write); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("forget status keyword labels: %w", err)
 	}
 	db.watchContactTables()
 	return db, nil
