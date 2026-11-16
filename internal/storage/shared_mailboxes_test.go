@@ -284,3 +284,49 @@ func TestSentAndDraftsFolderForASharedSender(t *testing.T) {
 		t.Fatalf("support identity = %+v", support)
 	}
 }
+
+// A sync that finds the same shared mailboxes as the last one, or none, as
+// for most accounts, writes nothing; one after the user asked for a search
+// records that it looked.
+func TestSharedMailboxDiscoveryWritesNothingWhenNothingChanged(t *testing.T) {
+	ctx := context.Background()
+	db := newIdentitiesTestDB(t)
+	sharedIdentitiesOn(t, db)
+	writes := func() int64 {
+		t.Helper()
+		var n int64
+		if err := db.Write().QueryRowContext(ctx, `SELECT total_changes()`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	at := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	for _, seen := range [][]string{nil, {"support@example.com"}} {
+		account := "home"
+		if seen != nil {
+			account = "work"
+		}
+		if _, _, err := db.ApplySharedMailboxDiscovery(ctx, account, seen, true, at); err != nil {
+			t.Fatal(err)
+		}
+		before := writes()
+		for i := 1; i <= 3; i++ {
+			if _, _, err := db.ApplySharedMailboxDiscovery(ctx, account, seen, true, at.Add(time.Duration(i)*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if after := writes(); after != before {
+			t.Fatalf("%s: unchanged syncs wrote %d rows", account, after-before)
+		}
+	}
+	asked := at.Add(10 * time.Minute)
+	if err := db.RequestSharedMailboxCheck(ctx, "home", asked); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.ApplySharedMailboxDiscovery(ctx, "home", nil, true, asked.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if checked, ok, err := db.SharedMailboxesCheckedAt(ctx, "home"); err != nil || !ok || checked.Before(asked) {
+		t.Fatalf("checked at %v (%v), %v; want after the request", checked, ok, err)
+	}
+}

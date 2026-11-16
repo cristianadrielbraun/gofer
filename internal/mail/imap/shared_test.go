@@ -113,3 +113,50 @@ func TestApplySharedPlacementScopesRoles(t *testing.T) {
 		}
 	}
 }
+
+// A shared mailbox's top folder that holds mail, as Cyrus's "user.bob" does,
+// is the mailbox's inbox; one that holds none, or has an INBOX inside, as
+// Dovecot's "shared/bob" may, stays its root.
+func TestApplySharedPlacementTakesASelectableTopFolderAsTheInbox(t *testing.T) {
+	cyrus := []FolderInfo{
+		{Name: "user.bob", Delimiter: '.', Role: "custom", Selectable: true},
+		{Name: "user.bob.Sent", Delimiter: '.', Role: "custom", Selectable: true},
+	}
+	applySharedPlacement(cyrus, []sharedNamespace{{Prefix: "user", OtherUsers: true}})
+	if cyrus[0].SharedMailbox != "bob" || cyrus[0].SharedRole != "inbox" || cyrus[1].SharedRole != "sent" {
+		t.Fatalf("Cyrus folders = %+v", cyrus)
+	}
+	dovecot := []FolderInfo{
+		{Name: "shared/bob", Delimiter: '/', Role: "custom", Selectable: true},
+		{Name: "shared/bob/INBOX", Delimiter: '/', Role: "custom", Selectable: true},
+		{Name: "shared/carol", Delimiter: '/', Attributes: []imap.MailboxAttr{imap.MailboxAttrNoSelect}, Role: "custom"},
+	}
+	applySharedPlacement(dovecot, []sharedNamespace{{Prefix: "shared", OtherUsers: true}})
+	if dovecot[0].SharedRole != SharedRoleRoot || dovecot[1].SharedRole != "inbox" || dovecot[2].SharedRole != SharedRoleRoot {
+		t.Fatalf("Dovecot folders = %+v", dovecot)
+	}
+}
+
+// A personal folder whose name differs from a shared namespace prefix only
+// in case stays the account's own, and "Deleted Items" and "Junk Mail" are
+// Trash and Spam only inside a shared mailbox.
+func TestSharedNamesStayInsideSharedMailboxes(t *testing.T) {
+	folders := []FolderInfo{
+		{Name: "Shared", Delimiter: '/', Role: "custom", Selectable: true},
+		{Name: "Shared/notes", Delimiter: '/', Role: "custom", Selectable: true},
+		{Name: "shared/bob/Deleted Items", Delimiter: '/', Role: "custom", Selectable: true},
+		{Name: "shared/bob/Junk Mail", Delimiter: '/', Role: "custom", Selectable: true},
+	}
+	applySharedPlacement(folders, []sharedNamespace{{Prefix: "shared", OtherUsers: true}})
+	if folders[0].SharedMailbox != "" || folders[0].SharedRole != "" || folders[1].SharedMailbox != "" {
+		t.Fatalf("personal folders taken for shared ones: %+v %+v", folders[0], folders[1])
+	}
+	if folders[2].SharedRole != "trash" || folders[3].SharedRole != "junk" {
+		t.Fatalf("shared mailbox folders = %+v %+v", folders[2], folders[3])
+	}
+	for _, name := range []string{"Deleted Items", "Junk Mail", "INBOX.Deleted Items"} {
+		if role := detectFolderRole(name, '.', nil, []string{"INBOX."}); role != "custom" {
+			t.Errorf("own folder %q has role %q", name, role)
+		}
+	}
+}

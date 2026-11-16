@@ -125,6 +125,9 @@ func (db *DB) SyncSharedMailboxes(ctx context.Context, accountID string, seen []
 			changes.Added = append(changes.Added, email)
 		case state == SharedMailboxRemoved:
 			changes.Restored = append(changes.Restored, email)
+		default:
+			// Already recorded as it is: a sync writes nothing for it.
+			continue
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO shared_mailboxes (account_id, email, state, discovered_at, last_seen_at)
@@ -524,23 +527,47 @@ func (db *DB) ApplySharedMailboxDiscovery(ctx context.Context, accountID string,
 	if err == nil {
 		// Mailboxes or none, the account was looked at. (A partial listing
 		// only keeps mailboxes from being marked removed.)
-		err = db.MarkLabelSyncSuccess(ctx, accountID, sharedMailboxCheckProvider, sharedMailboxCheckScope, at.UTC().Format(time.RFC3339Nano), true)
+		err = db.noteSharedMailboxesChecked(ctx, accountID, at, mailboxes.Changed() || identities.Changed())
 	}
 	return mailboxes, identities, err
 }
 
-// Where SharedMailboxesCheckedAt keeps the time of an account's last full
-// look for shared mailboxes.
+// Where SharedMailboxesCheckedAt keeps the time of an account's last look
+// for shared mailboxes that is recorded, and RequestSharedMailboxCheck when
+// the user last asked for one.
 const (
-	sharedMailboxCheckProvider = "shared_mailboxes"
-	sharedMailboxCheckScope    = "checked"
+	sharedMailboxCheckProvider       = "shared_mailboxes"
+	sharedMailboxCheckScope          = "checked"
+	sharedMailboxCheckRequestedScope = "requested"
 )
 
-// SharedMailboxesCheckedAt returns when a sync last fully answered which
-// shared mailboxes an account can open; ok is false when none has yet, as
-// for an account just added.
-func (db *DB) SharedMailboxesCheckedAt(ctx context.Context, accountID string) (time.Time, bool, error) {
-	state, err := db.GetLabelSyncState(ctx, accountID, sharedMailboxCheckProvider, sharedMailboxCheckScope)
+// noteSharedMailboxesChecked records that a sync looked for an account's
+// shared mailboxes: the first time, when something changed, or when the user
+// asked for a look since the last one recorded. Other syncs write nothing.
+func (db *DB) noteSharedMailboxesChecked(ctx context.Context, accountID string, at time.Time, changed bool) error {
+	checked, ok, err := db.SharedMailboxesCheckedAt(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	requested, asked, err := db.sharedMailboxCheckTime(ctx, accountID, sharedMailboxCheckRequestedScope)
+	if err != nil {
+		return err
+	}
+	if ok && !changed && (!asked || !requested.After(checked)) {
+		return nil
+	}
+	return db.MarkLabelSyncSuccess(ctx, accountID, sharedMailboxCheckProvider, sharedMailboxCheckScope, at.UTC().Format(time.RFC3339Nano), true)
+}
+
+// RequestSharedMailboxCheck records that the user asked, at at, for an
+// account's shared mailboxes to be looked for again, so that the next sync
+// records its look.
+func (db *DB) RequestSharedMailboxCheck(ctx context.Context, accountID string, at time.Time) error {
+	return db.MarkLabelSyncSuccess(ctx, accountID, sharedMailboxCheckProvider, sharedMailboxCheckRequestedScope, at.UTC().Format(time.RFC3339Nano), true)
+}
+
+func (db *DB) sharedMailboxCheckTime(ctx context.Context, accountID, scope string) (time.Time, bool, error) {
+	state, err := db.GetLabelSyncState(ctx, accountID, sharedMailboxCheckProvider, scope)
 	if err != nil || state.Cursor == "" {
 		return time.Time{}, false, err
 	}
@@ -549,6 +576,13 @@ func (db *DB) SharedMailboxesCheckedAt(ctx context.Context, accountID string) (t
 		return time.Time{}, false, nil
 	}
 	return at, true, nil
+}
+
+// SharedMailboxesCheckedAt returns when a sync last fully answered which
+// shared mailboxes an account can open; ok is false when none has yet, as
+// for an account just added.
+func (db *DB) SharedMailboxesCheckedAt(ctx context.Context, accountID string) (time.Time, bool, error) {
+	return db.sharedMailboxCheckTime(ctx, accountID, sharedMailboxCheckScope)
 }
 
 // SentFolderFor returns the folder a message sent from address is kept in:
@@ -741,9 +775,30 @@ func (db *DB) SetSharedMailboxServerNames(ctx context.Context, accountID string,
 		return err
 	}
 	defer tx.Rollback()
+	known := map[string]string{}
+	rows, err := tx.QueryContext(ctx, `SELECT email, server_name FROM shared_mailboxes WHERE account_id = ?`, accountID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var email, name string
+		if err := rows.Scan(&email, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		known[email] = name
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	for email, name := range names {
 		email = strings.ToLower(strings.TrimSpace(email))
 		if email == "" {
+			continue
+		}
+		if current, ok := known[email]; ok && current == strings.TrimSpace(name) {
+			// Unchanged: a sync writes nothing.
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `

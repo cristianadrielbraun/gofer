@@ -70,9 +70,9 @@ func detectRoleByName(upper string) string {
 		return "sent"
 	case "DRAFTS", "[GMAIL]/DRAFTS":
 		return "drafts"
-	case "TRASH", "DELETED MESSAGES", "DELETED ITEMS", "[GMAIL]/TRASH":
+	case "TRASH", "DELETED MESSAGES", "[GMAIL]/TRASH":
 		return "trash"
-	case "SPAM", "JUNK", "[GMAIL]/SPAM", "JUNK EMAIL", "JUNK E-MAIL", "JUNK MAIL":
+	case "SPAM", "JUNK", "[GMAIL]/SPAM", "JUNK EMAIL", "JUNK E-MAIL":
 		return "junk"
 	case "ARCHIVE", "[GMAIL]/ALL MAIL":
 		return "archive"

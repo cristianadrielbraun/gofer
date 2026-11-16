@@ -111,6 +111,9 @@ func (h *Handler) handleDiscoverSharedMailboxes(w http.ResponseWriter, r *http.R
 		return
 	}
 	since := time.Now()
+	if err := h.db.RequestSharedMailboxCheck(r.Context(), accountID, since); err != nil {
+		log.Printf("shared mailboxes account=%s: %v", accountID, err)
+	}
 	h.startSharedMailboxSync(accountID, h.userID(r.Context()))
 	h.renderSharedMailboxesPanel(w, r, accountID, sharedMailboxPolls, since, "")
 }

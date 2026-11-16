@@ -39,11 +39,19 @@ namespaces and the next level names the mailbox's owner:
   names a mailbox.
 
 Only the server's namespaces decide: a personal folder named after an address
-is never taken for a shared mailbox, and no folder name is assumed.
+is never taken for a shared mailbox, and no folder name is assumed. A
+namespace prefix is matched exactly, as the server names it, so a personal
+folder "Shared" is not Dovecot's "shared" namespace.
+
+The owner's own folder (`Other Users.support`, `user.bob`) is the mailbox's
+Inbox when the server lets it be opened, as Cyrus does, unless an `INBOX`
+inside it is; otherwise, as on Stalwart, it only holds the mailbox's folders.
 
 Within a shared mailbox, each folder's role (Inbox, Sent, Drafts, Junk, Trash,
 Archive) comes from its `SPECIAL-USE` attribute (RFC 6154), or else from its
-name. The role is kept for that mailbox only: the account's own Sent, Drafts
+name; there "Deleted Items" and "Junk Mail" are also Trash and Spam, as group
+mailboxes often name them. Those two names are not read as roles for the
+account's own folders. The role is kept for that mailbox only: the account's own Sent, Drafts
 and Trash are always its own folders, never a shared mailbox's.
 
 Gofer asks the server nothing more for this; it uses the folder listing the

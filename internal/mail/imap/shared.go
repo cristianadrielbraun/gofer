@@ -17,7 +17,8 @@ const (
 	// the prefix of a shared namespace.
 	SharedRoleNamespace = "namespace"
 	// SharedRoleRoot is a shared mailbox's own top folder, named after its
-	// owner.
+	// owner, when it holds no mail of its own. One that does, as Cyrus's
+	// "user.bob" does, is the mailbox's inbox.
 	SharedRoleRoot = "root"
 )
 
@@ -89,10 +90,10 @@ func sharedPlacementOf(name string, delim rune, namespaces []sharedNamespace) (s
 		if prefix == "" {
 			continue
 		}
-		if strings.EqualFold(name, prefix) {
+		if samePrefix(name, prefix) {
 			return sharedPlacement{}, true
 		}
-		if len(name) <= len(prefix)+len(sep) || !strings.EqualFold(name[:len(prefix)], prefix) || name[len(prefix):len(prefix)+len(sep)] != sep {
+		if len(name) <= len(prefix)+len(sep) || !samePrefix(name[:len(prefix)], prefix) || name[len(prefix):len(prefix)+len(sep)] != sep {
 			continue
 		}
 		rest := name[len(prefix)+len(sep):]
@@ -106,6 +107,16 @@ func sharedPlacementOf(name string, delim rune, namespaces []sharedNamespace) (s
 		return sharedPlacement{}, false
 	}
 	return sharedPlacement{}, false
+}
+
+// samePrefix compares a folder name with a namespace prefix as the server
+// does: exactly, since only INBOX is named without regard to case (RFC 3501
+// section 5.1). A personal folder "Shared" is not the "shared" namespace.
+func samePrefix(name, prefix string) bool {
+	if strings.EqualFold(prefix, "INBOX") {
+		return strings.EqualFold(name, prefix)
+	}
+	return name == prefix
 }
 
 // plainOwnerName reports whether owner can be a person's or group's name on
@@ -162,10 +173,42 @@ func applySharedPlacement(folders []FolderInfo, namespaces []sharedNamespace) {
 		default:
 			// Inside the shared mailbox the name is matched on its own, so
 			// "Inbox" there is that mailbox's inbox.
-			f.SharedRole = detectFolderRole(placement.Relative, f.Delimiter, f.Attributes, []string{})
+			f.SharedRole = sharedFolderRole(placement.Relative, f.Delimiter, f.Attributes)
 		}
 		f.Role = "custom"
 	}
+	// A mailbox's top folder that holds mail is its inbox, as with Cyrus's
+	// "user.bob" or Dovecot's "shared/bob", unless a folder inside is.
+	hasInbox := map[string]bool{}
+	for _, f := range folders {
+		if f.SharedMailbox != "" && f.SharedRole == "inbox" {
+			hasInbox[f.SharedMailbox] = true
+		}
+	}
+	for i := range folders {
+		f := &folders[i]
+		if f.SharedRole == SharedRoleRoot && f.Selectable && !hasInbox[f.SharedMailbox] {
+			f.SharedRole = "inbox"
+		}
+	}
+}
+
+// sharedFolderRole is a folder's role inside a shared mailbox: what the
+// server says (SPECIAL-USE), else its name, with two names more that group
+// mailboxes on Exchange-style servers use. They count only inside a shared
+// mailbox, so an account's own folders keep the roles they have today.
+func sharedFolderRole(relative string, delim rune, attrs []imap.MailboxAttr) string {
+	role := detectFolderRole(relative, delim, attrs, []string{})
+	if role != "custom" && role != "" {
+		return role
+	}
+	switch strings.ToUpper(relative) {
+	case "DELETED ITEMS":
+		return "trash"
+	case "JUNK MAIL":
+		return "junk"
+	}
+	return role
 }
 
 // NamespaceReport is what the server answered to NAMESPACE: the personal
