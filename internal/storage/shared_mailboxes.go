@@ -483,6 +483,64 @@ func (db *DB) SetSharedIdentityActive(ctx context.Context, userID, accountID, id
 	return nil
 }
 
+// ImportSharedMailboxIdentity adds, from an exported profile, the identity
+// of one of an account's shared mailboxes: an ordinary identity linked to the
+// mailbox, turned off when off is set, so that discovery finds it instead of
+// making another. Its name stays as given.
+func (db *DB) ImportSharedMailboxIdentity(ctx context.Context, userID string, identity models.Identity, mailbox string, off bool) (models.Identity, error) {
+	email, replyTo, err := NormalizeIdentityAddresses(identity.Email, identity.ReplyTo)
+	if err != nil {
+		return models.Identity{}, err
+	}
+	mailbox = strings.ToLower(strings.TrimSpace(mailbox))
+	if mailbox == "" {
+		return models.Identity{}, errors.New("shared mailbox identity has no mailbox")
+	}
+	state := SharedIdentityActive
+	if off {
+		state = SharedIdentityDisabled
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return models.Identity{}, err
+	}
+	defer tx.Rollback()
+	var owned, linked int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE id = ? AND user_id = ?`, identity.AccountID, userID).Scan(&owned); err != nil {
+		return models.Identity{}, err
+	}
+	if owned == 0 {
+		return models.Identity{}, sql.ErrNoRows
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM shared_mailbox_identities WHERE account_id = ? AND mailbox_email = ?`, identity.AccountID, mailbox).Scan(&linked); err != nil {
+		return models.Identity{}, err
+	}
+	if linked > 0 {
+		return models.Identity{}, fmt.Errorf("shared mailbox %s already has an identity", mailbox)
+	}
+	var order int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account_identities WHERE account_id = ?`, identity.AccountID).Scan(&order); err != nil {
+		return models.Identity{}, err
+	}
+	identity.ID, identity.Email, identity.ReplyTo, identity.SortOrder = uuid.NewString(), email, replyTo, order
+	identity.Source, identity.SharedMailbox, identity.SharedState = models.IdentitySourceManual, mailbox, state
+	var signature any
+	if identity.SignatureID != "" {
+		signature = identity.SignatureID
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO account_identities (id, account_id, name, email, reply_to, signature_id, source, sort_order)
+		VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`, identity.ID, identity.AccountID, strings.TrimSpace(identity.Name), email, replyTo, signature, order); err != nil {
+		return models.Identity{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO shared_mailbox_identities (identity_id, account_id, mailbox_email, generated_name, state)
+		VALUES (?, ?, ?, '', ?)`, identity.ID, identity.AccountID, mailbox, state); err != nil {
+		return models.Identity{}, err
+	}
+	return identity, tx.Commit()
+}
+
 // SharedMailboxSettings returns the shared mailbox choices of the owner of
 // an account, kept with the user's other interface settings.
 func (db *DB) SharedMailboxSettings(ctx context.Context, accountID string) (sharedmailbox.Settings, error) {

@@ -140,7 +140,10 @@ When "Ask the server about a new From address" is on and an identity is made,
 Gofer asks the SMTP server whether it accepts the
 address as a sender, giving `MAIL FROM` and `RCPT TO` and then `RSET`, so
 nothing is sent. The account's identities show the answer, including the
-server's own message when it refuses. A real message the server refuses at
+server's own message when it refuses. It signs in with the account's SMTP
+credentials and runs within the sync. Only a permanent refusal (a 5xx reply)
+counts as refused; a temporary one (4xx), or a server that can't be reached,
+leaves the answer unknown. A real message the server refuses at
 `MAIL FROM` updates it too. A refused identity is kept, so you can fix the
 server's permissions and send again. Some servers only refuse once the message
 itself is sent; for those, the first send tells.

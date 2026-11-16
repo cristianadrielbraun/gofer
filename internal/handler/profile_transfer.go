@@ -97,6 +97,17 @@ type profileAccount struct {
 	// Identities are the account's manual identities. Provider identities
 	// come back from the provider once the account is reconnected.
 	Identities []profileIdentity `json:"identities,omitempty"`
+	// SharedMailboxes are the shared mailboxes the account opens, as the
+	// user chose them, found again by the account's first sync.
+	SharedMailboxes []profileSharedMailbox `json:"shared_mailboxes,omitempty"`
+}
+
+type profileSharedMailbox struct {
+	Email string `json:"email"`
+	// Off is set for one the user turned off.
+	Off bool `json:"off,omitempty"`
+	// Name is the name the user gave it.
+	Name string `json:"name,omitempty"`
 }
 
 type profileIdentity struct {
@@ -109,6 +120,10 @@ type profileIdentity struct {
 	// SMTP is the identity's own server, without its password: an imported
 	// identity needs the password entered again.
 	SMTP *profileIdentitySMTP `json:"smtp,omitempty"`
+	// SharedMailbox is the shared mailbox the identity sends as, and Off
+	// is set when the user turned the identity off.
+	SharedMailbox string `json:"shared_mailbox,omitempty"`
+	Off           bool   `json:"off,omitempty"`
 }
 
 type profileIdentitySMTP struct {
@@ -355,7 +370,19 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 			if identity.HasOwnSMTP() {
 				item.SMTP = &profileIdentitySMTP{Host: identity.SMTPHost, Port: identity.SMTPPort, TLSMode: identity.SMTPTLSMode, Username: identity.SMTPUsername}
 			}
+			if identity.SharedMailbox != "" {
+				item.SharedMailbox, item.Off = identity.SharedMailbox, identity.SharedState == storage.SharedIdentityDisabled
+			}
 			exported.Identities = append(exported.Identities, item)
+		}
+	}
+	shared, err := db.ListSharedMailboxes(ctx, account.ID)
+	if err != nil {
+		return profileAccount{}, fmt.Errorf("list shared mailboxes: %w", err)
+	}
+	for _, mailbox := range shared {
+		if mailbox.State != storage.SharedMailboxRemoved {
+			exported.SharedMailboxes = append(exported.SharedMailboxes, profileSharedMailbox{Email: mailbox.Email, Off: !mailbox.Enabled, Name: mailbox.CustomName})
 		}
 	}
 
@@ -862,6 +889,9 @@ func (h *Handler) importProfileAccount(ctx context.Context, owner string, accoun
 		if err := db.SetAccountSenderNameGuarded(ctx, owner, id, account.SenderName, nil); err != nil {
 			return err
 		}
+		if err := importProfileSharedMailboxes(ctx, db, id, account.SharedMailboxes); err != nil {
+			return err
+		}
 		if err := importProfileIdentities(ctx, db, owner, id, account.Identities, signatureIDs); err != nil {
 			return err
 		}
@@ -1347,6 +1377,9 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 		if err := db.SetAccountSenderNameGuarded(ctx, owner, id, account.SenderName, nil); err != nil {
 			return err
 		}
+		if err := importProfileSharedMailboxes(ctx, db, id, account.SharedMailboxes); err != nil {
+			return err
+		}
 		if err := importProfileIdentities(ctx, db, owner, id, account.Identities, signatureIDs); err != nil {
 			return err
 		}
@@ -1415,6 +1448,22 @@ func importProfileIdentities(ctx context.Context, db *storage.DB, owner, account
 			continue
 		}
 		identity := models.Identity{AccountID: accountID, Name: imported.Name, Email: imported.Email, ReplyTo: imported.ReplyTo, SignatureID: signatureIDs[imported.Signature]}
+		if imported.SharedMailbox != "" {
+			// A shared mailbox's identity stays linked to it, on or off as
+			// it was, so discovery makes no second one.
+			saved, err := db.ImportSharedMailboxIdentity(ctx, owner, identity, imported.SharedMailbox, imported.Off)
+			if err != nil {
+				log.Printf("profile import: skipping shared mailbox identity of account %s: %v", accountID, err)
+				continue
+			}
+			if imported.Default && !imported.Off {
+				if err := db.SetAccountDefaultIdentityGuarded(ctx, owner, accountID, saved.ID, nil); err != nil {
+					return fmt.Errorf("import default identity: %w", err)
+				}
+			}
+			existing = append(existing, saved)
+			continue
+		}
 		if imported.SMTP != nil {
 			identity.SMTPHost, identity.SMTPPort, identity.SMTPTLSMode, identity.SMTPUsername = imported.SMTP.Host, imported.SMTP.Port, imported.SMTP.TLSMode, imported.SMTP.Username
 			if err := storage.NormalizeIdentitySMTP(&identity); err != nil {
@@ -1436,6 +1485,33 @@ func importProfileIdentities(ctx context.Context, db *storage.DB, owner, account
 			}
 		}
 		existing = append(existing, saved)
+	}
+	return nil
+}
+
+// importProfileSharedMailboxes records an imported account's shared
+// mailboxes as the user chose them, on or off and named, ahead of the sync
+// that finds them.
+func importProfileSharedMailboxes(ctx context.Context, db *storage.DB, accountID string, mailboxes []profileSharedMailbox) error {
+	if len(mailboxes) == 0 {
+		return nil
+	}
+	enabled := map[string]bool{}
+	for _, mailbox := range mailboxes {
+		if email := strings.ToLower(strings.TrimSpace(mailbox.Email)); email != "" {
+			enabled[email] = !mailbox.Off
+		}
+	}
+	if err := db.PresetSharedMailboxes(ctx, accountID, enabled); err != nil {
+		return fmt.Errorf("import shared mailboxes: %w", err)
+	}
+	for _, mailbox := range mailboxes {
+		if strings.TrimSpace(mailbox.Name) == "" {
+			continue
+		}
+		if err := db.SetSharedMailboxName(ctx, accountID, mailbox.Email, mailbox.Name); err != nil {
+			return fmt.Errorf("import shared mailbox name: %w", err)
+		}
 	}
 	return nil
 }
