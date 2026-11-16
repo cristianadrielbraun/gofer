@@ -19132,7 +19132,6 @@ function autoComposeSignatureGapHTML() {
 
 function placeComposeCursorBeforeSignature(editor, signatureNode) {
   if (!editor || !signatureNode) return
-  editor.focus()
   var target = editor.querySelector('[data-gofer-signature-cursor]')
   if (!target) target = signatureNode.previousSibling
   if (!target || target.nodeType !== Node.ELEMENT_NODE) {
@@ -19140,6 +19139,13 @@ function placeComposeCursorBeforeSignature(editor, signatureNode) {
     target = editor.querySelector('[data-gofer-signature-cursor]') || signatureNode.previousSibling
   }
   if (target.removeAttribute) target.removeAttribute("data-gofer-signature-cursor")
+  // The signature comes in after compose has opened. A cursor already in
+  // another field, such as To on a new message, stays there; the body
+  // still starts on the line above the signature for when it gets there.
+  var root = _composeRootForForm(_composeFormFrom(editor))
+  var active = document.activeElement
+  if (root && active && active !== editor && root.contains(active)) return
+  editor.focus()
   var range = document.createRange()
   if (target.nodeType === Node.ELEMENT_NODE) {
     range.selectNodeContents(target)
@@ -20390,6 +20396,60 @@ function toggleComposeFormat(el) {
   })
 }
 
+// A toolbar marked data-toolbar-arrows is one Tab stop, as in the ARIA
+// toolbar pattern: Tab reaches the button last used there, and the arrow
+// keys, Home and End move between its buttons. The menus it opens keep their
+// own keys.
+function toolbarArrowButtons(toolbar) {
+  return Array.prototype.filter.call(toolbar.querySelectorAll("button"), function (button) {
+    return !button.closest("[data-tui-popover-content]")
+  })
+}
+
+// A folded part (data-mail-collapsed) slides to no width and fades out but
+// keeps its boxes, so it is ruled out by its mark.
+function _toolbarButtonShown(button) {
+  return !button.disabled && !button.closest("[data-mail-collapsed]") && button.getClientRects().length > 0
+}
+
+// syncToolbarTabStop makes current the toolbar's Tab stop, or else keeps the
+// one it has, or else takes the first button shown. It runs again whenever
+// buttons show or hide, so the stop is never a button Tab can't reach.
+function syncToolbarTabStop(toolbar, current) {
+  if (!toolbar) return
+  var buttons = toolbarArrowButtons(toolbar)
+  var shown = buttons.filter(_toolbarButtonShown)
+  // A hidden toolbar keeps its stop for when it shows again.
+  if (!shown.length) return
+  if (shown.indexOf(current) < 0) {
+    current = shown.find(function (button) { return button.tabIndex === 0 }) || shown[0]
+  }
+  buttons.forEach(function (button) { button.tabIndex = button === current ? 0 : -1 })
+}
+
+document.addEventListener("keydown", function (event) {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  var key = event.key
+  if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") return
+  var toolbar = event.target && event.target.closest ? event.target.closest("[data-toolbar-arrows]") : null
+  if (!toolbar) return
+  var shown = toolbarArrowButtons(toolbar).filter(_toolbarButtonShown)
+  var at = shown.indexOf(event.target)
+  if (at < 0) return
+  var next = key === "Home" ? 0 : key === "End" ? shown.length - 1 : (at + (key === "ArrowRight" ? 1 : -1) + shown.length) % shown.length
+  event.preventDefault()
+  syncToolbarTabStop(toolbar, shown[next])
+  shown[next].focus()
+})
+
+// A button that gets focus some other way, such as a menu handing it back
+// as it closes, becomes the stop.
+document.addEventListener("focusin", function (event) {
+  var button = event.target
+  var toolbar = button && button.closest ? button.closest("[data-toolbar-arrows]") : null
+  if (toolbar && button.tabIndex === -1 && toolbarArrowButtons(toolbar).indexOf(button) >= 0) syncToolbarTabStop(toolbar, button)
+})
+
 // The compose toolbar folds its tools into a ⋯ menu as its room runs out,
 // as the mail list's toolbar and the contact header do: undo first, then
 // quote and code, and so on (the ranks in ComposeToolbar). Bold to lists,
@@ -20421,6 +20481,8 @@ function syncComposeToolbarOverflow(toolbar, force) {
   toolbar.querySelectorAll("[data-compose-overflow-menu-item]").forEach(function (item) {
     item.style.display = parseInt(item.getAttribute("data-compose-overflow-menu-item"), 10) <= step ? "" : "none"
   })
+  // Folding, and the format switch that folds again, show and hide buttons.
+  syncToolbarTabStop(toolbar)
 }
 
 // observeComposeToolbars watches each compose toolbar's width; the dialog's
@@ -20987,7 +21049,10 @@ function updateComposeSendState(form) {
   var disabled = pending > 0 || sending
   // Switching format while an image uploads would lose it.
   var formatToggle = form.querySelector("[data-compose-format-toggle]")
-  if (formatToggle) formatToggle.disabled = disabled
+  if (formatToggle) {
+    formatToggle.disabled = disabled
+    syncToolbarTabStop(formatToggle.closest("[data-toolbar-arrows]"))
+  }
   var root = _composeRootForForm(form)
   var mobileSend = root && root.querySelector("[data-compose-mobile-send]")
   if (mobileSend) {
@@ -22669,7 +22734,7 @@ function loadDraftIntoCompose(emailId) {
       var form = document.getElementById("compose-form")
       _writeComposeFormValues(form, vals, "compose-")
       _showComposeOptionalFields(form, vals)
-      if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+      openComposeDialog("new")
     })
     .catch(function (err) {
       showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.draft.load_failed"))
@@ -23596,8 +23661,16 @@ function writeComposeIntoView(vals, mode) {
   }
   var form = document.getElementById("compose-form")
   writeComposePrefill(form, vals, "compose-", mode)
-  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  openComposeDialog(mode)
   return true
+}
+
+// openComposeDialog opens the compose dialog and puts the cursor where the
+// message goes on: To while it is empty, else Subject, else the body. Opening
+// a modal dialog focuses its first button, so the cursor is set after.
+function openComposeDialog(mode) {
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  focusComposePrefill(document.getElementById("compose-form"), mode)
 }
 
 function mailtoDecodedPath(pathname) {
@@ -23744,9 +23817,7 @@ function openNewCompose() {
     openComposeInMain(view === "full", view === "full")
     return
   }
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
   applyDefaultComposeSignatureWhenReady(document.getElementById("compose-form"), true)
 }
 
@@ -26330,8 +26401,7 @@ function writeComposePane(html, vals, fullWidth, instantFullWidth) {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  var bodyField = paneForm && paneForm.querySelector('[data-compose-editor]')
-  if (bodyField) bodyField.focus()
+  focusComposePrefill(paneForm, "new")
 
   if (fullWidth) {
     if (instantFullWidth) {
@@ -26367,9 +26437,7 @@ function collapseToDialog() {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
 }
 
 function discardComposePane(anchor) {

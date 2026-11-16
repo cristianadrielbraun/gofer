@@ -612,6 +612,9 @@
     var button = document.getElementById(buttonID)
     if (field) field.classList.remove("hidden")
     if (button) button.classList.add("hidden")
+    // The button is gone, so focus moves on to the field it showed.
+    var input = field && field.querySelector("[data-compose-recipient-input]")
+    if (input) input.focus()
   }
 })()
 
