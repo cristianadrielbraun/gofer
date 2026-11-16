@@ -147,7 +147,9 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 			case ct == "text/plain":
 				parsed.TextBody = string(content)
 			case ct == "text/html":
-				parsed.HTMLBody = content
+				// HTML body selection is handled from the MIME tree below. The
+				// flat mail.Reader traversal cannot distinguish mixed fragments
+				// from alternative representations.
 			case ct == "text/calendar":
 				// Exchange replies can contain only an unnamed calendar alternative.
 				// Keep it downloadable rather than replacing the human-readable body.
@@ -169,15 +171,13 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 			default:
 				cid := h.Get("Content-Id")
 				cid = strings.Trim(cid, "<>")
-				if cid == "" {
-					continue
-				}
 				attID++
-				filename := cid
-				if fn := h.Get("Content-Disposition"); fn != "" {
-					if idx := strings.Index(fn, "filename="); idx != -1 {
-						filename = strings.Trim(fn[idx+9:], ` "';`)
-					}
+				filename, _ := (&mail.AttachmentHeader{Header: h.Header}).Filename()
+				if filename == "" {
+					filename = cid
+				}
+				if filename == "" {
+					filename = fmt.Sprintf("attachment-%d", attID)
 				}
 				bp, storeErr := blobStore.StoreAttachment(ctx, accountID, localID, attID, filename, bytes.NewReader(content))
 				if storeErr != nil {
@@ -187,9 +187,11 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 					Filename:    filename,
 					ContentType: ct,
 					ContentID:   cid,
-					Inline:      true,
-					BlobPath:    bp,
-					Size:        int64(len(content)),
+					// Only CID parts are embedded in the body. Other inline
+					// dispositions should remain discoverable as attachments.
+					Inline:   cid != "",
+					BlobPath: bp,
+					Size:     int64(len(content)),
 				})
 			}
 
@@ -235,6 +237,11 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 		}
 	}
 
+	parsed.HTMLBody, err = ExtractHTMLBody(bytes.NewReader(raw))
+	if err != nil {
+		parsed.ParseError = fmt.Errorf("parse HTML body: %w", err)
+	}
+
 	if strings.TrimSpace(parsed.TextBody) == "" && len(parsed.HTMLBody) == 0 {
 		for _, attachment := range parsed.Attachments {
 			if attachment.ContentType == "text/calendar" {
@@ -250,26 +257,70 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 }
 
 func ExtractHTMLBody(r io.Reader) ([]byte, error) {
-	msgReader, err := mail.CreateReader(r)
+	entity, err := message.Read(r)
 	if err != nil {
-		return nil, fmt.Errorf("parse message: %w", err)
+		if !message.IsUnknownCharset(err) {
+			return nil, fmt.Errorf("parse message: %w", err)
+		}
 	}
+	return extractHTMLFromEntity(entity)
+}
+
+// extractHTMLFromEntity preserves the order of HTML fragments inside mixed
+// multiparts while selecting one representation from multipart/alternative.
+func extractHTMLFromEntity(entity *message.Entity) ([]byte, error) {
+	disposition, _, _ := entity.Header.ContentDisposition()
+	if disposition == "attachment" {
+		return nil, nil
+	}
+	multipartReader := entity.MultipartReader()
+	if multipartReader == nil {
+		contentType, _, _ := entity.Header.ContentType()
+		if contentType != "text/html" {
+			return nil, nil
+		}
+		content, err := io.ReadAll(entity.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read HTML part: %w", err)
+		}
+		return content, nil
+	}
+
+	contentType, _, _ := entity.Header.ContentType()
+	selectAlternative := contentType == "multipart/alternative"
+	var selected []byte
 	for {
-		part, err := msgReader.NextPart()
+		part, err := multipartReader.NextPart()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read part: %w", err)
-		}
-		if h, ok := part.Header.(*mail.InlineHeader); ok {
-			ct, _, _ := h.ContentType()
-			if ct == "text/html" {
-				return io.ReadAll(part.Body)
+			if message.IsUnknownCharset(err) {
+				// The part body can still be read, matching mail.Reader behavior.
+				if part == nil {
+					continue
+				}
+			} else {
+				return selected, fmt.Errorf("read MIME part: %w", err)
 			}
 		}
+		body, err := extractHTMLFromEntity(part)
+		if len(body) > 0 {
+			if selectAlternative {
+				// MIME alternatives are ordered from least to most preferred.
+				selected = body
+			} else {
+				if len(selected) > 0 {
+					selected = append(selected, '\n')
+				}
+				selected = append(selected, body...)
+			}
+		}
+		if err != nil {
+			return selected, err
+		}
 	}
-	return nil, nil
+	return selected, nil
 }
 
 func GenerateSnippet(text string, html []byte) string {
