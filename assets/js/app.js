@@ -18988,7 +18988,6 @@ function autoComposeSignatureGapHTML() {
 
 function placeComposeCursorBeforeSignature(editor, signatureNode) {
   if (!editor || !signatureNode) return
-  editor.focus()
   var target = editor.querySelector('[data-gofer-signature-cursor]')
   if (!target) target = signatureNode.previousSibling
   if (!target || target.nodeType !== Node.ELEMENT_NODE) {
@@ -18996,6 +18995,13 @@ function placeComposeCursorBeforeSignature(editor, signatureNode) {
     target = editor.querySelector('[data-gofer-signature-cursor]') || signatureNode.previousSibling
   }
   if (target.removeAttribute) target.removeAttribute("data-gofer-signature-cursor")
+  // The signature comes in after compose has opened. A cursor already in
+  // another field, such as To on a new message, stays there; the body
+  // still starts on the line above the signature for when it gets there.
+  var root = _composeRootForForm(_composeFormFrom(editor))
+  var active = document.activeElement
+  if (root && active && active !== editor && root.contains(active)) return
+  editor.focus()
   var range = document.createRange()
   if (target.nodeType === Node.ELEMENT_NODE) {
     range.selectNodeContents(target)
