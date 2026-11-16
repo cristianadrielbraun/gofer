@@ -2,6 +2,9 @@ package handler
 
 import (
 	"net/http/httptest"
+	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -43,5 +46,25 @@ func TestParseEmailFiltersRequiresAnExtensionForCustomAttachmentType(t *testing.
 	filters := parseEmailFilters(req)
 	if filters.AttachmentType != "" {
 		t.Fatalf("custom attachment type without an extension = %q", filters.AttachmentType)
+	}
+}
+
+// keep lists the read messages an Unread list keeps. It is read only with
+// the Unread filter, takes message IDs alone and stops at maxKeepRead.
+func TestParseEmailFiltersKeepRead(t *testing.T) {
+	filters := parseEmailFilters(httptest.NewRequest("GET", "/?unread=1&keep=12,%2034,x,-5,0,56", nil))
+	if !reflect.DeepEqual(filters.KeepRead, []int64{12, 34, 56}) {
+		t.Fatalf("kept read = %v", filters.KeepRead)
+	}
+	if filters := parseEmailFilters(httptest.NewRequest("GET", "/?keep=12", nil)); filters.KeepRead != nil {
+		t.Fatalf("kept read without the Unread filter = %v", filters.KeepRead)
+	}
+	ids := make([]string, maxKeepRead+5)
+	for i := range ids {
+		ids[i] = strconv.Itoa(i + 1)
+	}
+	filters = parseEmailFilters(httptest.NewRequest("GET", "/?unread=1&keep="+strings.Join(ids, ","), nil))
+	if len(filters.KeepRead) != maxKeepRead {
+		t.Fatalf("kept %d, want at most %d", len(filters.KeepRead), maxKeepRead)
 	}
 }

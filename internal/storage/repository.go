@@ -5523,7 +5523,7 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	var withArgs []any
 	var args []any
 	if filters.Unread {
-		outerParts = append(outerParts, "thread_is_read = 0")
+		outerParts = append(outerParts, "(thread_is_read = 0"+keptReadSQL(filters, "account_id", "COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id))", "id")+")")
 	} else if filters.Read {
 		outerParts = append(outerParts, "thread_is_read = 1")
 	}

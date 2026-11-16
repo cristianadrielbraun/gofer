@@ -11475,6 +11475,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // A thread counts as read only once all its messages are, so opening one
     // marks the whole thread read, not just the message that was opened.
     var thread = (row && row.dataset.hasThread === "true") || !!document.querySelector('#mail-view [data-read-thread="' + emailId + '"]')
+    keepMailListItemRead(emailId)
     fetch("/api/messages/" + emailId + (thread ? "/thread/read" : "/read") + "?state=read", { method: "POST" })
       .then(function (r) { return r.json() })
       .then(function (data) {
@@ -23992,6 +23993,7 @@ function syncThreadReadButtons() {
 }
 
 function toggleRead(emailId) {
+  keepMailListItemRead(emailId)
   fetch("/api/messages/" + emailId + "/read", { method: "POST" })
     .then(function (r) { return r.json() })
     .then(function (data) {
@@ -24005,6 +24007,7 @@ function toggleRead(emailId) {
 }
 
 function toggleThreadRead(emailId, threadId) {
+  keepMailListItemRead(emailId)
   if (window.GoferMailSearch && window.GoferMailSearch.scope()) {
     var row = window.GoferMailSearch.rowData(emailId)
     return runScopedMailAction(emailId, "read", true, { state: row && row.isRead === "true" ? "unread" : "read" })
@@ -25682,6 +25685,17 @@ function invalidateMailListItem(emailId) {
   var container = document.getElementById("mail-list-scroll")
   if (container && container._virtualMailList) {
     container._virtualMailList.invalidateItem(emailId)
+  }
+}
+
+// keepMailListItemRead keeps the row of an opened message in an Unread list
+// once it is read, instead of taking it away from under the reader. It is
+// called before the message is marked read, so the list's next request
+// already keeps it.
+function keepMailListItemRead(emailId) {
+  var container = document.getElementById("mail-list-scroll")
+  if (container && container._virtualMailList) {
+    container._virtualMailList.keepRead(emailId)
   }
 }
 
