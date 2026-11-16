@@ -37,9 +37,11 @@ Rules, signatures, identities, a one-time From, scheduled send, translation, lab
 ### Keyboard navigation
 
 Shortcuts for moving through mail.
+Press `?` to toggle keyboard help (`Shift+/` on US keyboards or `Shift+ß` on German keyboards, including macOS).
 
 | Action | Shortcut |
 | --- | --- |
+| Toggle keyboard help | `?` |
 | Next email | `j` / `Down` |
 | Previous email | `k` / `Up` |
 | Open email | `Enter` / `o` |
