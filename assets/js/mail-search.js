@@ -355,7 +355,7 @@
       var excluding = !!(selected && selected.exclude_spam_trash)
       exclude.setAttribute("aria-disabled", selected ? "false" : "true")
       exclude.setAttribute("aria-checked", excluding ? "true" : "false")
-      exclude.querySelector("[data-mail-scope-check]").classList.toggle("hidden", !excluding)
+      exclude.querySelector("[data-mail-scope-check]").checked = excluding
     }
     var local = root.querySelector("[data-mail-scope-include-local]")
     if (local) {
@@ -365,7 +365,7 @@
       row.dataset.shown = shown ? "true" : "false"
       row.inert = !shown
       local.setAttribute("aria-checked", including ? "true" : "false")
-      local.querySelector("[data-mail-scope-check]").classList.toggle("hidden", !including)
+      local.querySelector("[data-mail-scope-check]").checked = including
     }
   }
 
