@@ -2052,6 +2052,13 @@ func emailBodyTextSize(r *http.Request) int {
 	return 14
 }
 
+// emailBodyAlmostStandardsDoctype puts a full email without a doctype in
+// almost standards mode rather than full standards mode. Both drop the quirks
+// mode percentage heights, but full standards mode also leaves a gap under
+// images in table cells, which splits the image slices of older newsletters,
+// the kind of mail most likely to have no doctype.
+const emailBodyAlmostStandardsDoctype = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">`
+
 func buildBodyDocument(ctx context.Context, body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool, textSize int, nonce string) []byte {
 	nonced := func(script []byte) string { return string(scriptWithNonce(script, nonce)) }
 	s := string(body)
@@ -2060,6 +2067,14 @@ func buildBodyDocument(ctx context.Context, body []byte, resizeScript []byte, th
 		s = strings.Replace(s, ">"+i18n.CalendarOnlyBody+"<", ">"+template.HTMLEscapeString(i18n.T(ctx, "mail.calendar_only_body"))+"<", 1)
 	}
 	lower := strings.ToLower(s)
+	if strings.Contains(lower, "<html") && !hasLeadingHTMLDoctype(s) {
+		// Full email documents often omit a doctype. Without one, browsers use
+		// quirks mode, where percentage heights on nested elements can resolve
+		// against the viewport and make the iframe resize itself repeatedly.
+		// Fragments already receive a standards doctype in the wrapper below.
+		s = emailBodyAlmostStandardsDoctype + s
+		lower = strings.ToLower(s)
+	}
 	isDark := theme == "dark"
 	injection := nonced(emailExternalLinksScript()) + nonced(emailQuoteScript(ctx)) + nonced(resizeScript)
 
