@@ -6,7 +6,10 @@ import (
 	"testing"
 )
 
-func TestBuildBodyDocumentUsesStandardsModeForFullDocuments(t *testing.T) {
+func TestBuildBodyDocumentUsesAlmostStandardsModeForFullDocuments(t *testing.T) {
+	// HTML 4.01 Transitional with a system identifier selects almost standards
+	// mode, which keeps images in table cells free of a gap underneath.
+	const almostStandards = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">`
 	const missingDoctype = `<html><head><style>div{height:100%!important;width:100%!important}.copy{line-height:100%}img{width:200px;height:100px}</style></head><body><div class="copy">Message</div><img src="cid:logo" width="200" height="100"></body></html>`
 	const existingDoctype = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html><head></head><body>Message</body></html>`
 	const commentBeforeDoctype = `<!-- lead --><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html><head></head><body>Message</body></html>`
@@ -22,12 +25,12 @@ func TestBuildBodyDocumentUsesStandardsModeForFullDocuments(t *testing.T) {
 		countDoc bool
 		preserve bool
 	}{
-		{name: "normal full document", body: missingDoctype, wantDoc: "<!DOCTYPE html>", countDoc: true, preserve: true},
-		{name: "dark full document", body: missingDoctype, theme: "dark", wantDoc: "<!DOCTYPE html>", countDoc: true, preserve: true},
-		{name: "original full document", body: missingDoctype, original: true, wantDoc: "<!DOCTYPE html>", countDoc: true, preserve: true},
-		{name: "preserves existing doctype", body: existingDoctype, wantDoc: "<!DOCTYPE html PUBLIC", countDoc: true},
-		{name: "preserves doctype after comment", body: commentBeforeDoctype, wantDoc: "<!-- lead --><!DOCTYPE html PUBLIC", countDoc: true},
-		{name: "does not trust comment text", body: fakeDoctypeComment, wantDoc: "<!DOCTYPE html><!-- <!doctype html> -->"},
+		{name: "normal full document", body: missingDoctype, wantDoc: almostStandards + "<html>", countDoc: true, preserve: true},
+		{name: "dark full document", body: missingDoctype, theme: "dark", wantDoc: almostStandards + "<html>", countDoc: true, preserve: true},
+		{name: "original full document", body: missingDoctype, original: true, wantDoc: almostStandards + "<html>", countDoc: true, preserve: true},
+		{name: "preserves existing doctype", body: existingDoctype, wantDoc: `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"`, countDoc: true},
+		{name: "preserves doctype after comment", body: commentBeforeDoctype, wantDoc: `<!-- lead --><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"`, countDoc: true},
+		{name: "does not trust comment text", body: fakeDoctypeComment, wantDoc: almostStandards + "<!-- <!doctype html> -->"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			theme := tc.theme
