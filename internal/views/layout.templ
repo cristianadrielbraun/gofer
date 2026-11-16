@@ -114,7 +114,7 @@ templ MailSyncProgressDialog() {
 					</span>
 				}
 			}
-			<div class="min-h-0 space-y-4">
+			<div class="min-h-0 min-w-0 space-y-4">
 				<div class="space-y-2">
 					<div class="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
 						<span data-mail-sync-dialog-summary>{ i18n.T(ctx, "mail.sync.dialog.preparing") }</span>
@@ -126,6 +126,18 @@ templ MailSyncProgressDialog() {
 				</div>
 				<div class="min-h-0 space-y-2 overflow-y-auto" style="max-height:min(30rem,calc(100vh - 14rem))" data-mail-sync-dialog-accounts></div>
 			</div>
+			// An account's error, cut to one line, with the full text in a
+			// tooltip. app.js fills a copy for each account that failed.
+			<template data-mail-sync-error-template>
+				@tooltip.Tooltip() {
+					@tooltip.Trigger() {
+						<div class="mt-1 truncate text-xs text-destructive" data-mail-sync-error-text></div>
+					}
+					@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "max-w-80 whitespace-normal break-words px-3 py-2 text-left text-xs leading-relaxed"}) {
+						<span data-mail-sync-error-full></span>
+					}
+				}
+			</template>
 		}
 	}
 }

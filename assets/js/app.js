@@ -13688,15 +13688,15 @@ function _mailSyncRunTotalsForMode(mode) {
   return out
 }
 
-function _mailSyncAccountCardHTML(account) {
+function _mailSyncAccountCardHTML(account, id) {
   var accountPct = _mailSyncAccountProgressPercent(account)
   var folderMeta = _mailSyncAccountFolderMeta(account)
   return '<div class="rounded-lg border border-border bg-background/45 p-3">' +
     '<div class="flex items-center justify-between gap-3">' +
-      '<div class="min-w-0"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
+      '<div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
       '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(folderMeta) + '</div>' +
       (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(goferT("js.sync.current_folder", { folder: account.currentFolderLabel })) + '</div>' : '') +
-      (account.error ? '<div class="mt-1 truncate text-xs text-destructive">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
+      (account.error ? '<div class="mt-1 truncate text-xs text-destructive" data-mail-sync-error="' + _escapeComposeHTML(account.error) + '" data-mail-sync-error-account="' + _escapeComposeHTML(id) + '">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
       '<div class="shrink-0 text-xs font-medium ' + _mailSyncStatusClass(account.status) + '">' + _mailSyncStatusLabel(account.status) + '</div>' +
     '</div>' +
     '<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div class="h-full rounded-full bg-primary transition-all" style="width:' + accountPct + '%"></div></div>' +
@@ -13773,11 +13773,32 @@ function renderMailSyncProgressDialog() {
       '<div class="h-1.5 overflow-hidden rounded-full bg-muted"><div class="h-full rounded-full bg-primary transition-all" style="width:' + sectionPct + '%"></div></div>' +
       '<div class="space-y-2">'
     for (var i = 0; i < sectionIDs.length; i++) {
-      html += _mailSyncAccountCardHTML(_mailSyncState.accounts[sectionIDs[i]])
+      html += _mailSyncAccountCardHTML(_mailSyncState.accounts[sectionIDs[i]], sectionIDs[i])
     }
     html += '</div></section>'
   }
+  var openTip = accountsEl.querySelector('[data-mail-sync-error-tip] > [data-tui-popover-content][data-tui-popover-open="true"]')
   accountsEl.innerHTML = html
+  _mailSyncAttachErrorTooltips(dialog, accountsEl, openTip ? openTip.parentElement.id : "")
+}
+
+// Each account's error, cut to one line, gets a tooltip with the full text,
+// from the dialog's template. The cards are rebuilt on every progress update,
+// so a tooltip open at the time opens again over the new card.
+function _mailSyncAttachErrorTooltips(dialog, accountsEl, reopenID) {
+  var template = dialog.querySelector("template[data-mail-sync-error-template]")
+  var source = template && template.content.querySelector("[data-tui-popover-root]")
+  if (!source) return
+  accountsEl.querySelectorAll("[data-mail-sync-error]").forEach(function (slot) {
+    var text = slot.getAttribute("data-mail-sync-error")
+    var tip = source.cloneNode(true)
+    tip.id = "mail-sync-error-" + slot.getAttribute("data-mail-sync-error-account").replace(/[^A-Za-z0-9_-]/g, "_")
+    tip.setAttribute("data-mail-sync-error-tip", "")
+    tip.querySelector("[data-mail-sync-error-text]").textContent = text
+    tip.querySelector("[data-mail-sync-error-full]").textContent = text
+    slot.replaceWith(tip)
+  })
+  if (reopenID && document.getElementById(reopenID) && window.tui && window.tui.popover) window.tui.popover.open(reopenID)
 }
 
 var _mailSyncScopedBusyAccountID = ""
