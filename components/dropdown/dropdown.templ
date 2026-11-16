@@ -197,6 +197,8 @@ templ Item(props ...ItemProps) {
 	if p.ID == "" {
 		{{ p.ID = utils.RandomID() }}
 	}
+	// The keyboard's focus ring is the theme's, drawn inside the item like
+	// the toolbar buttons', not the browser's own outline.
 	if p.Href != "" {
 		<a
 			id={ p.ID }
@@ -209,7 +211,7 @@ templ Item(props ...ItemProps) {
 			class={
 				utils.TwMerge(
 					"flex text-left items-center justify-between px-2 py-1.5 text-sm rounded-sm",
-					utils.If(!p.Disabled, "focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground cursor-default"),
+					utils.If(!p.Disabled, "focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"),
 					utils.If(p.Disabled, "opacity-50 pointer-events-none"),
 					p.Class,
 				),
@@ -229,7 +231,7 @@ templ Item(props ...ItemProps) {
 			class={
 				utils.TwMerge(
 					"w-full text-left flex items-center justify-between px-2 py-1.5 text-sm rounded-sm",
-					utils.If(!p.Disabled, "focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground cursor-default"),
+					utils.If(!p.Disabled, "focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"),
 					utils.If(p.Disabled, "opacity-50 pointer-events-none"),
 					p.Class,
 				),
