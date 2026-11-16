@@ -1808,6 +1808,7 @@
   "compose.format.signature": "Insertar firma",
   "compose.format.to_html": "Cambiar a HTML",
   "compose.format.to_plain": "Cambiar a texto sin formato",
+  "compose.format.toolbar": "Formato",
   "compose.format.undo": "Deshacer",
   "compose.format.strike": "Tachado",
   "compose.format.table": "Insertar tabla",

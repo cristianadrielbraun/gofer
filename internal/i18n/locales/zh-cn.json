@@ -1808,6 +1808,7 @@
   "compose.format.signature": "插入签名",
   "compose.format.to_html": "切换为 HTML",
   "compose.format.to_plain": "切换为纯文本",
+  "compose.format.toolbar": "格式",
   "compose.format.undo": "撤销",
   "compose.format.strike": "删除线",
   "compose.format.table": "插入表格",

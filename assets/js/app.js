@@ -20246,6 +20246,60 @@ function toggleComposeFormat(el) {
   })
 }
 
+// A toolbar marked data-toolbar-arrows is one Tab stop, as in the ARIA
+// toolbar pattern: Tab reaches the button last used there, and the arrow
+// keys, Home and End move between its buttons. The menus it opens keep their
+// own keys.
+function toolbarArrowButtons(toolbar) {
+  return Array.prototype.filter.call(toolbar.querySelectorAll("button"), function (button) {
+    return !button.closest("[data-tui-popover-content]")
+  })
+}
+
+// A folded part (data-mail-collapsed) slides to no width and fades out but
+// keeps its boxes, so it is ruled out by its mark.
+function _toolbarButtonShown(button) {
+  return !button.disabled && !button.closest("[data-mail-collapsed]") && button.getClientRects().length > 0
+}
+
+// syncToolbarTabStop makes current the toolbar's Tab stop, or else keeps the
+// one it has, or else takes the first button shown. It runs again whenever
+// buttons show or hide, so the stop is never a button Tab can't reach.
+function syncToolbarTabStop(toolbar, current) {
+  if (!toolbar) return
+  var buttons = toolbarArrowButtons(toolbar)
+  var shown = buttons.filter(_toolbarButtonShown)
+  // A hidden toolbar keeps its stop for when it shows again.
+  if (!shown.length) return
+  if (shown.indexOf(current) < 0) {
+    current = shown.find(function (button) { return button.tabIndex === 0 }) || shown[0]
+  }
+  buttons.forEach(function (button) { button.tabIndex = button === current ? 0 : -1 })
+}
+
+document.addEventListener("keydown", function (event) {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  var key = event.key
+  if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") return
+  var toolbar = event.target && event.target.closest ? event.target.closest("[data-toolbar-arrows]") : null
+  if (!toolbar) return
+  var shown = toolbarArrowButtons(toolbar).filter(_toolbarButtonShown)
+  var at = shown.indexOf(event.target)
+  if (at < 0) return
+  var next = key === "Home" ? 0 : key === "End" ? shown.length - 1 : (at + (key === "ArrowRight" ? 1 : -1) + shown.length) % shown.length
+  event.preventDefault()
+  syncToolbarTabStop(toolbar, shown[next])
+  shown[next].focus()
+})
+
+// A button that gets focus some other way, such as a menu handing it back
+// as it closes, becomes the stop.
+document.addEventListener("focusin", function (event) {
+  var button = event.target
+  var toolbar = button && button.closest ? button.closest("[data-toolbar-arrows]") : null
+  if (toolbar && button.tabIndex === -1 && toolbarArrowButtons(toolbar).indexOf(button) >= 0) syncToolbarTabStop(toolbar, button)
+})
+
 // The compose toolbar folds its tools into a ⋯ menu as its room runs out,
 // as the mail list's toolbar and the contact header do: undo first, then
 // quote and code, and so on (the ranks in ComposeToolbar). Bold to lists,
@@ -20277,6 +20331,8 @@ function syncComposeToolbarOverflow(toolbar, force) {
   toolbar.querySelectorAll("[data-compose-overflow-menu-item]").forEach(function (item) {
     item.style.display = parseInt(item.getAttribute("data-compose-overflow-menu-item"), 10) <= step ? "" : "none"
   })
+  // Folding, and the format switch that folds again, show and hide buttons.
+  syncToolbarTabStop(toolbar)
 }
 
 // observeComposeToolbars watches each compose toolbar's width; the dialog's
@@ -20663,82 +20719,6 @@ document.addEventListener("keydown", function (event) {
   }
 })
 
-// Tab moves through compose in the order a message is written, not the order
-// of the page: To, Cc, Bcc, Subject, the body, Send, Send later, Save draft,
-// the formatting toolbar, the window's own buttons, and From, which is then a
-// Shift+Tab back from To. Cc and Bcc are their buttons until they are shown.
-// Anything else comes last, in page order.
-var _composeTabOrder = [
-  '[data-recipient-name="to"]',
-  '[data-recipient-name="cc"], #cc-btn, #pane-cc-btn',
-  '[data-recipient-name="bcc"], #bcc-btn, #pane-bcc-btn',
-  'input[name="subject"]',
-  "[data-compose-remote-images-notice], [data-compose-editor], [data-compose-attachments]",
-  "#compose-send-btn, #compose-pane-send-btn, [data-compose-mobile-send]",
-  "[data-compose-schedule-trigger]",
-  "[data-compose-draft-button]",
-  "[data-compose-toolbar]",
-  ".compose-dialog-corner, #compose-pane-size-buttons, [data-compose-mobile-bar]",
-  "[data-compose-from-row], [data-compose-one-time-from]",
-]
-var _composeTabbable = 'a[href], button, input:not([type="hidden"]), select, textarea, [contenteditable="true"], [tabindex]'
-
-function _composeTabRank(el) {
-  for (var i = 0; i < _composeTabOrder.length; i++) {
-    if (el.closest(_composeTabOrder[i])) return i
-  }
-  return _composeTabOrder.length
-}
-
-// _composeCanTab is an element Tab would stop on. What sits in an open menu,
-// popover or list of choices keeps the browser's own order.
-function _composeCanTab(el) {
-  if (!el.matches(_composeTabbable) || el.disabled || Number(el.getAttribute("tabindex")) < 0) return false
-  if (el.closest("[inert], [data-tui-popover-content], [data-tui-selectbox-content]")) return false
-  return el.getClientRects().length > 0
-}
-
-function _composeTabStops(surface) {
-  var stops = Array.prototype.filter.call(surface.querySelectorAll(_composeTabbable), _composeCanTab)
-  var ranks = new Map(stops.map(function (el, i) { return [el, _composeTabRank(el) * 100000 + i] }))
-  return stops.sort(function (a, b) { return ranks.get(a) - ranks.get(b) })
-}
-
-// _composeTabOut is the first place outside the pane Tab reaches going
-// forward, or the last going back. The dialog is modal, so it wraps instead.
-function _composeTabOut(surface, back) {
-  var stops = Array.prototype.filter.call(document.querySelectorAll(_composeTabbable), function (el) {
-    return !surface.contains(el) && _composeCanTab(el)
-  })
-  var after = Node.DOCUMENT_POSITION_FOLLOWING
-  if (back) {
-    for (var i = stops.length - 1; i >= 0; i--) {
-      if (!(surface.compareDocumentPosition(stops[i]) & after)) return stops[i]
-    }
-    return
-  }
-  for (var j = 0; j < stops.length; j++) {
-    if (surface.compareDocumentPosition(stops[j]) & after) return stops[j]
-  }
-}
-
-document.addEventListener("keydown", function (event) {
-  if (event.key !== "Tab" || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
-  var target = event.target
-  var surface = target && target.closest ? target.closest("#compose-dialog, [data-compose-pane]") : null
-  if (!surface || !_composeCanTab(target)) return
-  var stops = _composeTabStops(surface)
-  var at = stops.indexOf(target)
-  if (at < 0) return
-  var next = stops[at + (event.shiftKey ? -1 : 1)]
-  if (!next) {
-    next = surface.matches("[data-compose-pane]") ? _composeTabOut(surface, event.shiftKey) : null
-    if (!next) next = stops[event.shiftKey ? stops.length - 1 : 0]
-  }
-  event.preventDefault()
-  next.focus()
-})
-
 document.addEventListener("selectionchange", function () {
   if (_activeComposeEditor) _saveComposeSelection(_activeComposeEditor)
 })
@@ -20919,7 +20899,10 @@ function updateComposeSendState(form) {
   var disabled = pending > 0 || sending
   // Switching format while an image uploads would lose it.
   var formatToggle = form.querySelector("[data-compose-format-toggle]")
-  if (formatToggle) formatToggle.disabled = disabled
+  if (formatToggle) {
+    formatToggle.disabled = disabled
+    syncToolbarTabStop(formatToggle.closest("[data-toolbar-arrows]"))
+  }
   var root = _composeRootForForm(form)
   var mobileSend = root && root.querySelector("[data-compose-mobile-send]")
   if (mobileSend) {
