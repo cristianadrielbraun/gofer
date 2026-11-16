@@ -40,9 +40,19 @@ func sharedLinkState(t *testing.T, db *DB, email string) string {
 	return ""
 }
 
+// sharedIdentitiesOn turns on, for the default user, the From addresses and
+// sender check that are off until the user chooses them.
+func sharedIdentitiesOn(t *testing.T, db *DB) {
+	t.Helper()
+	if err := db.MergeUISettings(context.Background(), "default", map[string]string{sharedmailbox.KeyAutoIdentities: "true", sharedmailbox.KeyVerifySender: "true"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSharedMailboxDiscoveryCreatesOneIdentityEach(t *testing.T) {
 	ctx := context.Background()
 	db := newIdentitiesTestDB(t)
+	sharedIdentitiesOn(t, db)
 	at := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 	seen := []string{"support@example.com", "sales@example.com", "Support@Example.com"}
 
@@ -71,6 +81,7 @@ func TestSharedMailboxDiscoveryCreatesOneIdentityEach(t *testing.T) {
 func TestSharedMailboxDiscoveryKeepsWhatTheUserDid(t *testing.T) {
 	ctx := context.Background()
 	db := newIdentitiesTestDB(t)
+	sharedIdentitiesOn(t, db)
 	at := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 
 	// An identity the user made for the address beforehand is left alone.
@@ -134,6 +145,7 @@ func TestSharedMailboxDiscoveryKeepsWhatTheUserDid(t *testing.T) {
 func TestSharedMailboxRemovalPutsIdentityAside(t *testing.T) {
 	ctx := context.Background()
 	db := newIdentitiesTestDB(t)
+	sharedIdentitiesOn(t, db)
 	at := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 	both := []string{"support@example.com", "sales@example.com"}
 	if _, _, err := db.ApplySharedMailboxDiscovery(ctx, "work", both, true, at); err != nil {
@@ -174,17 +186,15 @@ func TestSharedMailboxRemovalPutsIdentityAside(t *testing.T) {
 	}
 }
 
-func TestSharedMailboxDiscoveryCanBeTurnedOff(t *testing.T) {
+// Until the user chooses them, shared mailboxes get no From address.
+func TestSharedMailboxDiscoveryMakesNoIdentityByDefault(t *testing.T) {
 	ctx := context.Background()
 	db := newIdentitiesTestDB(t)
-	if err := db.MergeUISettings(ctx, "default", map[string]string{sharedmailbox.KeyAutoIdentities: "false"}); err != nil {
-		t.Fatal(err)
-	}
 	if _, identities, err := db.ApplySharedMailboxDiscovery(ctx, "work", []string{"support@example.com"}, true, time.Now()); err != nil || identities.Changed() {
 		t.Fatalf("identities = %+v, %v", identities, err)
 	}
 	if _, n := identityByEmail(t, db, "support@example.com"); n != 0 {
-		t.Fatal("identity made with automatic identities off")
+		t.Fatal("identity made without the user choosing it")
 	}
 }
 
@@ -217,6 +227,7 @@ func TestSharedMailboxFolderFindsFolderByRole(t *testing.T) {
 func TestSharedMailboxNamedByUserNameGetsNoIdentity(t *testing.T) {
 	ctx := context.Background()
 	db := newIdentitiesTestDB(t)
+	sharedIdentitiesOn(t, db)
 	mailboxes, identities, err := db.ApplySharedMailboxDiscovery(ctx, "work", []string{"support", "sales@example.com"}, true, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -229,6 +240,7 @@ func TestSharedMailboxNamedByUserNameGetsNoIdentity(t *testing.T) {
 func TestSentAndDraftsFolderForASharedSender(t *testing.T) {
 	ctx := context.Background()
 	db := newIdentitiesTestDB(t)
+	sharedIdentitiesOn(t, db)
 	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
 		{ID: "own-sent", AccountID: "work", RemoteID: "Sent Items", Name: "Sent", Role: "sent", Selectable: true},
 		{ID: "own-drafts", AccountID: "work", RemoteID: "Drafts", Name: "Drafts", Role: "drafts", Selectable: true},

@@ -146,9 +146,6 @@ func upgradeStorageDatabase(ctx context.Context, path, owner string) (err error)
 	if err := db.migrate(); err != nil {
 		return err
 	}
-	if err := ensureSharedMailboxSchema(db.write); err != nil {
-		return err
-	}
 	if err := db.requireCurrentSchema(); err != nil {
 		return err
 	}

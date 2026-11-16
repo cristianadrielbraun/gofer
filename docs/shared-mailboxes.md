@@ -111,8 +111,8 @@ never changed. Both levels fold, and remember whether they were folded.
 
 ## Sending as a shared mailbox
 
-For each shared mailbox named by an address, Gofer adds a From address
-(identity) to the account. It is named after the mailbox: `support@example.com`
+When "Add a From address for each shared mailbox" is on, Gofer adds a From
+address (identity) to the account for each shared mailbox named by an address. It is named after the mailbox: `support@example.com`
 becomes "Example Support" by default, or "Support", or your own text and
 "Support" (Settings → Advanced → Shared mailboxes).
 
@@ -127,7 +127,8 @@ becomes "Example Support" by default, or "Support", or your own text and
   aside (not offered when writing) and comes back if the mailbox is shared
   again. It is never deleted.
 
-When an identity is made, Gofer asks the SMTP server whether it accepts the
+When "Ask the server about a new From address" is on and an identity is made,
+Gofer asks the SMTP server whether it accepts the
 address as a sender, giving `MAIL FROM` and `RCPT TO` and then `RSET`, so
 nothing is sent. The account's identities show the answer, including the
 server's own message when it refuses. A real message the server refuses at
@@ -154,12 +155,12 @@ Settings → Advanced → Shared mailboxes:
 
 | Setting | Default |
 | --- | --- |
-| Add a From address for each shared mailbox | on |
+| Add a From address for each shared mailbox | off |
 | Name of a new From address | the server's name, or else one starting with the domain's name |
-| Ask the server about a new From address | on |
+| Ask the server about a new From address | off |
 | Put aside the From address of a mailbox no longer shared | on |
 | Show each shared mailbox's address in the sidebar | on |
-| Show shared mailboxes' mail in unified folders | on |
+| Show shared mailboxes' mail in unified folders | off |
 
 ## Names
 

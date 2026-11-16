@@ -169,12 +169,13 @@ func unifiedFolderRolePredicate(alias, folderID string) (string, []any) {
 	return predicate, append(append([]any{}, roles...), roles...)
 }
 
-// sharedMailboxesInUnifiedSQL is true unless the folder's owner keeps shared
-// mailboxes out of unified folders (sharedmailbox.KeyInUnified).
+// sharedMailboxesInUnifiedSQL is true when the folder's owner chose to have
+// shared mailboxes in unified folders (sharedmailbox.KeyInUnified); they are
+// left out until then.
 func sharedMailboxesInUnifiedSQL(alias string) string {
-	return `COALESCE((SELECT json_extract(unified_setting.value, '$.` + sharedmailbox.KeyInUnified + `')
+	return `COALESCE(CAST((SELECT json_extract(unified_setting.value, '$.` + sharedmailbox.KeyInUnified + `')
 		FROM app_settings unified_setting JOIN accounts unified_account ON unified_account.user_id = unified_setting.user_id
-		WHERE unified_account.id = ` + alias + `.account_id AND unified_setting.key = 'ui_settings'), 'true') != 'false'`
+		WHERE unified_account.id = ` + alias + `.account_id AND unified_setting.key = 'ui_settings') AS TEXT), '') IN ('true', '1', 'on')`
 }
 
 func unifiedFolderIDFromRole(role string) string {

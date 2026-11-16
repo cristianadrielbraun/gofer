@@ -41,6 +41,13 @@ func TestUnifiedFoldersHoldSharedMailboxMail(t *testing.T) {
 		}
 		return page.TotalCount
 	}
+	// Shared mail stays out of unified folders until the user asks for it.
+	if got := unified(); got != 1 {
+		t.Fatalf("unified inbox by default holds %d messages, want only the account's own", got)
+	}
+	if err := db.SetSetting(ctx, "default", "ui_settings", `{"shared_mailboxes_in_unified":"true"}`); err != nil {
+		t.Fatal(err)
+	}
 	if got := unified(); got != 2 {
 		t.Fatalf("unified inbox holds %d messages, want the shared mailbox's too", got)
 	}
@@ -58,7 +65,7 @@ func TestUnifiedFoldersHoldSharedMailboxMail(t *testing.T) {
 	if err := db.SetSharedMailboxEnabled(ctx, "acc", "support@example.com", true); err != nil {
 		t.Fatal(err)
 	}
-	// So does all shared mail when the user keeps it out.
+	// So does all shared mail when the user takes it out again.
 	if err := db.SetSetting(ctx, "default", "ui_settings", `{"shared_mailboxes_in_unified":"false"}`); err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +80,7 @@ func TestSharedMailboxNames(t *testing.T) {
 	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'jmap', 'user@example.com')`); err != nil {
 		t.Fatal(err)
 	}
+	sharedIdentitiesOn(t, db)
 	if err := db.SetSharedMailboxServerNames(ctx, "acc", map[string]string{"support@example.com": "Customer Support"}); err != nil {
 		t.Fatal(err)
 	}

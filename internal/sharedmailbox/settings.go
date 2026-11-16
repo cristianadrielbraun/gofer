@@ -35,10 +35,11 @@ const (
 	KeyInUnified      = "shared_mailboxes_in_unified"
 )
 
-// DefaultSettings has everything on that makes shared mailboxes work by
-// themselves; nothing is ever deleted.
+// DefaultSettings shows shared mailboxes in their own group and changes
+// nothing else: making From addresses for them, asking the server about them
+// and adding their mail to the unified folders are each the user's choice.
 func DefaultSettings() Settings {
-	return Settings{ShowAddress: true, AutoIdentities: true, DisableRemoved: true, VerifySender: true, PrefixMode: PrefixServer, InUnified: true}
+	return Settings{ShowAddress: true, DisableRemoved: true, PrefixMode: PrefixServer}
 }
 
 // SettingsFrom reads the settings from stored values; a missing or unknown

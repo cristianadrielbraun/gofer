@@ -144,8 +144,7 @@ func TestUserStorageMigrationInventoryCoversActualRuntimeTablesColumnsAndForeign
 			}
 		}
 	}
-	// Shared mailboxes add 2 tables and 2 links (shared_mailbox_schema.go).
-	if len(actualTables) != 118+2 || len(actualLinks) != 150+2 {
+	if len(actualTables) != 120 || len(actualLinks) != 152 {
 		t.Fatal("runtime inventory changed", len(actualTables), len(actualLinks))
 	}
 }

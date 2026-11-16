@@ -89,7 +89,14 @@ CREATE TABLE IF NOT EXISTS folders (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- A role the user gave an IMAP folder by hand, which the folder sync puts
     -- before the one the server reports; '' for none.
-    role_choice TEXT NOT NULL DEFAULT ''
+    role_choice TEXT NOT NULL DEFAULT '',
+    -- The address of the shared mailbox the folder is in; '' for the
+    -- account's own folders.
+    shared_mailbox TEXT NOT NULL DEFAULT '',
+    -- The folder's role inside that shared mailbox: a folder role, or 'root'
+    -- for the mailbox's own folder and 'namespace' for the folder that holds
+    -- the shared mailboxes. Its role column stays 'custom'.
+    shared_role TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS folder_id_aliases (
@@ -2036,4 +2043,45 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (150);
+CREATE INDEX IF NOT EXISTS idx_folders_shared_mailbox
+    ON folders(account_id, shared_mailbox, shared_role) WHERE shared_mailbox != '';
+
+-- The shared mailboxes an account can open, as its folder sync last found
+-- them. A mailbox no longer listed is kept as 'removed', so what belongs to it
+-- (its sender identity) is put aside, not deleted. One the user turned off
+-- (enabled = 0) is neither synced nor shown. server_name is the name the
+-- server gives it, custom_name the one the user gave it.
+CREATE TABLE IF NOT EXISTS shared_mailboxes (
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    email TEXT NOT NULL CHECK (email != ''),
+    state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'removed')),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    server_name TEXT NOT NULL DEFAULT '',
+    custom_name TEXT NOT NULL DEFAULT '',
+    discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    removed_at DATETIME,
+    PRIMARY KEY (account_id, email)
+);
+
+-- The sender identity Gofer made for a shared mailbox. The identity itself is
+-- an ordinary one in account_identities; this says it was made automatically,
+-- whether the user renamed it, and whether the server accepted the address as
+-- a sender. State is 'inactive' while the mailbox is no longer shared,
+-- 'disabled' while the user has it off, and 'deleted' once the user deleted
+-- the identity, so it is not made again.
+CREATE TABLE IF NOT EXISTS shared_mailbox_identities (
+    identity_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    mailbox_email TEXT NOT NULL CHECK (mailbox_email != ''),
+    generated_name TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'inactive', 'disabled', 'deleted')),
+    sender_check TEXT NOT NULL DEFAULT '' CHECK (sender_check IN ('', 'accepted', 'rejected', 'unknown')),
+    sender_check_message TEXT NOT NULL DEFAULT '',
+    sender_checked_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (account_id, mailbox_email)
+);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (151);
