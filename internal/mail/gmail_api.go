@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -26,7 +27,9 @@ import (
 
 const gmailAPIMessagePageSize = 500
 const gmailAPIRecentCatchupMaxPages = 2
-const gmailAPIRecentCatchupScope = "messages_recent_catchup"
+
+// gmailAPIRepairScope holds the progress of a repair that hasn't finished.
+const gmailAPIRepairScope = "messages-repair"
 const gmailAPIHistoricalMetadataWorkers = 6
 const gmailAPIHistoricalMetadataPerMinute = 240
 const gmailAPIHistoricalMetadataBatchSize = 100
@@ -180,33 +183,18 @@ func (o *SyncOrchestrator) syncGmailAPIAccount(ctx context.Context, accountID st
 		return err
 	}
 	if !state.LastFullSyncAt.Valid {
-		shouldImport, err := o.shouldRunGmailAPIInitialImport(ctx, accountID, state)
-		if err != nil {
+		// Until an import has gone through every label once, each sync runs
+		// it again: an earlier one may have stopped part way. Messages it
+		// already stored are only listed, not fetched again.
+		if err := o.syncGmailAPIHistoricalImport(ctx, accountID, &token, labelsByID, targets, false); err != nil {
 			return err
 		}
-		if shouldImport {
-			if err := o.syncGmailAPIHistoricalImport(ctx, accountID, &token, labelsByID, targets, false); err != nil {
-				return err
-			}
-			if seeded {
-				if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, false); err != nil {
-					return err
-				}
-			}
-			return o.gmailRepository().RefreshAccountFolderThreadState(ctx, accountID)
-		}
-		shouldCatchup, err := o.shouldRunGmailAPIRecentCatchup(ctx, accountID, state)
-		if err != nil {
-			return err
-		}
-		if shouldCatchup {
-			if err := o.syncGmailAPIRecentCatchup(ctx, accountID, &token, labelsByID, targets); err != nil {
-				return err
-			}
-			if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope, "", false); err != nil {
+		if seeded {
+			if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, false); err != nil {
 				return err
 			}
 		}
+		return o.gmailRepository().RefreshAccountFolderThreadState(ctx, accountID)
 	}
 	if seeded {
 		if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, false); err != nil {
@@ -250,17 +238,21 @@ func (o *SyncOrchestrator) repairGmailAPIAccount(ctx context.Context, accountID 
 		})})
 		return nil
 	}
-	if err := o.syncGmailAPIHistoricalImport(ctx, accountID, &token, labelsByID, targets, true); err != nil {
-		return err
-	}
+	// The cursor is read first, so changes made while the repair runs are
+	// picked up by the next sync.
 	cursor, err := o.getGmailProfileHistoryIDWithAuthRetry(ctx, accountID, &token)
 	if err != nil {
 		return err
 	}
-	if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, true); err != nil {
+	if err := o.syncGmailAPIHistoricalImport(ctx, accountID, &token, labelsByID, targets, true); err != nil {
 		return err
 	}
-	if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope, "", false); err != nil {
+	// The progress goes first: left behind, it would make the next repair
+	// skip the labels this one went through.
+	if err := o.gmailRepository().SaveLabelSyncCursor(ctx, accountID, storage.LabelProviderGmail, gmailAPIRepairScope, ""); err != nil {
+		return err
+	}
+	if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, true); err != nil {
 		return err
 	}
 	return o.gmailRepository().RefreshAccountFolderThreadState(ctx, accountID)
@@ -289,28 +281,6 @@ func (o *SyncOrchestrator) ensureGmailAPILiveCursor(ctx context.Context, account
 		return "", false, err
 	}
 	return cursor, true, nil
-}
-
-func (o *SyncOrchestrator) shouldRunGmailAPIInitialImport(ctx context.Context, accountID string, state storage.LabelSyncState) (bool, error) {
-	if state.LastFullSyncAt.Valid {
-		return false, nil
-	}
-	count, err := o.gmailRepository().CountProviderBackedMessages(ctx, accountID)
-	if err != nil {
-		return false, err
-	}
-	return count == 0, nil
-}
-
-func (o *SyncOrchestrator) shouldRunGmailAPIRecentCatchup(ctx context.Context, accountID string, state storage.LabelSyncState) (bool, error) {
-	if state.LastFullSyncAt.Valid {
-		return false, nil
-	}
-	catchupState, err := o.gmailRepository().GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope)
-	if err != nil {
-		return false, err
-	}
-	return !catchupState.LastSuccessAt.Valid, nil
 }
 
 func (o *SyncOrchestrator) syncGmailAPIFolders(ctx context.Context, accountID, token string) ([]gmailAPIFolderSyncTarget, map[string]gmailAPILabel, error) {
@@ -465,9 +435,14 @@ func (o *SyncOrchestrator) syncGmailAPIHistoricalImport(ctx context.Context, acc
 					stats.FailedMessages++
 					return result.Err
 				}
+				// The history sync tries it again later, so one bad message
+				// doesn't keep the import from finishing.
 				failed++
 				stats.FailedMessages++
-				log.Printf("gmail api sync message account=%s provider_message=%s: %v", accountID, result.ProviderMessageID, result.Err)
+				if err := o.gmailRepository().EnqueueGmailMessageFetch(ctx, accountID, result.ProviderMessageID, "", result.Err); err != nil {
+					return err
+				}
+				log.Printf("gmail api sync message account=%s provider_message=%s failed, queued retry: %v", accountID, result.ProviderMessageID, result.Err)
 			}
 			results, err := o.upsertGmailAPIProviderMessageBatch(ctx, accountID, messages, labelsByID, targetsByLabelID)
 			if err != nil {
@@ -487,6 +462,17 @@ func (o *SyncOrchestrator) syncGmailAPIHistoricalImport(ctx context.Context, acc
 		}
 		return nil
 	}
+	// A repair continues where an interrupted one stopped. The pages before
+	// that point are listed again, so the folders are still checked in
+	// full, but their messages aren't fetched a second time.
+	var resume gmailAPIRepairProgress
+	if refreshKnown {
+		resume = o.loadGmailAPIRepairProgress(ctx, accountID, targets)
+		if resume.LabelID != "" {
+			log.Printf("gmail api repair account=%s: continuing from label %s after %d page(s)", accountID, resume.LabelID, resume.Pages)
+		}
+	}
+	resuming := resume.LabelID != ""
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -505,7 +491,16 @@ func (o *SyncOrchestrator) syncGmailAPIHistoricalImport(ctx context.Context, acc
 		}
 		pageToken := ""
 		estimateRecorded := false
+		pages := 0
 		for {
+			refreshPage := refreshKnown
+			if resuming {
+				if target.LabelID == resume.LabelID && pages >= resume.Pages {
+					resuming = false
+				} else {
+					refreshPage = false
+				}
+			}
 			page, err := o.listGmailAPIMessageIDPageWithAuthRetry(ctx, accountID, token, target.LabelID, pageToken)
 			if err != nil {
 				return err
@@ -536,7 +531,7 @@ func (o *SyncOrchestrator) syncGmailAPIHistoricalImport(ctx context.Context, acc
 				}
 				seenProviderIDs[providerID] = true
 				processed++
-				if _, ok := existingByProvider[providerID]; ok && !refreshKnown {
+				if _, ok := existingByProvider[providerID]; ok && !refreshPage {
 					stats.SyncedMessages++
 					recordGmailAPITouchedFolders(touchedFolders, []string{target.Folder.ID})
 					recordGmailAPITouchedFolders(syncedFolders, []string{target.Folder.ID})
@@ -550,10 +545,20 @@ func (o *SyncOrchestrator) syncGmailAPIHistoricalImport(ctx context.Context, acc
 			if err := processProviderIDs(pendingProviderIDs); err != nil {
 				return err
 			}
+			pages++
+			if refreshKnown && !resuming {
+				if err := o.saveGmailAPIRepairProgress(ctx, accountID, gmailAPIRepairProgress{LabelID: target.LabelID, Pages: pages}); err != nil {
+					return err
+				}
+			}
 			pageToken = strings.TrimSpace(page.NextPageToken)
 			if pageToken == "" {
 				break
 			}
+		}
+		// The label may have fewer pages now than when the repair stopped.
+		if resuming && target.LabelID == resume.LabelID {
+			resuming = false
 		}
 	}
 	for folderID, providerIDs := range seenProviderIDsByFolder {
@@ -575,7 +580,7 @@ func (o *SyncOrchestrator) syncGmailAPIHistoricalImport(ctx context.Context, acc
 	}
 	o.replayGmailLabelMutationQueue(ctx, accountID, currentToken)
 	if failed > 0 {
-		return fmt.Errorf("%d Gmail API message import(s) failed", failed)
+		log.Printf("gmail api sync account=%s: %d message(s) failed and wait for a retry", accountID, failed)
 	}
 	return nil
 }
@@ -673,6 +678,47 @@ func (o *SyncOrchestrator) syncGmailAPIRecentCatchup(ctx context.Context, accoun
 func gmailAPIHistoricalImportIsRepair(ctx context.Context) bool {
 	scope, ok := ctx.Value(accountSyncProgressScopeKey{}).(accountSyncProgressScope)
 	return ok && strings.TrimSpace(scope.mode) == "repair"
+}
+
+// gmailAPIRepairProgress is a repair that hasn't finished: the label it was
+// going through and how many of its pages it had fetched. It is saved after
+// every page, so the next repair continues instead of fetching every
+// message again.
+type gmailAPIRepairProgress struct {
+	LabelID string `json:"label"`
+	Pages   int    `json:"pages"`
+}
+
+// loadGmailAPIRepairProgress returns the saved progress, or none when there
+// is none or its label is gone.
+func (o *SyncOrchestrator) loadGmailAPIRepairProgress(ctx context.Context, accountID string, targets []gmailAPIFolderSyncTarget) gmailAPIRepairProgress {
+	saved, err := o.gmailRepository().GetLabelSyncState(ctx, accountID, storage.LabelProviderGmail, gmailAPIRepairScope)
+	if err != nil {
+		log.Printf("gmail api repair account=%s: reading saved progress: %v", accountID, err)
+		return gmailAPIRepairProgress{}
+	}
+	if saved.Cursor == "" {
+		return gmailAPIRepairProgress{}
+	}
+	var progress gmailAPIRepairProgress
+	if err := json.Unmarshal([]byte(saved.Cursor), &progress); err != nil || progress.LabelID == "" || progress.Pages < 1 {
+		log.Printf("gmail api repair account=%s: ignoring unreadable progress %q", accountID, saved.Cursor)
+		return gmailAPIRepairProgress{}
+	}
+	for _, target := range targets {
+		if target.LabelID == progress.LabelID {
+			return progress
+		}
+	}
+	return gmailAPIRepairProgress{}
+}
+
+func (o *SyncOrchestrator) saveGmailAPIRepairProgress(ctx context.Context, accountID string, progress gmailAPIRepairProgress) error {
+	cursor, err := json.Marshal(progress)
+	if err != nil {
+		return err
+	}
+	return o.gmailRepository().SaveLabelSyncCursor(ctx, accountID, storage.LabelProviderGmail, gmailAPIRepairScope, string(cursor))
 }
 
 func (o *SyncOrchestrator) syncGmailAPIHistoryChanges(ctx context.Context, accountID, token string, labelsByID map[string]gmailAPILabel, targets []gmailAPIFolderSyncTarget, cursor string) (retErr error) {
@@ -884,21 +930,12 @@ func (o *SyncOrchestrator) recoverGmailAPIExpiredHistory(ctx context.Context, ac
 	if err != nil {
 		return err
 	}
-	shouldImport, err := o.shouldRunGmailAPIInitialImport(ctx, accountID, state)
-	if err != nil {
-		return err
-	}
-	if shouldImport {
+	if !state.LastFullSyncAt.Valid {
 		if err := o.syncGmailAPIHistoricalImport(ctx, accountID, token, labelsByID, targets, false); err != nil {
 			return err
 		}
-	} else {
-		if err := o.syncGmailAPIRecentCatchup(ctx, accountID, token, labelsByID, targets); err != nil {
-			return err
-		}
-		if err := o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, gmailAPIRecentCatchupScope, "", false); err != nil {
-			return err
-		}
+	} else if err := o.syncGmailAPIRecentCatchup(ctx, accountID, token, labelsByID, targets); err != nil {
+		return err
 	}
 	return o.gmailRepository().MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderGmail, "messages", cursor, false)
 }

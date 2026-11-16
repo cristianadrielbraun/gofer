@@ -408,7 +408,10 @@ func TestSyncGmailAPIHistoricalImportRefreshesTokenForMessageList(t *testing.T) 
 	}
 }
 
-func TestSyncGmailAPIAccountSeedsCursorWithoutHistoricalImportForExistingProviderMessages(t *testing.T) {
+// Messages from an import that stopped part way don't count as a finished
+// import: the next sync goes through every label again, without fetching what
+// is already stored.
+func TestSyncGmailAPIAccountFinishesImportForExistingProviderMessages(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)
 	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderGmail); err != nil {
@@ -450,7 +453,7 @@ func TestSyncGmailAPIAccountSeedsCursorWithoutHistoricalImportForExistingProvide
 		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages" && strings.Contains(r.URL.Query().Get("q"), "-in:inbox"):
 			_ = json.NewEncoder(w).Encode(map[string]any{})
 		case strings.HasPrefix(r.URL.Path, "/users/me/messages/"):
-			t.Fatalf("existing provider-backed Gmail catch-up should not fetch known message metadata: %s", r.URL.String())
+			t.Fatalf("import fetched a stored message again: %s", r.URL.String())
 		default:
 			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
 		}
@@ -466,18 +469,20 @@ func TestSyncGmailAPIAccountSeedsCursorWithoutHistoricalImportForExistingProvide
 		t.Fatalf("syncGmailAPIAccount() error = %v", err)
 	}
 	if messageListRequests != 1 {
-		t.Fatalf("message list requests = %d, want one bounded recent catch-up page", messageListRequests)
+		t.Fatalf("message list requests = %d, want the whole Inbox listed once", messageListRequests)
 	}
 	state, err := db.GetLabelSyncState(ctx, "acc", storage.LabelProviderGmail, "messages")
 	if err != nil {
 		t.Fatalf("GetLabelSyncState() error = %v", err)
 	}
-	if state.Cursor != "105" || !state.LastSuccessAt.Valid || state.LastFullSyncAt.Valid {
-		t.Fatalf("sync state = %#v, want seeded live cursor without historical import", state)
+	if state.Cursor != "105" || !state.LastSuccessAt.Valid || !state.LastFullSyncAt.Valid {
+		t.Fatalf("sync state = %#v, want seeded live cursor after a finished import", state)
 	}
 }
 
-func TestSyncGmailAPIAccountRecentCatchupImportsGapMessageBeforeHistory(t *testing.T) {
+// An import that stopped part way left a live cursor behind. The next sync
+// finishes the import before it uses the cursor.
+func TestSyncGmailAPIAccountFinishesInterruptedImportBeforeHistory(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)
 	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderGmail); err != nil {
@@ -536,7 +541,7 @@ func TestSyncGmailAPIAccountRecentCatchupImportsGapMessageBeforeHistory(t *testi
 		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-gap":
 			messageGets++
 			if got := r.URL.Query().Get("format"); got != "metadata" {
-				t.Fatalf("message format = %q, want metadata for recent catch-up", got)
+				t.Fatalf("message format = %q, want metadata for the import", got)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":           "gmail-gap",
@@ -555,12 +560,7 @@ func TestSyncGmailAPIAccountRecentCatchupImportsGapMessageBeforeHistory(t *testi
 				},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-known":
-			t.Fatalf("recent catch-up fetched known message metadata: %s", r.URL.String())
-		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
-			if got := r.URL.Query().Get("startHistoryId"); got != "200" {
-				t.Fatalf("startHistoryId = %q, want seeded cursor 200", got)
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"historyId": "210"})
+			t.Fatalf("import fetched a stored message again: %s", r.URL.String())
 		default:
 			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
 		}
@@ -586,8 +586,8 @@ func TestSyncGmailAPIAccountRecentCatchupImportsGapMessageBeforeHistory(t *testi
 	if err != nil {
 		t.Fatalf("GetLabelSyncState() error = %v", err)
 	}
-	if state.Cursor != "210" || state.LastFullSyncAt.Valid {
-		t.Fatalf("sync state = %#v, want history cursor advanced without full baseline", state)
+	if state.Cursor != "200" || !state.LastFullSyncAt.Valid {
+		t.Fatalf("sync state = %#v, want the import finished and the cursor kept for the next sync", state)
 	}
 }
 
@@ -792,7 +792,7 @@ func TestSyncGmailAPIHistoricalImportFetchesMetadataInParallel(t *testing.T) {
 	}
 }
 
-func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *testing.T) {
+func TestSyncGmailAPIAccountUsesHistoryAfterFinishedImport(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)
 	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', ?, 'user@example.com')`, providers.ProviderGmail); err != nil {
@@ -823,7 +823,7 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 		Scope:          "messages",
 		StartedAt:      baseline.Add(-time.Minute),
 		FinishedAt:     baseline,
-		Full:           false,
+		Full:           true,
 		Cursor:         "105",
 		TotalMessages:  1,
 		SyncedMessages: 1,
@@ -832,7 +832,6 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 	}
 
 	var sawHistory bool
-	recentListRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer gmail-token" {
 			t.Fatalf("Authorization = %q", got)
@@ -842,11 +841,6 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]any{
 				{"id": "INBOX", "name": "INBOX", "type": "system"},
 			}})
-		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages" && r.URL.Query().Get("labelIds") == "INBOX":
-			recentListRequests++
-			_ = json.NewEncoder(w).Encode(map[string]any{"messages": []map[string]string{{"id": "gmail-msg-1", "threadId": "thread-1"}}})
-		case r.Method == http.MethodGet && r.URL.Path == "/users/me/messages" && strings.Contains(r.URL.Query().Get("q"), "-in:inbox"):
-			_ = json.NewEncoder(w).Encode(map[string]any{})
 		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
 			if got := r.URL.Query().Get("startHistoryId"); got != "105" {
 				t.Fatalf("startHistoryId = %q, want baseline cursor 105", got)
@@ -899,9 +893,6 @@ func TestSyncGmailAPIAccountUsesHistoryAfterLiveCursorWithoutFullBaseline(t *tes
 	}
 	if !sawHistory {
 		t.Fatal("Gmail history API was not used")
-	}
-	if recentListRequests != 1 {
-		t.Fatalf("recent list requests = %d, want one bounded catch-up before history", recentListRequests)
 	}
 	msgID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<gmail-history@example.com>")
 	if err != nil || msgID == 0 {

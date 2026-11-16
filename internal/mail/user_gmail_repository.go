@@ -15,7 +15,6 @@ type gmailSyncRepository interface {
 	imapSyncRepository
 	AddMessageLabel(ctx context.Context, messageID int64, accountID string, label storage.LabelInput) (models.Label, error)
 	CompleteGmailMessageFetch(ctx context.Context, accountID, providerMessageID string) error
-	CountProviderBackedMessages(ctx context.Context, accountID string) (int, error)
 	EnqueueGmailMessageFetch(ctx context.Context, accountID, providerMessageID, historyID string, fetchErr error) error
 	GetLabelSyncState(ctx context.Context, accountID, providerType, scope string) (storage.LabelSyncState, error)
 	GetMessageMutationInfoForFolder(ctx context.Context, messageID int64, folderID string) (*storage.MessageMutationInfo, error)
@@ -32,6 +31,7 @@ type gmailSyncRepository interface {
 	RefreshAccountFolderThreadState(ctx context.Context, accountID string) error
 	RefreshFolderThreadState(ctx context.Context, folderID string) error
 	RemoveMessageLabelForProvider(ctx context.Context, messageID int64, accountID, providerType, providerID, labelName string) error
+	SaveLabelSyncCursor(ctx context.Context, accountID, providerType, scope, cursor string) error
 	SetMessageProviderMessageID(ctx context.Context, messageID int64, providerMessageID string) error
 	UpsertExistingProviderFolderStates(ctx context.Context, accountID, folderID string, providerMessageIDs []string) (map[string]int64, error)
 	UpsertProviderSyncMessages(ctx context.Context, msgs []storage.ProviderSyncMessage) (map[string]int64, error)
@@ -77,16 +77,6 @@ func (r *userIMAPScope) AddMessageLabel(ctx context.Context, messageID int64, ac
 
 func (r *userIMAPScope) CompleteGmailMessageFetch(ctx context.Context, accountID, providerMessageID string) error {
 	return r.call(ctx, func(db *storage.DB) error { return db.CompleteGmailMessageFetch(ctx, accountID, providerMessageID) })
-}
-
-func (r *userIMAPScope) CountProviderBackedMessages(ctx context.Context, accountID string) (int, error) {
-	var result int
-	err := r.call(ctx, func(db *storage.DB) error {
-		var err error
-		result, err = db.CountProviderBackedMessages(ctx, accountID)
-		return err
-	})
-	return result, err
 }
 
 func (r *userIMAPScope) EnqueueGmailMessageFetch(ctx context.Context, accountID, providerMessageID, historyID string, fetchErr error) error {

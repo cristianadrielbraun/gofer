@@ -1370,23 +1370,6 @@ func (db *DB) ListProviderMessageIDBackfillCandidates(ctx context.Context, accou
 	return out, rows.Err()
 }
 
-func (db *DB) CountProviderBackedMessages(ctx context.Context, accountID string) (int, error) {
-	accountID = strings.TrimSpace(accountID)
-	if accountID == "" {
-		return 0, nil
-	}
-	var count int
-	err := db.Read().QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM messages m
-		WHERE m.account_id = ?
-		  AND `+anyProviderCopyIDSQL("m")+` != ''`, accountID).Scan(&count)
-	if err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
 func (db *DB) ListOutlookGraphIDBackfillCandidates(ctx context.Context, accountID string, limit int) ([]OutlookGraphIDBackfillCandidate, error) {
 	return db.ListProviderMessageIDBackfillCandidates(ctx, accountID, limit)
 }
