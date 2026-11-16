@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -47,7 +48,13 @@ func (h *Handler) adminUserMailboxes(ctx context.Context, actor *auth.User, pers
 			SyncEnabled: mailbox.SyncEnabled, SyncError: mailbox.SyncError, SyncErrorAt: mailbox.SyncErrorAt,
 			Hidden: mailbox.Hidden, CreatedAt: mailbox.CreatedAt, Unlimited: !allowlist.Limited(),
 		}
-		if view.Proxy, err = proxies.label(mailbox.ProxyID); err != nil {
+		choice := mailbox.ProxyID
+		if choice == storage.AccountProxyDefault && len(mailbox.GroupProxyChain) > 0 {
+			if choice, err = proxies.resolveChain(mailbox.GroupProxyChain); err != nil {
+				return nil, false, err
+			}
+		}
+		if view.Proxy, err = proxies.label(choice); err != nil {
 			return nil, false, err
 		}
 		if !view.Unlimited {
@@ -124,6 +131,33 @@ type adminUserProxyNames struct {
 	ctx   context.Context
 	owner string
 	cache map[string]string
+}
+
+func (p *adminUserProxyNames) resolveChain(chain []string) (string, error) {
+	for _, raw := range chain {
+		switch id := strings.TrimSpace(raw); id {
+		case "":
+			continue
+		case storage.AccountProxyDirect:
+			return storage.AccountProxyDirect, nil
+		default:
+			proxy, err := p.h.db.GetOutboundProxy(p.ctx, id)
+			if errors.Is(err, storage.ErrOutboundProxyNotFound) {
+				continue
+			}
+			if err != nil {
+				return "", err
+			}
+			ok, err := p.h.db.OutboundProxyAvailableTo(p.ctx, proxy, p.owner)
+			if err != nil {
+				return "", err
+			}
+			if ok {
+				return id, nil
+			}
+		}
+	}
+	return storage.AccountProxyDefault, nil
 }
 
 func (p *adminUserProxyNames) label(choice string) (string, error) {

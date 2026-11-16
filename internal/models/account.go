@@ -68,7 +68,9 @@ type EditAccountData struct {
 	JMAPSessionURL string
 	// ProxyID is the account's proxy choice: "" for the default, "direct",
 	// or a saved proxy's id.
-	ProxyID          string
+	ProxyID string
+	// GroupID is the account group the account sits in, or "" at the top level.
+	GroupID          string
 	SameSmtpAuth     bool
 	EmailSyncEnabled bool
 	// ReconnectPending is set for an account imported from a profile that
@@ -111,6 +113,9 @@ type CreateAccountRequest struct {
 	// ProxyID is the proxy the account connects through: "" for the default,
 	// "direct", or a saved proxy's id.
 	ProxyID string `json:"-"`
+	// GroupID is the account group a newly connected account starts in, or ""
+	// at the top level.
+	GroupID string `json:"-"`
 	// EmailSyncDisabled creates the account with mail sync off, for accounts
 	// imported without their credentials.
 	EmailSyncDisabled bool `json:"-"`

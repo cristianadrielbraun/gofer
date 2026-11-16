@@ -1434,29 +1434,24 @@ templ SettingsSuppressedContacts(contacts []models.Contact, totalCount int) {
 }
 
 templ SettingsAccountsTab(accounts []models.Account) {
-	<div class="settings-card mt-6 bg-card rounded-lg border p-6 space-y-5">
+	{{ groups := AccountGroupsFromContext(ctx) }}
+	{{ treeItems := buildSettingsAccountTree(groups, accounts) }}
+	<div id="settings-accounts-section" class="settings-card mt-6 bg-card rounded-lg border p-6 space-y-5">
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 			<div class="min-w-0">
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.accounts.title") }</h3>
 				<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "settings.accounts.description") }</p>
 			</div>
-			@SettingsAddAccountButton()
+			<div class="flex shrink-0 flex-wrap items-center gap-2">
+				@SettingsNewAccountGroupButton()
+				@SettingsAddAccountButton()
+			</div>
 		</div>
-		if len(connectedAccounts(accounts)) == 0 {
+		if len(connectedAccounts(accounts)) == 0 && len(groups) == 0 {
 			@SettingsNoAccounts()
 		}
-		if len(accounts) > 0 {
-			<div class="space-y-3" data-account-order-list>
-				for _, a := range accounts {
-					if accountIsLocalFolders(a) {
-						if !a.IsDeleting {
-							@SettingsLocalFoldersCard(a)
-						}
-					} else {
-						@SettingsAccountCard(a)
-					}
-				}
-			</div>
+		if len(treeItems) > 0 {
+			@SettingsAccountTreeList(treeItems, "")
 		}
 	</div>
 }
@@ -2466,6 +2461,18 @@ templ SettingsAccountActionsMenu(account models.Account) {
 				@OutlookReauthForm(account)
 			}
 			@dropdown.Separator()
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    fmt.Sprintf("/api/accounts/%s/group/manage", account.ID),
+					"hx-target": "#edit-account-container",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				@icon.FolderInput(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_group.move_to_group") }
+			}
 			@SettingsAccountMoveItem("up")
 			@SettingsAccountMoveItem("down")
 			@dropdown.Separator()
@@ -3824,6 +3831,7 @@ templ GmailAccountDialog() {
 			}
 			<form id="gmail-form" method="POST" action="/api/accounts/oauth2/authorize" class="px-1 pt-2 pb-4 space-y-4">
 				<input type="hidden" name="flow_action" value="add"/>
+				<input type="hidden" name="group_id" value="" data-add-account-group-input/>
 				<div>
 					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.add_account.email") }</label>
 					@input.Input(input.Props{
@@ -3881,6 +3889,7 @@ templ OutlookAccountDialog() {
 			}
 			<form id="outlook-form" method="POST" action="/api/accounts/oauth2/authorize" class="px-1 pt-2 pb-4 space-y-4">
 				<input type="hidden" name="flow_action" value="add"/>
+				<input type="hidden" name="group_id" value="" data-add-account-group-input/>
 				<div>
 					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.add_account.email") }</label>
 					@input.Input(input.Props{
@@ -3984,6 +3993,7 @@ templ AddAccountDialog() {
 					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 600%">
 						<form id="account-form" hx-post="/api/accounts" hx-target="#add-contacts-content" hx-swap="innerHTML" class="contents">
 						<input type="hidden" name="mail_service" value=""/>
+						<input type="hidden" name="group_id" value="" data-add-account-group-input/>
 						<div class="w-1/6 shrink-0 px-1" data-wizard-step="0">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">

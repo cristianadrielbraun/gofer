@@ -38,6 +38,7 @@ templ AppSwitchSidebarTemplates(accounts []models.Account, uiSettings map[string
 }
 
 templ CalendarLoadingTemplates(accounts []models.Account, uiSettings map[string]string) {
+	{{ ctx = WithUISettings(ctx, uiSettings) }}
 	<template id="calendar-event-loading">
 		@CalendarEventLoadingDialog()
 	</template>

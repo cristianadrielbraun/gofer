@@ -157,15 +157,11 @@ func (s *AccountStore) DeleteOutboundProxy(ctx context.Context, ownerUserID, id 
 // AccountProxy returns the proxy the account connects through, or nil for a
 // direct connection.
 func (s *AccountStore) AccountProxy(ctx context.Context, accountID string) (*netguard.Proxy, error) {
-	choice, err := s.db.GetAccountProxyChoice(ctx, accountID)
+	owner, chain, err := s.db.GetAccountProxyChain(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("read account proxy: %w", err)
 	}
-	owner, err := s.db.GetAccountUserID(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("read account owner: %w", err)
-	}
-	return s.ResolveProxyChoice(ctx, owner, choice)
+	return s.ResolveProxyChain(ctx, owner, chain...)
 }
 
 // ResolveProxyChoice returns the proxy a choice of owner's means: none for
@@ -178,24 +174,20 @@ func (s *AccountStore) AccountProxy(ctx context.Context, accountID string) (*net
 // A proxy that can't be read is an error, never a direct connection: an
 // account set to use a proxy must not quietly connect without it.
 func (s *AccountStore) ResolveProxyChoice(ctx context.Context, owner, choice string) (*netguard.Proxy, error) {
-	choice = strings.TrimSpace(choice)
-	if choice == storage.AccountProxyDirect {
-		return nil, nil
+	return s.ResolveProxyChain(ctx, owner, choice)
+}
+
+// ResolveProxyChain resolves an account or group's chain of proxy choices from
+// most specific to outermost group: "" inherits the next choice in the chain,
+// "direct" stops inheritance and connects directly, and a deleted or
+// unavailable proxy falls back up the chain before reaching the default proxy.
+func (s *AccountStore) ResolveProxyChain(ctx context.Context, owner string, choices ...string) (*netguard.Proxy, error) {
+	match, err := s.matchProxyChoice(ctx, owner, choices...)
+	if err != nil || match.direct {
+		return nil, err
 	}
-	if choice != storage.AccountProxyDefault {
-		saved, err := s.policyDB.GetOutboundProxy(ctx, choice)
-		if err != nil && !errors.Is(err, storage.ErrOutboundProxyNotFound) {
-			return nil, fmt.Errorf("read proxy: %w", err)
-		}
-		if err == nil {
-			available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
-			if err != nil {
-				return nil, fmt.Errorf("check proxy: %w", err)
-			}
-			if available {
-				return s.openOutboundProxy(ctx, saved)
-			}
-		}
+	if match.found {
+		return s.openOutboundProxy(ctx, match.saved)
 	}
 	saved, ok, err := s.policyDB.DefaultOutboundProxy(ctx)
 	if err != nil {
@@ -212,6 +204,75 @@ func (s *AccountStore) ResolveProxyChoice(ctx context.Context, owner, choice str
 		return nil, nil
 	}
 	return s.openOutboundProxy(ctx, saved)
+}
+
+// ResolveProxyChainName returns the name of the saved proxy that choices
+// resolve to for owner, or "" when they resolve to a direct connection.
+func (s *AccountStore) ResolveProxyChainName(ctx context.Context, owner string, choices ...string) (string, error) {
+	match, err := s.matchProxyChoice(ctx, owner, choices...)
+	if err != nil || match.direct {
+		return "", err
+	}
+	if match.found {
+		return match.saved.Name, nil
+	}
+	return s.DefaultOutboundProxyName(ctx, owner)
+}
+
+// ResolveProxyChainChoice returns the choice owner connects with:
+// storage.AccountProxyDirect, the id of an available proxy, or
+// storage.AccountProxyDefault when the chain falls through to the
+// installation default.
+func (s *AccountStore) ResolveProxyChainChoice(ctx context.Context, owner string, choices ...string) (string, error) {
+	match, err := s.matchProxyChoice(ctx, owner, choices...)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case match.direct:
+		return storage.AccountProxyDirect, nil
+	case match.found:
+		return match.saved.ID, nil
+	default:
+		return storage.AccountProxyDefault, nil
+	}
+}
+
+// proxyChoiceMatch is a chain's decision before the installation default.
+type proxyChoiceMatch struct {
+	direct bool
+	found  bool
+	saved  storage.OutboundProxy
+}
+
+// matchProxyChoice walks choices from most specific to outermost. An empty
+// choice inherits the next one, "direct" stops, and a missing or unavailable
+// proxy is skipped.
+func (s *AccountStore) matchProxyChoice(ctx context.Context, owner string, choices ...string) (proxyChoiceMatch, error) {
+	for _, raw := range choices {
+		choice := strings.TrimSpace(raw)
+		switch choice {
+		case storage.AccountProxyDefault:
+			continue
+		case storage.AccountProxyDirect:
+			return proxyChoiceMatch{direct: true}, nil
+		}
+		saved, err := s.policyDB.GetOutboundProxy(ctx, choice)
+		if errors.Is(err, storage.ErrOutboundProxyNotFound) {
+			continue
+		}
+		if err != nil {
+			return proxyChoiceMatch{}, fmt.Errorf("read proxy: %w", err)
+		}
+		available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+		if err != nil {
+			return proxyChoiceMatch{}, fmt.Errorf("check proxy: %w", err)
+		}
+		if available {
+			return proxyChoiceMatch{found: true, saved: saved}, nil
+		}
+	}
+	return proxyChoiceMatch{}, nil
 }
 
 // openOutboundProxy reads a saved proxy to connect through. A person's own
@@ -244,15 +305,16 @@ func (s *AccountStore) openOutboundProxy(ctx context.Context, saved storage.Outb
 // proxy the owner may use.
 func (s *AccountStore) SetAccountProxy(ctx context.Context, userID, accountID, choice string) error {
 	choice = strings.TrimSpace(choice)
-	if err := s.checkProxyChoice(ctx, userID, choice); err != nil {
+	if err := s.CheckProxyChoice(ctx, userID, choice); err != nil {
 		return err
 	}
 	return s.db.SetAccountProxyChoice(ctx, userID, accountID, choice)
 }
 
-// checkProxyChoice refuses a proxy choice the owner may not make: the id of a
+// CheckProxyChoice refuses a proxy choice the owner may not make: the id of a
 // proxy that doesn't exist or isn't available to them.
-func (s *AccountStore) checkProxyChoice(ctx context.Context, owner, choice string) error {
+func (s *AccountStore) CheckProxyChoice(ctx context.Context, owner, choice string) error {
+	choice = strings.TrimSpace(choice)
 	if choice == storage.AccountProxyDefault || choice == storage.AccountProxyDirect {
 		return nil
 	}
@@ -273,11 +335,18 @@ func (s *AccountStore) checkProxyChoice(ctx context.Context, owner, choice strin
 // ProxyChoice returns the proxy a choice of owner's means, refusing one they
 // may not make, for work done before their account exists.
 func (s *AccountStore) ProxyChoice(ctx context.Context, owner, choice string) (*netguard.Proxy, error) {
+	return s.ProxyChoiceWithGroup(ctx, owner, choice)
+}
+
+// ProxyChoiceWithGroup is ProxyChoice when the account being added sits inside
+// a group whose proxy chain Choice "" inherits from.
+func (s *AccountStore) ProxyChoiceWithGroup(ctx context.Context, owner, choice string, groupChain ...string) (*netguard.Proxy, error) {
 	choice = strings.TrimSpace(choice)
-	if err := s.checkProxyChoice(ctx, owner, choice); err != nil {
+	if err := s.CheckProxyChoice(ctx, owner, choice); err != nil {
 		return nil, err
 	}
-	return s.ResolveProxyChoice(ctx, owner, choice)
+	chain := append([]string{choice}, groupChain...)
+	return s.ResolveProxyChain(ctx, owner, chain...)
 }
 
 // AccountProxyForUser is AccountProxy for an account in its owner's own

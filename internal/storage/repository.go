@@ -4836,7 +4836,7 @@ const DAVAccountColumns = `CASE WHEN a.provider != 'dav' THEN ''
 
 func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.sort_order, a.group_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''), COALESCE(a.hidden, 0),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
@@ -4861,7 +4861,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		var a models.Account
 		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod, smtpHost string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.SortOrder, &a.GroupID, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.Name = i18n.AccountName(ctx, a.Provider, a.Name)
@@ -4905,13 +4905,16 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	if err := db.attachAccountIdentities(ctx, userID, accounts); err != nil {
 		return nil, err
 	}
+	if err := db.attachAccountGroups(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 
 	return accounts, nil
 }
 
 func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.sort_order, a.group_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''), COALESCE(a.hidden, 0),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
@@ -4936,7 +4939,7 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		var a models.Account
 		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.SortOrder, &a.GroupID, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.Name = i18n.AccountName(ctx, a.Provider, a.Name)
@@ -4971,6 +4974,9 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		return nil, err
 	}
 	db.attachImportedAccountsPending(ctx, userID, accounts)
+	if err := db.attachAccountGroups(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 
 	return accounts, nil
 }
@@ -8718,6 +8724,7 @@ func defaultUISettings() map[string]string {
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
 		"sidebar_account_collapsed":         "{}",
+		"sidebar_account_group_collapsed":   "{}",
 		"sidebar_folder_collapsed":          "{}",
 		"sidebar_tag_group_collapsed":       "{}",
 		"contacts_auto_create_observed":     "true",

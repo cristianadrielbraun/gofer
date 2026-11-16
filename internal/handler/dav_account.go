@@ -298,6 +298,7 @@ func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request)
 	req := &models.CreateAccountRequest{
 		Provider: providers.ProviderDAV, DisplayName: form.name, Username: form.username, Password: form.password,
 		ProxyID: strings.TrimSpace(r.FormValue("proxy")),
+		GroupID: strings.TrimSpace(r.FormValue("group_id")),
 	}
 	var account *models.Account
 	if h.userAccounts == nil {

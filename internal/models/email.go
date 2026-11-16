@@ -18,8 +18,14 @@ type Account struct {
 	SenderName string
 	// DefaultIdentityID is the identity new messages start from; empty
 	// starts them from the account's own address.
-	DefaultIdentityID   string
-	Color               string
+	DefaultIdentityID string
+	SortOrder         int
+	// GroupID is the account_groups id the account sits in, or "" at the top
+	// level. GroupPath lists its enclosing groups from outermost to immediate
+	// parent.
+	GroupID   string
+	GroupPath []AccountGroupRef
+	Color     string
 	Initials            string
 	IsActive            bool
 	IsDeleting          bool
@@ -88,6 +94,30 @@ func (a Account) DefaultIdentity() (Identity, bool) {
 		}
 	}
 	return Identity{}, false
+}
+
+// AccountGroupRef is one step on the path of groups an account sits inside,
+// from the outermost group down to its immediate parent.
+type AccountGroupRef struct {
+	ID        string
+	Name      string
+	SortOrder int
+}
+
+// AccountGroup is a group of connected accounts, which may sit inside another
+// group and pick a proxy for the accounts under it.
+type AccountGroup struct {
+	ID        string
+	ParentID  string
+	Name      string
+	SortOrder int
+	ProxyID   string
+	Depth     int
+	// ProxyState describes how the group connects, for the Accounts settings
+	// card; ProxyActive is set when it routes through a proxy rather than
+	// connecting directly.
+	ProxyState  string
+	ProxyActive bool
 }
 
 // AccountCalendarSource is sidebar metadata, not account sync configuration.

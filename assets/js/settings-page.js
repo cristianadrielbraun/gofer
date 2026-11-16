@@ -2410,6 +2410,9 @@ function openAddAccountWizard(service) {
   setAddAccountMailService(service);
   var root = document.getElementById('add-account-dialog');
   if (root) delete root.dataset.addMail;
+  var form = document.getElementById('account-form');
+  var groupInput = form && form.querySelector('[data-add-account-group-input]');
+  if (groupInput) groupInput.value = window.__goferAddAccountGroupID || '';
   setAddAccountProxyRow('');
   goferSwitchDialog('choose-account-type-dialog', 'add-account-dialog');
 }
@@ -2420,9 +2423,11 @@ function setAddAccountProxyRow(accountID) {
   var slot = document.getElementById('add-account-proxy-row');
   if (!slot || !window.htmx) return;
   accountID = accountID || '';
-  if ((slot.dataset.account || '') === accountID) return;
-  slot.dataset.account = accountID;
-  htmx.ajax('GET', '/api/accounts/proxy-choice?sidebar=1&form=account-form&account=' + encodeURIComponent(accountID), { target: slot, swap: 'innerHTML' });
+  var groupID = accountID ? '' : (window.__goferAddAccountGroupID || '');
+  slot.textContent = '';
+  var url = '/api/accounts/proxy-choice?sidebar=1&form=account-form&account=' + encodeURIComponent(accountID);
+  if (groupID) url += '&group=' + encodeURIComponent(groupID);
+  htmx.ajax('GET', url, { target: slot, swap: 'innerHTML' });
 }
 // An account with only calendars or contacts gets its mail through the add
 // wizard, which then saves the mailbox to that account instead of creating
@@ -2445,6 +2450,8 @@ function startAddMail(service) {
   if (!_addMailAccount || !root || !form) return;
   setAddAccountMailService(service);
   root.dataset.addMail = _addMailAccount.id;
+  var groupInput = form.querySelector('[data-add-account-group-input]');
+  if (groupInput) groupInput.value = '';
   setAddAccountProxyRow(_addMailAccount.id);
   var name = form.querySelector('input[name="display_name"]');
   if (name && !name.value) name.value = _addMailAccount.name;
@@ -2469,6 +2476,17 @@ function openDAVAccountDialog(service) {
   var form = root && root.querySelector('[data-dav-account-form]');
   if (!form || !window.tui || !window.tui.dialog) return;
   form.reset();
+  var gid = window.__goferAddAccountGroupID || '';
+  var groupInput = form.querySelector('[data-add-account-group-input]');
+  if (groupInput) groupInput.value = gid;
+  var loader = root.querySelector('[data-account-proxy-choice-loader]');
+  if (loader && window.htmx) {
+    var fresh = loader.cloneNode(false);
+    fresh.removeAttribute('hx-get');
+    fresh.removeAttribute('hx-trigger');
+    loader.replaceWith(fresh);
+    htmx.ajax('GET', '/api/accounts/proxy-choice?account=' + (gid ? '&group=' + encodeURIComponent(gid) : ''), { target: fresh, swap: 'innerHTML' });
+  }
   root.dataset.davService = service === 'contacts' ? 'contacts' : 'calendar';
   form.querySelector('input[name="service"]').value = root.dataset.davService;
   davAccountItems(root, '');
@@ -2619,6 +2637,8 @@ function discoverMailSettings(button) {
   // Discovery connects through the proxy the account will use.
   var proxy = form ? form.elements.namedItem('proxy') : null;
   if (proxy && proxy.value !== undefined) body.append('proxy', proxy.value);
+  var groupInput = form ? form.elements.namedItem('group_id') : null;
+  if (groupInput && groupInput.value) body.append('group_id', groupInput.value);
   fetch('/api/accounts/discover', {
     method: 'POST',
     credentials: 'same-origin',

@@ -101,7 +101,7 @@ func davDialogID(data DAVAccountDialogData) string {
 // SettingsAddAccountButton adds a mail account, and from its menu an account
 // with only calendars or contacts.
 templ SettingsAddAccountButton() {
-	<div class="inline-flex shrink-0 items-stretch rounded-md shadow-sm">
+	<div class="inline-flex shrink-0 items-stretch rounded-md shadow-sm" data-settings-add-account data-add-account-group="">
 		@dialog.Trigger(dialog.TriggerProps{For: "choose-account-type-dialog"}) {
 			@button.Button(button.Props{
 				Size:  button.SizeSm,
@@ -158,6 +158,9 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 			}
 			<form class={ dataDialogFormClass } data-dav-account-form novalidate>
 				<input type="hidden" name="service" value={ data.Service }/>
+				if !editing {
+					<input type="hidden" name="group_id" value="" data-add-account-group-input/>
+				}
 				@dataDialogScroll("space-y-4 pb-4") {
 					if data.NeedsPassword {
 						<p class="flex items-start gap-2 rounded-lg border border-amber-300/50 bg-amber-100/50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" data-dav-account-needs-password>

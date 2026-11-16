@@ -151,6 +151,7 @@ func (h *Handler) finishUserAccountOAuth(w http.ResponseWriter, ctx context.Cont
 			created := id == ""
 			if created {
 				req.ProxyID = flow.FormData["proxy"]
+				req.GroupID = flow.FormData["group_id"]
 				account, err := h.userAccounts.CreateAccount(ctx, owner, req)
 				if err != nil {
 					var pending *config.PendingAccountCreationError

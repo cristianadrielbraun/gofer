@@ -28,6 +28,7 @@ func accountRequestFromForm(r *http.Request) models.CreateAccountRequest {
 		Username: r.FormValue("username"), Password: r.FormValue("password"), AuthMethod: r.FormValue("auth_method"),
 		SmtpUsername: r.FormValue("smtp_username"), SmtpPassword: r.FormValue("smtp_password"),
 		JMAPSessionURL: r.FormValue("jmap_session_url"), ProxyID: strings.TrimSpace(r.FormValue("proxy")),
+		GroupID: strings.TrimSpace(r.FormValue("group_id")),
 	}
 	switch r.FormValue("mail_service") {
 	case providers.MailServiceICloud:
@@ -87,6 +88,11 @@ func (h *Handler) handleUserSyncSettingsView(w http.ResponseWriter, r *http.Requ
 		display, err := local.db.GetAccountsIncludingDeleting(ctx, userID)
 		if err != nil {
 			return nil, err
+		}
+		if tab == "accounts" {
+			if groups, groupErr := h.loadAccountGroupsForView(ctx, local.db, userID); groupErr == nil {
+				ctx = views.WithAccountGroups(ctx, groups)
+			}
 		}
 		settings := local.db.GetUISettings(ctx, userID)
 		syncSettings := local.buildSyncSettings(ctx, accounts)
@@ -370,7 +376,7 @@ func (h *Handler) handleUserDeleteAccount(w http.ResponseWriter, r *http.Request
 }
 
 func userAccountError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, storage.ErrAccountGroupNotFound) || errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
 		return
 	}
