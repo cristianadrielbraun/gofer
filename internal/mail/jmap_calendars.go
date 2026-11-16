@@ -228,7 +228,11 @@ func JMAPCalendarState(ctx context.Context, cfg *models.AccountConfig, password 
 	for _, shared := range jmapSharedAccountsWith(session, jmap.CapabilityCalendars) {
 		theirs, err := client.GetCalendarEvents(ctx, session, shared, []string{})
 		if err != nil {
-			return "", err
+			// A shared account that can't be read is left out, under a
+			// state of its own that stays the same while it fails, so the
+			// login's own changes and the other accounts' are still seen.
+			state += " " + shared + jmapSharedSeparator + "unreadable"
+			continue
 		}
 		state += " " + shared + jmapSharedSeparator + theirs.State
 	}

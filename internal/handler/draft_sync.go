@@ -190,7 +190,7 @@ func (h *Handler) finishIMAPDraftOperation(operation storage.IMAPDraftOperation,
 // its own, since the draft's own key now follows its new folder. It reports
 // whether the draft moved.
 func (h *Handler) moveDraftOutOfOldFolder(ctx context.Context, account *models.Account, draftKey string, messageID int64, previous *storage.DraftProviderInfo, folderID string) bool {
-	if previous == nil || previous.FolderID == "" || previous.FolderID == folderID {
+	if previous == nil || previous.FolderID == "" || previous.FolderID == folderID || !previous.InDraftsFolder {
 		return false
 	}
 	if err := h.db.RemoveDraftFromFolder(ctx, messageID, previous.FolderID); err != nil {

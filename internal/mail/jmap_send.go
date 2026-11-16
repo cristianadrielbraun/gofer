@@ -55,17 +55,13 @@ func SendJMAPMessage(ctx context.Context, cfg *models.AccountConfig, password, f
 	if session.PrimaryAccount(jmap.CapabilityMail) == "" {
 		return "", notSent(errors.New("the JMAP server offers no mail account for this login"), false)
 	}
-	// A shared mailbox's address sends from that mailbox's own JMAP account,
-	// so the message is stored in its Sent; any other from the login's own.
-	account := jmapSenderAccount(session, from).account
 	if !jmapCanSend(session) {
 		return "", notSent(ErrJMAPCannotSend, false)
 	}
-	identities, err := client.GetIdentities(ctx, session, account)
+	account, identity, ok, err := jmapSendingIdentity(ctx, client, session, from)
 	if err != nil {
 		return "", notSent(err, true)
 	}
-	identity, ok := jmap.MatchIdentity(identities.List, from)
 	if !ok {
 		return "", notSent(fmt.Errorf("the JMAP server does not let this account send as %s", from), false)
 	}
@@ -129,6 +125,29 @@ func SendJMAPMessage(ctx context.Context, cfg *models.AccountConfig, password, f
 		return jmapRefIn(session, account, emailID), nil
 	}
 	return "", notSent(err, true)
+}
+
+// jmapSendingIdentity finds the JMAP account and identity to send as from:
+// a shared mailbox's address sends from that mailbox's own account, so the
+// message is stored in its Sent, when the server gives the login an identity
+// there; otherwise, as for any other address, from the login's own account,
+// if it has an identity for the address.
+func jmapSendingIdentity(ctx context.Context, client *jmap.Client, session *jmap.Session, from string) (string, jmap.Identity, bool, error) {
+	own := session.PrimaryAccount(jmap.CapabilityMail)
+	accounts := []string{own}
+	if shared := jmapSenderAccount(session, from).account; shared != own {
+		accounts = []string{shared, own}
+	}
+	for _, account := range accounts {
+		identities, err := client.GetIdentities(ctx, session, account)
+		if err != nil {
+			return "", jmap.Identity{}, false, err
+		}
+		if identity, ok := jmap.MatchIdentity(identities.List, from); ok {
+			return account, identity, true, nil
+		}
+	}
+	return "", jmap.Identity{}, false, nil
 }
 
 type jmapSendState int

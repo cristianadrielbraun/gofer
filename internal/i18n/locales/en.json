@@ -7417,5 +7417,11 @@
   "transfer.status.canceled_after": "Canceled after {total}",
   "transfer.status.paused": "Paused at {done} of {total}",
   "transfer.status.started": "started {date}",
-  "transfer.status.starting": "Starting…"
+  "transfer.status.starting": "Starting…",
+  "server.error.shared_mailbox_has_no_folder": "This shared mailbox has no folder for that, so its mail was left where it is.",
+  "js.mail.missing_folder.shared_archive": "This shared mailbox has no Archive folder. Its mail stays in the shared mailbox.",
+  "js.mail.missing_folder.shared_trash": "This shared mailbox has no Trash folder. Its mail stays in the shared mailbox.",
+  "js.mail.missing_folder.shared_junk": "This shared mailbox has no Spam folder. Its mail stays in the shared mailbox.",
+  "js.mail.missing_folder.shared_other": "This shared mailbox has no {role} folder. Its mail stays in the shared mailbox.",
+  "server.text.shared_mailbox_off_cannot_send": "That shared mailbox is turned off, so mail can't be sent from it. Turn it on, or choose another address."
 }

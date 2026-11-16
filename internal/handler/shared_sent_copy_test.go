@@ -120,3 +120,33 @@ func TestDraftMovedOutOfASharedDraftsFolder(t *testing.T) {
 		t.Fatal("a draft saved in place was taken as moved")
 	}
 }
+
+// A draft also kept in a folder that holds every message, as Gmail's All
+// Mail does, is found in its Drafts folder, and is never moved out of the
+// other folder.
+func TestPreviousDraftFolderIsTheDraftsFolder(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := t.Context()
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{
+		{ID: "a-all-mail", AccountID: "victim-account", RemoteID: "[Gmail]/All Mail", Name: "All Mail", Role: "custom", Selectable: true},
+		{ID: "own-drafts", AccountID: "victim-account", RemoteID: "[Gmail]/Drafts", Name: "Drafts", Role: "drafts", Selectable: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	draft := storage.DraftMessageInput{AccountID: "victim-account", FolderID: "own-drafts", InternetMessageID: "<both@example.com>", FromEmail: "owner@example.com", Subject: "Draft"}
+	msgID, err := db.SaveDraftMessage(ctx, draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO message_folder_state (message_id, folder_id, is_draft) VALUES (?, 'a-all-mail', 1)`, msgID); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := db.GetDraftProviderInfoInternal(ctx, "victim-account", "<both@example.com>")
+	if err != nil || previous == nil || previous.FolderID != "own-drafts" || !previous.InDraftsFolder {
+		t.Fatalf("previous = %+v, %v", previous, err)
+	}
+	account := &models.Account{ID: "victim-account", Provider: "imap", Email: "owner@example.com"}
+	if h.moveDraftOutOfOldFolder(ctx, account, "<both@example.com>", msgID, &storage.DraftProviderInfo{FolderID: "a-all-mail"}, "own-drafts") {
+		t.Fatal("a draft was moved out of a folder that is not a Drafts folder")
+	}
+}

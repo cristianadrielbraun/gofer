@@ -46,6 +46,21 @@ type JMAPContactsPage struct {
 	Seen     []string
 	Full     bool
 	State    string
+	// Kept are the id prefixes ("a2:") of shared accounts that could not be
+	// read this time: their cards stay as they are, listed whole or not, and
+	// they are read again from where they were next time.
+	Kept []string
+}
+
+// Keeps reports whether the card remoteID is in an account the pull could
+// not read, which is kept as it is.
+func (p *JMAPContactsPage) Keeps(remoteID string) bool {
+	for _, prefix := range p.Kept {
+		if strings.HasPrefix(remoteID, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // JMAPAddressBooks lists the address books of a JMAP account: the login's
@@ -145,6 +160,9 @@ func PullJMAPContacts(ctx context.Context, cfg *models.AccountConfig, password, 
 			full = true
 		}
 	}
+	// A shared account that fails is left out, its cards kept, and the
+	// login's own and the other accounts still sync; only the login's own
+	// failing fails the pull.
 	pages := make([]*JMAPContactsPage, len(accounts))
 	if !full {
 		for i, account := range accounts {
@@ -154,7 +172,7 @@ func PullJMAPContacts(ctx context.Context, cfg *models.AccountConfig, password, 
 				full = true
 				break
 			}
-			if err != nil {
+			if err != nil && account == own {
 				return nil, err
 			}
 			pages[i] = page
@@ -164,7 +182,7 @@ func PullJMAPContacts(ctx context.Context, cfg *models.AccountConfig, password, 
 		for i, account := range accounts {
 			puller := jmapContactPuller{client: client, session: session, account: account, books: byAccount[account]}
 			page, err := puller.full(ctx)
-			if err != nil {
+			if err != nil && account == own {
 				return nil, err
 			}
 			pages[i] = page
@@ -177,6 +195,11 @@ func PullJMAPContacts(ctx context.Context, cfg *models.AccountConfig, password, 
 	newStates := map[string]string{}
 	for i, account := range accounts {
 		page := pages[i]
+		if page == nil {
+			merged.Kept = append(merged.Kept, account+jmapSharedSeparator)
+			newStates[account] = states[account]
+			continue
+		}
 		ref := func(id string) string { return jmapCapabilityRef(session, jmap.CapabilityContacts, account, id) }
 		for _, contact := range page.Contacts {
 			contact.ID, contact.AddressBookID = ref(contact.ID), ref(contact.AddressBookID)

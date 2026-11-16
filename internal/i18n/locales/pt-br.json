@@ -7417,5 +7417,11 @@
   "transfer.status.canceled_after": "Cancelada após {total}",
   "transfer.status.paused": "Pausada em {done} de {total}",
   "transfer.status.started": "iniciada em {date}",
-  "transfer.status.starting": "Iniciando…"
+  "transfer.status.starting": "Iniciando…",
+  "server.error.shared_mailbox_has_no_folder": "Esta caixa compartilhada não tem pasta para isso, então os e-mails dela ficaram onde estavam.",
+  "js.mail.missing_folder.shared_archive": "Esta caixa compartilhada não tem pasta Arquivo. Os e-mails dela ficam na caixa compartilhada.",
+  "js.mail.missing_folder.shared_trash": "Esta caixa compartilhada não tem pasta Lixeira. Os e-mails dela ficam na caixa compartilhada.",
+  "js.mail.missing_folder.shared_junk": "Esta caixa compartilhada não tem pasta Spam. Os e-mails dela ficam na caixa compartilhada.",
+  "js.mail.missing_folder.shared_other": "Esta caixa compartilhada não tem pasta {role}. Os e-mails dela ficam na caixa compartilhada.",
+  "server.text.shared_mailbox_off_cannot_send": "Essa caixa compartilhada está desativada, então não dá para enviar e-mails por ela. Ative-a ou escolha outro endereço."
 }

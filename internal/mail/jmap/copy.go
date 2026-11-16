@@ -6,14 +6,11 @@ import (
 )
 
 // CopyEmail copies one email from one account into a mailbox of another
-// (Email/copy, RFC 8621 section 4.7), with the keywords given, and destroys
-// the original once the copy exists, which moves the email between accounts,
-// such as from the login's own mailbox into one shared with it. It returns
-// the new email's id. A copy the server could not make leaves the original.
-//
-// With keepOriginal set the original stays, for an email that is also in
-// other mailboxes of its account.
-func (c *Client) CopyEmail(ctx context.Context, session *Session, fromAccount, toAccount, emailID, toMailbox string, keywords map[string]bool, keepOriginal bool) (string, error) {
+// (Email/copy, RFC 8621 section 4.7), with the keywords given, as the first
+// half of moving it between accounts, such as from the login's own mailbox
+// into one shared with it. It returns the new email's id. The original is
+// left for the caller to remove, so that it can check it was.
+func (c *Client) CopyEmail(ctx context.Context, session *Session, fromAccount, toAccount, emailID, toMailbox string, keywords map[string]bool) (string, error) {
 	if keywords == nil {
 		keywords = map[string]bool{}
 	}
@@ -26,7 +23,6 @@ func (c *Client) CopyEmail(ctx context.Context, session *Session, fromAccount, t
 				"mailboxIds": map[string]bool{toMailbox: true},
 				"keywords":   keywords,
 			}},
-			"onSuccessDestroyOriginal": !keepOriginal,
 		}, CallID: "0"})
 	if err != nil {
 		return "", err

@@ -6938,8 +6938,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		archiveFolderID, _, err := h.db.FolderIDByRoleNear(ctx, currentInfo.AccountID, currentInfo.FolderID, "archive")
-		if err == nil && archiveFolderID == "" {
-			noteMissingFolder(w, currentInfo.AccountID, "archive")
+		if missingFolder(w, currentInfo.AccountID, "archive", archiveFolderID, err) {
 			noArchive++
 			continue
 		}
@@ -7043,9 +7042,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 		} else {
 			trashFolderID, _, err := h.db.FolderIDByRoleNear(ctx, currentInfo.AccountID, currentInfo.FolderID, "trash")
 			if err != nil || trashFolderID == "" {
-				if err == nil {
-					noteMissingFolder(w, currentInfo.AccountID, "trash")
-				}
+				missingFolder(w, currentInfo.AccountID, "trash", trashFolderID, err)
 				noTrash++
 				continue
 			}
@@ -7302,10 +7299,8 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 
 	archiveFolderID, _, err := h.db.FolderIDByRoleNear(ctx, info.AccountID, info.FolderID, "archive")
 	if err != nil || archiveFolderID == "" {
-		if err == nil {
-			noteMissingFolder(w, info.AccountID, "archive")
-		}
-		http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_archive_folder"), http.StatusBadRequest)
+		missingFolder(w, info.AccountID, "archive", archiveFolderID, err)
+		http.Error(w, missingFolderText(r.Context(), err, "server.error.this_account_has_no_archive_folder"), http.StatusBadRequest)
 		return
 	}
 	if archiveFolderID == info.FolderID {
@@ -7346,10 +7341,8 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	} else {
 		trashFolderID, _, err := h.db.FolderIDByRoleNear(ctx, currentInfo.AccountID, currentInfo.FolderID, "trash")
 		if err != nil || trashFolderID == "" {
-			if err == nil {
-				noteMissingFolder(w, currentInfo.AccountID, "trash")
-			}
-			http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
+			missingFolder(w, currentInfo.AccountID, "trash", trashFolderID, err)
+			http.Error(w, missingFolderText(r.Context(), err, "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
 			return
 		}
 		if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
@@ -7386,10 +7379,8 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		trashFolderID, _, err := h.db.FolderIDByRoleNear(ctx, info.AccountID, info.FolderID, "trash")
 		if err != nil || trashFolderID == "" {
-			if err == nil {
-				noteMissingFolder(w, info.AccountID, "trash")
-			}
-			http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
+			missingFolder(w, info.AccountID, "trash", trashFolderID, err)
+			http.Error(w, missingFolderText(r.Context(), err, "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
 			return
 		}
 

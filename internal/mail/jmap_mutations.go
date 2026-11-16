@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -71,62 +72,100 @@ func ApplyJMAPMutationMoving(ctx context.Context, cfg *models.AccountConfig, pas
 
 // moveJMAPEmailAcross moves an email out of fromMailbox into a mailbox of
 // another JMAP account: the server copies it there, keywords and all, and
-// the original goes, or, when it is in other mailboxes of its account too,
-// only leaves fromMailbox. Further copies of the message in the mailbox it
-// leaves go with it.
+// then the original goes, or, when it is in other mailboxes of its account
+// too, only leaves fromMailbox. Further copies of the message in the mailbox
+// it leaves go with it. A move tried again, after one that copied the email
+// but could not remove the original, finds the copy it made and makes no
+// second one.
 func moveJMAPEmailAcross(ctx context.Context, client *jmap.Client, session *jmap.Session, fromAccount, toAccount string, emailIDs []string, fromMailbox, toMailbox string) (bool, string, error) {
-	current, err := client.GetEmails(ctx, session, fromAccount, emailIDs[:1], []string{"keywords", "mailboxIds"})
+	current, err := client.GetEmails(ctx, session, fromAccount, emailIDs[:1], []string{"keywords", "mailboxIds", "messageId", "receivedAt"})
 	if err != nil {
 		return false, "", err
 	}
 	if len(current.List) == 0 {
 		return true, "", nil
 	}
+	original := current.List[0]
 	elsewhere := false
-	for mailbox, in := range current.List[0].MailboxIDs {
+	for mailbox, in := range original.MailboxIDs {
 		if in && mailbox != fromMailbox {
 			elsewhere = true
 		}
 	}
-	moved, err := client.CopyEmail(ctx, session, fromAccount, toAccount, emailIDs[0], toMailbox, current.List[0].Keywords, elsewhere)
-	var exists *jmap.SetError
-	switch {
-	case errors.As(err, &exists) && exists.Type == "alreadyExists" && exists.ExistingID != "":
-		// The other account has this message already, as a shared
-		// mailbox has its own sent copy of a message sent to the login: it
-		// is put in the mailbox moved to, and the original goes.
-		moved = exists.ExistingID
-		if _, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: toAccount, Update: map[string]jmap.PatchObject{
-			moved: jmap.MovePatch("", toMailbox),
-		}}); err != nil {
+	moved := ""
+	if len(original.MessageID) > 0 {
+		window := jmap.Window{From: original.ReceivedAt.Add(-time.Minute), To: original.ReceivedAt.Add(time.Minute)}
+		found, err := client.FindEmails(ctx, session, toAccount, toMailbox, original.MessageID[0], []jmap.Window{window})
+		if err != nil {
+			return false, "", fmt.Errorf("look for an earlier copy of the email: %w", err)
+		}
+		if len(found) > 0 {
+			moved = found[0]
+		}
+	}
+	if moved == "" {
+		moved, err = client.CopyEmail(ctx, session, fromAccount, toAccount, emailIDs[0], toMailbox, original.Keywords)
+		var exists *jmap.SetError
+		switch {
+		case errors.As(err, &exists) && exists.Type == "alreadyExists" && exists.ExistingID != "":
+			// The other account has this message already, as a shared
+			// mailbox has its own sent copy of a message sent to the login:
+			// it is put in the mailbox moved to, and the original goes.
+			moved = exists.ExistingID
+			result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: toAccount, Update: map[string]jmap.PatchObject{
+				moved: jmap.MovePatch("", toMailbox),
+			}})
+			if err == nil {
+				err = jmapSetFailure(result.NotUpdated, []string{moved}, false)
+			}
+			if err != nil {
+				return false, "", fmt.Errorf("put the email already there in the mailbox: %w", err)
+			}
+		case err != nil:
 			return false, "", err
 		}
-		emailIDs = append([]string(nil), emailIDs...)
-	case err != nil:
-		return false, "", err
-	case elsewhere:
-		emailIDs = append([]string(nil), emailIDs...)
-	default:
-		// The server removed the original itself.
-		emailIDs = emailIDs[1:]
 	}
+	ref := jmapRefIn(session, toAccount, moved)
 	if elsewhere {
 		// Kept for its other mailboxes, it only leaves this one, if known;
 		// it is never destroyed.
 		if fromMailbox != "" {
-			update := map[string]jmap.PatchObject{emailIDs[0]: {"mailboxIds/" + fromMailbox: nil}}
-			if _, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: fromAccount, Update: update}); err != nil {
-				return false, jmapRefIn(session, toAccount, moved), fmt.Errorf("take the email out of the mailbox it left: %w", err)
+			result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: fromAccount, Update: map[string]jmap.PatchObject{
+				emailIDs[0]: {"mailboxIds/" + fromMailbox: nil},
+			}})
+			if err == nil {
+				err = jmapSetFailure(result.NotUpdated, emailIDs[:1], false)
+			}
+			if err != nil {
+				return false, ref, fmt.Errorf("take the email out of the mailbox it left: %w", err)
 			}
 		}
 		emailIDs = emailIDs[1:]
 	}
 	if len(emailIDs) > 0 {
-		if _, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: fromAccount, Destroy: emailIDs}); err != nil {
-			return false, jmapRefIn(session, toAccount, moved), fmt.Errorf("remove the original after the move: %w", err)
+		result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: fromAccount, Destroy: emailIDs})
+		if err == nil {
+			err = jmapSetFailure(result.NotDestroyed, emailIDs, true)
+		}
+		if err != nil {
+			return false, ref, fmt.Errorf("remove the original after the move: %w", err)
 		}
 	}
-	return false, jmapRefIn(session, toAccount, moved), nil
+	return false, ref, nil
+}
+
+// jmapSetFailure is the first of ids a set call did not change, as its
+// response's notUpdated or notDestroyed lists them. With goneIsDone, an email
+// already gone (notFound) counts as destroyed.
+func jmapSetFailure(failed map[string]jmap.SetError, ids []string, goneIsDone bool) error {
+	for _, id := range ids {
+		failure, ok := failed[id]
+		if !ok || (goneIsDone && failure.Type == "notFound") {
+			continue
+		}
+		return fmt.Errorf("email %s: %w", id, &failure)
+	}
+	return nil
 }
 
 // applyJMAPMutationIn sends one change to emails of one JMAP account.

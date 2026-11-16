@@ -1095,6 +1095,7 @@ var serverTextKeys = map[string]string{
 	"This Meet link has already been used. Toggle Google Meet off and on to generate a new one.":                         "server.text.this_meet_link_has_already_been_used_toggle",
 	"This Outlook calendar is unavailable.":                                                                              "server.text.this_outlook_calendar_is_unavailable",
 	"This Teams draft is no longer available. Toggle Teams off and on to prepare another link.":                          "server.text.this_teams_draft_is_no_longer_available_toggle",
+	"That shared mailbox is turned off, so mail can't be sent from it. Turn it on, or choose another address.":            "server.text.shared_mailbox_off_cannot_send",
 	"This account can't send from that address. Choose another way to send it, or another address.":                      "server.text.this_account_can_t_send_from_that_address",
 	"This account can't write to its calendar. Check it in Accounts.":                                                    "server.text.this_account_can_t_write_to_its_calendar",
 	"This account doesn't sync calendars. Set up its calendars in Accounts first.":                                       "server.text.this_account_doesn_t_sync_calendars_set_up",

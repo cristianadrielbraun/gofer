@@ -7417,5 +7417,11 @@
   "transfer.status.canceled_after": "已取消（已处理 {total}）",
   "transfer.status.paused": "已暂停，进度 {done}/{total}",
   "transfer.status.started": "开始于 {date}",
-  "transfer.status.starting": "正在开始…"
+  "transfer.status.starting": "正在开始…",
+  "server.error.shared_mailbox_has_no_folder": "此共享邮箱没有用于此操作的文件夹，邮件保持原位。",
+  "js.mail.missing_folder.shared_archive": "此共享邮箱没有“归档”文件夹，邮件仍留在共享邮箱中。",
+  "js.mail.missing_folder.shared_trash": "此共享邮箱没有“回收站”文件夹，邮件仍留在共享邮箱中。",
+  "js.mail.missing_folder.shared_junk": "此共享邮箱没有“垃圾邮件”文件夹，邮件仍留在共享邮箱中。",
+  "js.mail.missing_folder.shared_other": "此共享邮箱没有“{role}”文件夹，邮件仍留在共享邮箱中。",
+  "server.text.shared_mailbox_off_cannot_send": "该共享邮箱已关闭，无法从它发送邮件。请将其开启，或选择其他地址。"
 }

@@ -24467,10 +24467,13 @@ function showMailActionSkippedToast(action, totals) {
 }
 
 // missingFolderFromResponse reads which account, and which of its folder
-// roles, held a mail action back: the server names them as "<account> <role>".
+// roles, held a mail action back: the server names them as "<account> <role>",
+// or "<account> <role> shared" when the mail is in a shared mailbox without
+// that folder.
 function missingFolderFromResponse(response) {
   var value = response && response.headers ? response.headers.get("X-Gofer-Missing-Folder") || "" : ""
   var parts = value.split(" ")
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2] === "shared") return { account: parts[0], role: parts[1], shared: true }
   return parts.length === 2 && parts[0] && parts[1] ? { account: parts[0], role: parts[1] } : null
 }
 
@@ -24480,6 +24483,18 @@ var MISSING_FOLDER_ROLES = { sent: true, drafts: true, trash: true, junk: true, 
 // to choose one. extra adds to the toast, such as a way around it.
 function showMissingFolderToast(missing, title, extra) {
   var known = MISSING_FOLDER_ROLES[missing.role]
+  if (missing.shared) {
+    // A shared mailbox's folders are the server's to make, and none of the
+    // account's own is used instead, so there is no folder to choose.
+    var sharedToast = {
+      id: "mail-missing-folder", title: title,
+      description: known ? goferT("js.mail.missing_folder.shared_" + missing.role) : goferT("js.mail.missing_folder.shared_other", { role: missing.role }),
+      variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true,
+    }
+    for (var sharedKey in extra || {}) if (sharedKey !== "description") sharedToast[sharedKey] = extra[sharedKey]
+    showGoferToast(sharedToast)
+    return
+  }
   var toast = {
     id: "mail-missing-folder", title: title,
     description: known ? goferT("js.mail.missing_folder." + missing.role) : goferT("js.mail.missing_folder.other", { role: missing.role }),

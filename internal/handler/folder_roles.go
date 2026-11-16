@@ -28,6 +28,36 @@ func noteMissingFolder(w http.ResponseWriter, accountID, role string) {
 	}
 }
 
+// missingFolder reports whether a folder lookup found no folder of role for
+// a mail action: none of the account's own (no folder and no error), or none
+// in the shared mailbox the mail is in (*storage.SharedFolderMissingError).
+// It names which in missingFolderHeader, a shared mailbox's as
+// "<account> <role> shared", for which the page offers no folder to choose.
+func missingFolder(w http.ResponseWriter, accountID, role, folderID string, err error) bool {
+	var shared *storage.SharedFolderMissingError
+	if errors.As(err, &shared) {
+		if w.Header().Get(missingFolderHeader) == "" {
+			w.Header().Set(missingFolderHeader, accountID+" "+shared.Role+" shared")
+		}
+		return true
+	}
+	if err == nil && folderID == "" {
+		noteMissingFolder(w, accountID, role)
+		return true
+	}
+	return false
+}
+
+// missingFolderText is what a refused mail action says: ownKey's text for an
+// account without the folder, or that the shared mailbox has none.
+func missingFolderText(ctx context.Context, err error, ownKey string) string {
+	var shared *storage.SharedFolderMissingError
+	if errors.As(err, &shared) {
+		return i18n.T(ctx, "server.error.shared_mailbox_has_no_folder")
+	}
+	return i18n.T(ctx, ownKey)
+}
+
 // loadFolderRolesData gathers what the folder roles dialog of an IMAP account
 // shows, or writes the error response and returns false.
 func (h *Handler) loadFolderRolesData(w http.ResponseWriter, r *http.Request) (models.FolderRolesData, bool) {

@@ -68,6 +68,8 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			if errors.Is(err, errNoSpamFolder) {
 				noteMissingFolder(w, infos[0].AccountID, "junk")
+			} else {
+				missingFolder(w, infos[0].AccountID, "junk", "", err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -139,6 +141,11 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 			http.Error(w, serverText(r.Context(), noSpamFolderMessage), http.StatusBadRequest)
 			return
 		}
+		var shared *storage.SharedFolderMissingError
+		if errors.As(firstErr, &shared) {
+			http.Error(w, missingFolderText(r.Context(), firstErr, ""), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, serverText(r.Context(), firstErr.Error()), http.StatusBadGateway)
 		return
 	}
@@ -187,14 +194,23 @@ func (h *Handler) spamDestinationFolder(ctx context.Context, accountID, fromFold
 		return folderID, remoteID, nil
 	}
 
+	var sharedMissing error
 	for _, role := range []string{"junk", "spam"} {
 		folderID, remoteID, err := h.db.FolderIDByRoleNear(ctx, accountID, fromFolderID, role)
+		var shared *storage.SharedFolderMissingError
+		if errors.As(err, &shared) {
+			sharedMissing = &storage.SharedFolderMissingError{Mailbox: shared.Mailbox, Role: "junk"}
+			continue
+		}
 		if err != nil {
 			return "", "", err
 		}
 		if folderID != "" {
 			return folderID, remoteID, nil
 		}
+	}
+	if sharedMissing != nil {
+		return "", "", sharedMissing
 	}
 	return "", "", errNoSpamFolder
 }

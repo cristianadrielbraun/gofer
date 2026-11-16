@@ -98,7 +98,8 @@ account's card in Settings → Accounts lists them too, faded where turned off,
 with a button to that step.
 
 A shared mailbox turned off is not synced, its folders are hidden and its From
-address is not offered. Its folders and identity are kept, so turning it back
+address is not offered. Mail is not sent from it, even from a draft written
+while it was on. Its folders and identity are kept, so turning it back
 on brings them back as they were. Nothing changes on the server.
 
 ## In the sidebar
@@ -148,6 +149,15 @@ itself is sent; for those, the first send tells.
 
 The Sent and Drafts folders are found by their role, not by their name. A
 shared mailbox without one uses the account's own.
+
+## Deleting, archiving and spam
+
+Mail deleted, archived or marked as spam in a shared mailbox goes to that
+mailbox's own Trash, Archive or Spam folder, found by its role. A shared
+mailbox without that folder keeps the mail where it is and says so; the
+account's own folder is never used instead, since that would take the mail
+out of the shared mailbox. Deleting for good is still offered where there is
+no Trash.
 
 ## Settings
 

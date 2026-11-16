@@ -193,6 +193,17 @@ func (db *DB) SharedMailboxFolder(ctx context.Context, accountID, mailbox, role 
 	return folderID, remoteID, true, nil
 }
 
+// SharedMailboxOff reports whether address is one of the account's shared
+// mailboxes that the user turned off or that is no longer shared with it,
+// which mail is not sent from.
+func (db *DB) SharedMailboxOff(ctx context.Context, accountID, address string) (bool, error) {
+	var off int
+	err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM shared_mailboxes
+		WHERE account_id = ? AND email = ? AND (enabled = 0 OR state = 'removed')`,
+		accountID, strings.ToLower(strings.TrimSpace(address))).Scan(&off)
+	return off > 0, err
+}
+
 // FolderSharedMailbox returns the shared mailbox a folder is in, "" for one
 // of the account's own folders.
 func (db *DB) FolderSharedMailbox(ctx context.Context, folderID string) (string, error) {
@@ -611,10 +622,23 @@ func effectiveFolderRoleSQL(alias string) string {
 	return `CASE WHEN ` + alias + `.shared_role IN ('inbox', 'sent', 'drafts', 'junk', 'trash', 'archive') THEN ` + alias + `.shared_role ELSE ` + alias + `.role END`
 }
 
+// SharedFolderMissingError is a shared mailbox without a folder of a role,
+// such as Trash, that a mail action in it needs. The action is refused: the
+// account's own folder is never used instead, which would take the mail out
+// of the shared mailbox.
+type SharedFolderMissingError struct {
+	Mailbox string
+	Role    string
+}
+
+func (e *SharedFolderMissingError) Error() string {
+	return fmt.Sprintf("shared mailbox %s has no %s folder", e.Mailbox, e.Role)
+}
+
 // FolderIDByRoleNear returns the folder with role that goes with nearFolderID:
 // in the shared mailbox nearFolderID is in, the mailbox's own folder, such as
-// its Trash for a message deleted there, and otherwise, or when that mailbox
-// has none, the account's (GetFolderIDByRole).
+// its Trash for a message deleted there, or a *SharedFolderMissingError when
+// it has none; otherwise the account's (GetFolderIDByRole).
 func (db *DB) FolderIDByRoleNear(ctx context.Context, accountID, nearFolderID, role string) (string, string, error) {
 	if nearFolderID = strings.TrimSpace(nearFolderID); nearFolderID != "" {
 		var mailbox string
@@ -627,9 +651,10 @@ func (db *DB) FolderIDByRoleNear(ctx context.Context, accountID, nearFolderID, r
 			if err != nil {
 				return "", "", err
 			}
-			if ok {
-				return folderID, remoteID, nil
+			if !ok {
+				return "", "", &SharedFolderMissingError{Mailbox: mailbox, Role: role}
 			}
+			return folderID, remoteID, nil
 		}
 	}
 	return db.GetFolderIDByRole(ctx, accountID, role)

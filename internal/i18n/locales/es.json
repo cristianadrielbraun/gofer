@@ -7417,5 +7417,11 @@
   "transfer.status.canceled_after": "Cancelada después de {total}",
   "transfer.status.paused": "En pausa en {done} de {total}",
   "transfer.status.started": "iniciada el {date}",
-  "transfer.status.starting": "Empezando…"
+  "transfer.status.starting": "Empezando…",
+  "server.error.shared_mailbox_has_no_folder": "Este buzón compartido no tiene carpeta para eso, así que su correo se quedó donde estaba.",
+  "js.mail.missing_folder.shared_archive": "Este buzón compartido no tiene carpeta de Archivo. Su correo se queda en el buzón compartido.",
+  "js.mail.missing_folder.shared_trash": "Este buzón compartido no tiene papelera. Su correo se queda en el buzón compartido.",
+  "js.mail.missing_folder.shared_junk": "Este buzón compartido no tiene carpeta de Spam. Su correo se queda en el buzón compartido.",
+  "js.mail.missing_folder.shared_other": "Este buzón compartido no tiene carpeta {role}. Su correo se queda en el buzón compartido.",
+  "server.text.shared_mailbox_off_cannot_send": "Ese buzón compartido está desactivado, así que no se puede enviar correo desde él. Actívalo o elige otra dirección."
 }

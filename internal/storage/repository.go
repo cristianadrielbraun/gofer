@@ -1355,6 +1355,10 @@ type DraftProviderInfo struct {
 	ProviderMessageID string
 	RemoteUID         uint32
 	UIDValidity       uint32
+	// InDraftsFolder is set when FolderID is a Drafts folder, the account's
+	// or a shared mailbox's, rather than one that also holds drafts, such as
+	// Gmail's All Mail.
+	InDraftsFolder bool
 }
 
 type ProviderMessageIDBackfillCandidate struct {
@@ -1414,14 +1418,16 @@ func (db *DB) GetDraftProviderInfoInternal(ctx context.Context, accountID, inter
 	var remoteUID sql.NullInt64
 	var uidValidity int64
 	err := db.Read().QueryRowContext(ctx, `
-		SELECT m.id, mfs.folder_id, f.remote_id, a.provider, `+stateOrAnyProviderCopyIDSQL("mfs", "m")+`, mfs.remote_uid, COALESCE(f.uid_validity, 0)
+		SELECT m.id, mfs.folder_id, f.remote_id, a.provider, `+stateOrAnyProviderCopyIDSQL("mfs", "m")+`, mfs.remote_uid, COALESCE(f.uid_validity, 0),
+			`+effectiveFolderRoleSQL("f")+` = 'drafts'
 		FROM messages m
 		JOIN accounts a ON m.account_id = a.id
 		JOIN message_folder_state mfs ON m.id = mfs.message_id
 		JOIN folders f ON f.id = mfs.folder_id
 		WHERE m.account_id = ? AND m.internet_message_id = ? AND mfs.is_draft = 1
+		ORDER BY `+effectiveFolderRoleSQL("f")+` = 'drafts' DESC, mfs.folder_id
 		LIMIT 1`, accountID, internetMessageID,
-	).Scan(&info.MessageID, &info.FolderID, &info.FolderRemoteName, &info.AccountProvider, &providerMessageID, &remoteUID, &uidValidity)
+	).Scan(&info.MessageID, &info.FolderID, &info.FolderRemoteName, &info.AccountProvider, &providerMessageID, &remoteUID, &uidValidity, &info.InDraftsFolder)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
