@@ -7,21 +7,29 @@ import (
 	"strconv"
 )
 
-// statusFixConn passes an IMAP server's responses to go-imap, fixing one
-// mistake on the way: a space before the closing paren of a STATUS response,
-// as imap.139.com sends in `* STATUS "INBOX" (MESSAGES 11 UNSEEN 7 )`.
-// go-imap reads an empty value there and drops the connection. Every other
-// byte passes through as it came, above all the literals that carry message
-// contents, which the filter skips without looking at them, so a message
-// holding a line like that is never changed.
+// quirksConn sits between go-imap and the server and smooths over two server
+// quirks. Reading, it fixes a space before the closing paren of a STATUS
+// response, as imap.139.com sends in `* STATUS "INBOX" (MESSAGES 11 UNSEEN 7 )`:
+// go-imap reads an empty value there and drops the connection. Writing, it
+// sends the header names of a FETCH's HEADER.FIELDS list as atoms instead of
+// quoted strings (header_fields_fix.go). Every other byte passes through as
+// it came, above all the literals that carry message contents, which the
+// filter skips without looking at them, so a message holding a line like
+// those is never changed.
 //
-// It wraps the connection go-imap reads, so it only works where Gofer does
-// the TLS itself or there is none: with STARTTLS, go-imap starts TLS inside
-// itself, beneath this filter. Remove it once go-imap accepts the space
-// (https://github.com/emersion/go-imap/pull/788).
-type statusFixConn struct {
+// It wraps the connection go-imap reads and writes, so it only works where
+// Gofer does the TLS itself or there is none: with STARTTLS, go-imap starts
+// TLS inside itself, beneath this filter. Remove the STATUS fix once go-imap
+// accepts the space (https://github.com/emersion/go-imap/pull/788).
+type quirksConn struct {
 	net.Conn
 	r *bufio.Reader
+
+	// line is the command line written so far, held until its line break
+	// so that the whole line can be fixed, and wliteral how many bytes of a
+	// literal the client is still writing.
+	line     []byte
+	wliteral int64
 
 	// out is what has been read and filtered but not returned yet, and buf
 	// the space it is kept in.
@@ -49,11 +57,11 @@ const statusFixBufferSize = 8 << 10
 // "~{", up to 19 digits, "+}" and CRLF.
 const literalTailSize = 32
 
-func newStatusFixConn(conn net.Conn) *statusFixConn {
-	return &statusFixConn{Conn: conn, r: bufio.NewReaderSize(conn, statusFixBufferSize)}
+func newQuirksConn(conn net.Conn) *quirksConn {
+	return &quirksConn{Conn: conn, r: bufio.NewReaderSize(conn, statusFixBufferSize)}
 }
 
-func (c *statusFixConn) Read(p []byte) (int, error) {
+func (c *quirksConn) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
@@ -88,7 +96,7 @@ func (c *statusFixConn) Read(p []byte) (int, error) {
 
 // filter returns a line, or part of one, as go-imap should read it. partial
 // is set when the line goes on past these bytes.
-func (c *statusFixConn) filter(line []byte, partial bool) []byte {
+func (c *quirksConn) filter(line []byte, partial bool) []byte {
 	start := !c.midLine
 	if partial {
 		c.midLine = true
@@ -116,12 +124,12 @@ func (c *statusFixConn) filter(line []byte, partial bool) []byte {
 
 // keep copies b into the filter's own buffer, since the bufio.Reader reuses
 // its own.
-func (c *statusFixConn) keep(b []byte) []byte {
+func (c *quirksConn) keep(b []byte) []byte {
 	c.buf = append(c.buf[:0], b...)
 	return c.buf
 }
 
-func (c *statusFixConn) keepTail(part []byte) {
+func (c *quirksConn) keepTail(part []byte) {
 	c.tail = append(c.tail, part...)
 	if len(c.tail) > literalTailSize {
 		c.tail = append(c.tail[:0], c.tail[len(c.tail)-literalTailSize:]...)
