@@ -24904,7 +24904,44 @@ function sidebarUnreadCount(badge) {
   return isNaN(n) ? 0 : n
 }
 
+// SHARED_UNCOUNTED_ROLES are the folders whose unread mail a shared
+// mailbox's entry leaves out, where unread mail is not news.
+var SHARED_UNCOUNTED_ROLES = { sent: true, drafts: true, junk: true, trash: true }
+
+// syncSharedMailboxUnread keeps each shared mailbox's count, and the folded
+// shared mailboxes' total, in step with its folders' badges as they change.
+function syncSharedMailboxUnread(root) {
+  var groups = root.querySelectorAll("[data-sidebar-shared-mailboxes]")
+  for (var g = 0; g < groups.length; g++) {
+    var total = 0
+    var mailboxes = groups[g].querySelectorAll("[data-sidebar-shared-mailbox]")
+    for (var m = 0; m < mailboxes.length; m++) {
+      var holder = mailboxes[m].querySelector("[data-sidebar-shared-unread-mailbox]")
+      var children = mailboxes[m].querySelector("[data-sidebar-folder-children]")
+      if (!holder || !children) continue
+      var n = 0
+      var badges = children.querySelectorAll("[data-folder-unread]")
+      for (var b = 0; b < badges.length; b++) {
+        var link = badges[b].closest("[data-folder-shared-role]")
+        if (link && SHARED_UNCOUNTED_ROLES[link.getAttribute("data-folder-shared-role")]) continue
+        n += sidebarUnreadCount(badges[b])
+      }
+      setSharedUnreadBadge(holder, n, n > 0)
+      total += n
+    }
+    var all = groups[g].querySelector("[data-sidebar-shared-unread-total]")
+    if (all) setSharedUnreadBadge(all, total, total > 0 && groups[g].getAttribute("data-sidebar-folder-collapsed") === "true")
+  }
+}
+
+function setSharedUnreadBadge(holder, n, shown) {
+  var badge = holder.querySelector("[data-sidebar-shared-unread]")
+  if (badge && badge.textContent !== String(n)) badge.textContent = String(n)
+  if (holder.hidden !== !shown) holder.hidden = !shown
+}
+
 function syncSidebarUnreadRollups(root) {
+  syncSharedMailboxUnread(root || document)
   var rollups = (root || document).querySelectorAll("[data-folder-unread-rollup]")
   for (var i = 0; i < rollups.length; i++) {
     var rollup = rollups[i]

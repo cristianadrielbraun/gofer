@@ -99,11 +99,11 @@ so mail from that address is sent, and filed, as the shared mailbox.
 
 ## Choosing which to use
 
-The account wizard (Add account, Edit) has a Shared mailboxes step, second
-after Mail, listing the mailboxes the account can open with a box for each;
-after a new account is created, the wizard shows it before Contacts. Each
-account's card in Settings → Accounts lists them too, faded where turned off,
-with a button to that step.
+In Settings → Accounts, the menu (⋮) of an IMAP or JMAP account has Shared
+mailboxes. It lists the mailboxes the account can open, each with a box to use
+it and a name of its own, and can search for them again. It is the same in
+personal, open and managed mode. Gmail, Outlook and DAV accounts have no
+shared mailboxes that Gofer reads, so their menus don't offer it.
 
 A shared mailbox turned off is not synced, its folders are hidden and its From
 address is not offered. Mail is not sent from it, even from a draft written
@@ -185,8 +185,8 @@ Settings → Advanced → Shared mailboxes:
 
 ## Names
 
-A shared mailbox is shown under the name the user gave it in the account
-wizard, or else the server's name for it, or else its address's local part
+A shared mailbox is shown under the name the user gave it in the Shared
+mailboxes dialog, or else the server's name for it, or else its address's local part
 ("Support"). A JMAP server's name is the shared account's own sender name,
 which Stalwart takes from a group's description. Mail cards in unified
 folders and the Folders dialog mark a shared mailbox's mail and folders with
@@ -210,18 +210,5 @@ go test -tags livemail -run Live -v ./internal/mail/
 ```
 
 The file lists the other variables (ports, `starttls`, and an address the
-account must not send as).
-
-`internal/mail/jmap_shared_live_test.go` checks the JMAP side against a real
-server whose login has a shared mailbox. Unlike the IMAP check it writes: it
-saves and removes a draft in the shared mailbox, sends one message from the
-shared address to the login's own, moves the received copy into the shared
-mailbox and back, saves and removes an event and a contact there, and removes
-everything it made:
-
-```sh
-GOFER_LIVE_JMAP_HOST=mail.example.com \
-GOFER_LIVE_JMAP_USER=person@example.com \
-GOFER_LIVE_JMAP_PASSWORD=... \
-go test -run TestLiveJMAPSharedMailboxes -v ./internal/mail/
-```
+account must not send as). The JMAP side is covered by tests against fake
+servers only.

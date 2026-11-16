@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -12,7 +13,7 @@ import (
 )
 
 // SharedMailboxChoice is one shared mailbox an account can open, as the
-// account wizard lists it to turn on or off.
+// shared mailboxes dialog lists it to turn on or off.
 type SharedMailboxChoice struct {
 	Email string
 	// Name is what Gofer calls the mailbox; CustomName the name the user
@@ -26,8 +27,8 @@ type SharedMailboxChoice struct {
 	Removed bool
 }
 
-// SharedMailboxesPanelData is what the account wizard's shared mailbox step
-// shows: the account's shared mailboxes, or that a search for them runs.
+// SharedMailboxesPanelData is what the shared mailboxes dialog shows: the
+// account's shared mailboxes, or that a search for them runs.
 type SharedMailboxesPanelData struct {
 	AccountID string
 	Mailboxes []SharedMailboxChoice
@@ -56,14 +57,45 @@ func sharedMailboxesPanelID(accountID string) string {
 	return "shared-mailboxes-panel-" + accountID
 }
 
+// sharedMailboxesDialogID names the dialog an account's menu opens.
+const sharedMailboxesDialogID = "shared-mailboxes-dialog"
+
+// SharedMailboxesDialog lists an account's shared mailboxes, opened from the
+// account's menu in Settings → Accounts. Each change swaps only the panel,
+// so the dialog stays open.
+templ SharedMailboxesDialog(data SharedMailboxesPanelData) {
+	@dataActionDialog(sharedMailboxesDialogID, "", i18n.T(ctx, "settings.account.shared_mailboxes"), "sm:max-w-xl") {
+		@dataDialogScroll("space-y-4 pb-4") {
+			<p class="text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "settings.shared_mailboxes.choose_description") }</p>
+			@SharedMailboxesPanel(data)
+		}
+		@dataDialogFooter() {
+			@button.Button(button.Props{Variant: button.VariantOutline, Attributes: templ.Attributes{
+				"hx-post":                        fmt.Sprintf("/api/accounts/%s/shared-mailboxes/discover", data.AccountID),
+				"hx-target":                      "#" + sharedMailboxesPanelID(data.AccountID),
+				"hx-swap":                        "outerHTML",
+				"data-shared-mailboxes-discover": "",
+			}}) {
+				@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "settings.shared_mailboxes.search_again") }
+			}
+			@dialog.Close(dialog.CloseProps{For: sharedMailboxesDialogID}) {
+				@button.Button(button.Props{}) {
+					{ i18n.T(ctx, "common.done") }
+				}
+			}
+		}
+	}
+}
+
 // SharedMailboxesPanel lists an account's shared mailboxes, each with a box
-// to use it or not. One unticked is not synced, its folders are hidden and
-// its identity is not offered.
+// to use it or not and a name of its own. One unticked is not synced, its
+// folders are hidden and its identity is not offered.
 templ SharedMailboxesPanel(data SharedMailboxesPanelData) {
 	{{ id := sharedMailboxesPanelID(data.AccountID) }}
 	<div
 		id={ id }
-		class="space-y-4"
+		class="space-y-3"
 		data-shared-mailboxes-panel
 		data-account-id={ data.AccountID }
 		if data.Searching && data.Poll > 0 {
@@ -72,11 +104,6 @@ templ SharedMailboxesPanel(data SharedMailboxesPanelData) {
 			hx-swap="outerHTML"
 		}
 	>
-		<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
-			@icon.Users(icon.Props{Class: "size-4 text-muted-foreground"})
-			{ i18n.T(ctx, "settings.wizard.shared_mailboxes") }
-		</h4>
-		<p class="text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "settings.shared_mailboxes.choose_description") }</p>
 		if data.Error != "" {
 			<p class="text-xs text-destructive" role="alert">{ data.Error }</p>
 		}
@@ -111,131 +138,44 @@ templ SharedMailboxesPanel(data SharedMailboxesPanelData) {
 								Name:       "enabled",
 								Value:      "true",
 								Checked:    mailbox.Enabled,
-								Attributes: templ.Attributes{"data-shared-mailbox-enabled": strconv.FormatBool(mailbox.Enabled), "aria-label": mailbox.Email},
+								Attributes: templ.Attributes{"data-shared-mailbox-enabled": strconv.FormatBool(mailbox.Enabled), "aria-label": i18n.T(ctx, "settings.shared_mailboxes.use_label", "mailbox", mailbox.Name)},
 							})
 						</form>
 						<div class="min-w-0 flex-1 space-y-2">
-						<label for={ fmt.Sprintf("%s-%d", id, i) } class="block min-w-0 cursor-pointer">
-							<span class="block truncate text-sm font-medium text-foreground">{ mailbox.Name }</span>
-							<span class="block truncate text-xs text-muted-foreground">{ mailbox.Email }</span>
-							<span class="block text-xs text-muted-foreground">
-								switch {
-									case mailbox.Removed:
-										{ i18n.T(ctx, "settings.shared_mailboxes.state_removed") }
-									case mailbox.Enabled:
-										{ i18n.T(ctx, "settings.shared_mailboxes.state_on") }
-									default:
-										{ i18n.T(ctx, "settings.shared_mailboxes.state_off") }
-								}
-							</span>
-						</label>
-						<form
-							hx-post={ fmt.Sprintf("/api/accounts/%s/shared-mailboxes/name", data.AccountID) }
-							hx-trigger="change"
-							hx-target={ "#" + id }
-							hx-swap="outerHTML"
-							class="max-w-xs"
-						>
-							<input type="hidden" name="email" value={ mailbox.Email }/>
-							@input.Input(input.Props{
-								Name:        "name",
-								Value:       mailbox.CustomName,
-								Placeholder: mailbox.DefaultName,
-								Class:       "h-8 text-xs",
-								Attributes:  templ.Attributes{"maxlength": "120", "aria-label": i18n.T(ctx, "settings.shared_mailboxes.name_label", "email", mailbox.Email), "data-shared-mailbox-name": mailbox.Email},
-							})
-						</form>
+							<label for={ fmt.Sprintf("%s-%d", id, i) } class="block min-w-0 cursor-pointer">
+								<span class="block truncate text-sm font-medium text-foreground">{ mailbox.Name }</span>
+								<span class="block truncate text-xs text-muted-foreground">{ mailbox.Email }</span>
+								<span class="block text-xs text-muted-foreground">
+									switch {
+										case mailbox.Removed:
+											{ i18n.T(ctx, "settings.shared_mailboxes.state_removed") }
+										case mailbox.Enabled:
+											{ i18n.T(ctx, "settings.shared_mailboxes.state_on") }
+										default:
+											{ i18n.T(ctx, "settings.shared_mailboxes.state_off") }
+									}
+								</span>
+							</label>
+							<form
+								hx-post={ fmt.Sprintf("/api/accounts/%s/shared-mailboxes/name", data.AccountID) }
+								hx-trigger="change"
+								hx-target={ "#" + id }
+								hx-swap="outerHTML"
+								class="max-w-xs"
+							>
+								<input type="hidden" name="email" value={ mailbox.Email }/>
+								@input.Input(input.Props{
+									Name:        "name",
+									Value:       mailbox.CustomName,
+									Placeholder: mailbox.DefaultName,
+									Class:       "h-8 text-xs",
+									Attributes:  templ.Attributes{"maxlength": "120", "aria-label": i18n.T(ctx, "settings.shared_mailboxes.name_label", "mailbox", mailbox.Name), "data-shared-mailbox-name": mailbox.Email},
+								})
+							</form>
 						</div>
 					</li>
 				}
 			</ul>
 		}
-		<div class="flex justify-end">
-			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: data.Searching, Attributes: templ.Attributes{
-				"hx-post":   fmt.Sprintf("/api/accounts/%s/shared-mailboxes/discover", data.AccountID),
-				"hx-target": "#" + id,
-				"hx-swap":   "outerHTML",
-				"data-shared-mailboxes-discover": "",
-			}}) {
-				@icon.RefreshCw(icon.Props{Class: "size-3.5"})
-				{ i18n.T(ctx, "settings.shared_mailboxes.search_again") }
-			}
-		</div>
-	</div>
-}
-
-// SharedMailboxesPanelLoader loads an account's shared mailbox panel, or,
-// for an account not yet created, holds its place.
-templ SharedMailboxesPanelLoader(accountID string) {
-	if accountID == "" {
-		<div id="add-shared-mailboxes-content" data-shared-mailboxes-loader>
-			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.shared_mailboxes.after_create") }</p>
-		</div>
-	} else {
-		<div hx-get={ fmt.Sprintf("/api/accounts/%s/shared-mailboxes?poll=%d", accountID, SharedMailboxesLoaderPolls) } hx-trigger="load" hx-swap="outerHTML" data-shared-mailboxes-loader>
-			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.shared_mailboxes.loading") }</p>
-		</div>
-	}
-}
-
-// SharedMailboxesSummary lists, on an account's card, the shared mailboxes
-// it opens, faded where turned off, with a button to choose them. It shows
-// nothing for an account without any.
-templ SharedMailboxesSummary(accountID string, mailboxes []SharedMailboxChoice) {
-	if len(mailboxes) > 0 {
-		<div class="mt-4 space-y-2 border-t border-border/60 pt-4" data-account-shared-mailboxes={ accountID }>
-			<div class="flex items-center justify-between gap-3">
-				<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.shared_mailboxes.card_heading", "count", strconv.Itoa(sharedMailboxesOn(mailboxes))) }</p>
-				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 px-2 text-xs", Attributes: templ.Attributes{
-					"hx-get":                       fmt.Sprintf("/api/accounts/%s/edit", accountID),
-					"hx-target":                    "#edit-account-container",
-					"hx-swap":                      "innerHTML",
-					"data-edit-account-open-step":  "6",
-				}}) {
-					{ i18n.T(ctx, "settings.shared_mailboxes.manage") }
-				}
-			</div>
-			<ul class="flex flex-wrap gap-1.5">
-				for _, mailbox := range mailboxes {
-					if !mailbox.Removed {
-						<li
-							class={ "inline-flex max-w-full items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs", templ.KV("text-foreground", mailbox.Enabled), templ.KV("text-muted-foreground line-through opacity-60", !mailbox.Enabled) }
-							data-account-shared-mailbox={ mailbox.Email }
-							data-enabled={ strconv.FormatBool(mailbox.Enabled) }
-						>
-							@icon.Users(icon.Props{Class: "size-3 shrink-0"})
-							<span class="truncate" title={ mailbox.Email }>{ mailbox.Name }</span>
-						</li>
-					}
-				}
-			</ul>
-		</div>
-	}
-}
-
-func sharedMailboxesOn(mailboxes []SharedMailboxChoice) int {
-	n := 0
-	for _, m := range mailboxes {
-		if m.Enabled && !m.Removed {
-			n++
-		}
-	}
-	return n
-}
-
-// SharedMailboxesLoaderPolls is how many times, two seconds apart, a
-// freshly opened panel asks again while no sync has looked for the
-// account's shared mailboxes yet, as for an account just added.
-const SharedMailboxesLoaderPolls = 45
-
-// SharedMailboxesUnavailable takes the place of the shared mailbox step
-// where choosing shared mailboxes is not served.
-templ SharedMailboxesUnavailable() {
-	<div class="space-y-4" data-shared-mailboxes-unavailable>
-		<h4 class="account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2">
-			@icon.Users(icon.Props{Class: "size-4 text-muted-foreground"})
-			{ i18n.T(ctx, "settings.wizard.shared_mailboxes") }
-		</h4>
-		<p class="text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "settings.shared_mailboxes.unavailable") }</p>
 	</div>
 }

@@ -91,8 +91,12 @@ func TestSidebarSharedMailboxRemembersFolding(t *testing.T) {
 	}
 	html := buf.String()
 	sales := strings.Index(html, `data-sidebar-shared-mailbox="sales-team@example.com"`)
-	if sales < 0 || !strings.Contains(html[sales:sales+300], `data-sidebar-folder-collapsed="true"`) {
-		t.Fatalf("sales mailbox not folded: %s", html[sales:min(len(html), sales+300)])
+	if sales < 0 {
+		t.Fatal("sales mailbox missing")
+	}
+	tag := html[strings.LastIndex(html[:sales], "<div"):sales]
+	if !strings.Contains(tag, `data-sidebar-folder-collapsed="true"`) {
+		t.Fatalf("sales mailbox not folded: %s", tag)
 	}
 	if strings.Contains(html, "data-sidebar-shared-mailbox-address") {
 		t.Fatal("address shown although turned off")

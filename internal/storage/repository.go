@@ -4717,13 +4717,17 @@ func (db *DB) GetAllFolderUnreadCounts(ctx context.Context, userID string) (map[
 	// Unread messages are counted through the unread index, so the cost
 	// follows the unread count, not the folder size.
 	unifiedRows, err := db.Read().QueryContext(ctx,
-		`SELECT f.id, f.role, a.id, f.unread_count, f.total_count, a.provider, COALESCE(f.provider_remote_id, ''),
+		// A shared mailbox's folders count under their role there, as the
+		// unified folders show them (unifiedFolderRolePredicate).
+		`SELECT f.id, `+effectiveFolderRoleSQL("f")+`, a.id, f.unread_count, f.total_count, a.provider, COALESCE(f.provider_remote_id, ''),
 		        (SELECT COUNT(*) FROM message_folder_state mfs
 		         WHERE mfs.folder_id = f.id AND mfs.is_deleted = 0 AND mfs.is_read = 0)
 		 FROM folders f
 		 JOIN accounts a ON f.account_id = a.id
 		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
-		   AND f.role IN ('inbox', 'sent', 'drafts', 'archive', 'spam', 'junk', 'trash')`, userID)
+		   AND (f.role IN ('inbox', 'sent', 'drafts', 'archive', 'spam', 'junk', 'trash')
+		     OR (f.shared_mailbox != '' AND f.shared_role IN ('inbox', 'sent', 'drafts', 'archive', 'junk', 'trash')
+		       AND `+sharedMailboxOnSQL("f")+` AND `+sharedMailboxesInUnifiedSQL("f")+`))`, userID)
 	if err != nil {
 		return nil, err
 	}

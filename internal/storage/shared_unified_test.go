@@ -51,6 +51,10 @@ func TestUnifiedFoldersHoldSharedMailboxMail(t *testing.T) {
 	if got := unified(); got != 2 {
 		t.Fatalf("unified inbox holds %d messages, want the shared mailbox's too", got)
 	}
+	// Its unread badge counts them too.
+	if counts, err := db.GetAllFolderUnreadCounts(ctx, "default"); err != nil || counts["inbox"] != 2 {
+		t.Fatalf("unified inbox unread = %d, %v; want 2", counts["inbox"], err)
+	}
 	// The account's own Inbox keeps only its own mail.
 	if page, err := db.GetEmailsRangeForUser(ctx, "default", "own_inbox", 0, 10); err != nil || page.TotalCount != 1 {
 		t.Fatalf("own inbox = %d, %v", page.TotalCount, err)
@@ -71,6 +75,9 @@ func TestUnifiedFoldersHoldSharedMailboxMail(t *testing.T) {
 	}
 	if got := unified(); got != 1 {
 		t.Fatalf("unified inbox with shared mail kept out holds %d", got)
+	}
+	if counts, err := db.GetAllFolderUnreadCounts(ctx, "default"); err != nil || counts["inbox"] != 1 {
+		t.Fatalf("unified inbox unread with shared mail kept out = %d, %v; want 1", counts["inbox"], err)
 	}
 }
 

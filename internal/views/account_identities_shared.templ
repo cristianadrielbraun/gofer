@@ -44,7 +44,11 @@ templ accountIdentitySharedStatus(data models.AccountIdentitiesData, identity mo
 			case "rejected":
 				<p class="text-xs text-destructive" data-account-identity-sender-check="rejected">{ i18n.T(ctx, "identities.shared.sender_rejected", "message", identity.SenderCheckMessage) }</p>
 			case "unknown":
-				<p class="text-xs text-muted-foreground" data-account-identity-sender-check="unknown">{ i18n.T(ctx, "identities.shared.sender_unknown", "message", identity.SenderCheckMessage) }</p>
+				if identity.SenderCheckMessage == "" {
+					<p class="text-xs text-muted-foreground" data-account-identity-sender-check="unknown">{ i18n.T(ctx, "identities.shared.sender_unknown") }</p>
+				} else {
+					<p class="text-xs text-muted-foreground" data-account-identity-sender-check="deferred">{ i18n.T(ctx, "identities.shared.sender_deferred", "message", identity.SenderCheckMessage) }</p>
+				}
 			case "accepted":
 				<p class="text-xs text-muted-foreground" data-account-identity-sender-check="accepted">{ i18n.T(ctx, "identities.shared.sender_accepted") }</p>
 		}

@@ -1939,8 +1939,6 @@ function setupEditAccountDialog() {
     document.querySelectorAll("#edit-account-dialog [data-account-wizard-step]").forEach(function (item) {
       item.dataset.active = String(+item.dataset.accountWizardStep === 0)
     })
-    var openStep = typeof takeEditAccountOpenStep === "function" ? takeEditAccountOpenStep() : null
-    if (openStep && typeof editWizardGo === "function") editWizardGo(openStep, true)
   })
 }
 
@@ -1955,6 +1953,14 @@ document.addEventListener("htmx:afterSettle", function (e) {
 document.addEventListener("htmx:afterSettle", function (e) {
   if (e.target && e.target.querySelector && e.target.querySelector("#account-identities-dialog") && window.tui && window.tui.dialog) {
     setTimeout(function () { window.tui.dialog.open("account-identities-dialog") }, 20)
+  }
+})
+
+// Opens an account's shared mailboxes dialog once it has been loaded. Its
+// list swaps itself after each change, so the dialog stays open.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#shared-mailboxes-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("shared-mailboxes-dialog") }, 20)
   }
 })
 

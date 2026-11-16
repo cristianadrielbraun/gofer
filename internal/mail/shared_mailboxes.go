@@ -96,6 +96,9 @@ func (o *SyncOrchestrator) checkSharedSenders(ctx context.Context, accountID str
 		result, err := smtp.CheckSender(checkCtx, &smtpCfg, smtpPassword, identity.MailboxEmail, recipient)
 		cancel()
 		state, message := sharedSenderCheckState(result, err)
+		if err != nil {
+			log.Printf("shared mailboxes %s: could not ask about %s: %v", accountID, identity.MailboxEmail, err)
+		}
 		if err := o.imapRepository().SetSharedIdentitySenderCheck(ctx, identity.IdentityID, state, message, time.Now()); err != nil {
 			log.Printf("shared mailboxes %s: record sender check for %s: %v", accountID, identity.MailboxEmail, err)
 		}
@@ -103,11 +106,13 @@ func (o *SyncOrchestrator) checkSharedSenders(ctx context.Context, accountID str
 	}
 }
 
-// sharedSenderCheckState is what a sender check's answer is recorded as.
+// sharedSenderCheckState is what a sender check's answer is recorded as: the
+// server's own reply when it gave one, and no message when it could not be
+// asked, which the identity then says in the user's language.
 func sharedSenderCheckState(result smtp.SenderCheck, err error) (string, string) {
 	switch {
 	case err != nil:
-		return storage.SenderCheckUnknown, err.Error()
+		return storage.SenderCheckUnknown, ""
 	case result.Accepted:
 		return storage.SenderCheckAccepted, ""
 	}

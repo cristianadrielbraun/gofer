@@ -578,7 +578,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/identities/{identity}/move", h.handleMoveAccountIdentity)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/{identity}/shared", h.handleSetSharedIdentityActive)
 	mux.HandleFunc("GET /api/accounts/{id}/shared-mailboxes", h.handleSharedMailboxesPanel)
-	mux.HandleFunc("GET /api/accounts/{id}/shared-mailboxes/summary", h.handleSharedMailboxesSummary)
+	mux.HandleFunc("GET /api/accounts/{id}/shared-mailboxes/manage", h.handleManageSharedMailboxes)
 	mux.HandleFunc("POST /api/accounts/{id}/shared-mailboxes/discover", h.handleDiscoverSharedMailboxes)
 	mux.HandleFunc("POST /api/accounts/{id}/shared-mailboxes/enabled", h.handleSetSharedMailboxEnabled)
 	mux.HandleFunc("POST /api/accounts/{id}/shared-mailboxes/name", h.handleSetSharedMailboxName)

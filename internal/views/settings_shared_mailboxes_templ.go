@@ -17,8 +17,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/sharedmailbox"
 )
 
-// SharedMailboxSettingsCard holds the choices for the mailboxes an IMAP
-// account can open besides its own (sharedmailbox.Settings). Each is saved
+// SharedMailboxSettingsCard holds the choices for the mailboxes an IMAP or
+// JMAP account can open besides its own (sharedmailbox.Settings). Each is saved
 // as it changes.
 func SharedMailboxSettingsCard(uiSettings map[string]string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -224,7 +224,7 @@ func SharedMailboxSettingsCard(uiSettings map[string]string) templ.Component {
 			ID:          "shared-mailboxes-custom-prefix",
 			Value:       settings.CustomPrefix,
 			Placeholder: i18n.T(ctx, "settings.shared_mailboxes.prefix_placeholder"),
-			Attributes:  templ.Attributes{"aria-label": i18n.T(ctx, "settings.shared_mailboxes.prefix_custom"), "maxlength": "60", "data-ui-setting-input": sharedmailbox.KeyCustomPrefix},
+			Attributes:  templ.Attributes{"aria-label": i18n.T(ctx, "settings.shared_mailboxes.prefix_custom"), "maxlength": "60", "data-ui-setting-input": sharedmailbox.KeyCustomPrefix, "data-shown-for-setting": sharedmailbox.KeyPrefixMode, "data-shown-for-value": sharedmailbox.PrefixCustom, "hidden": settings.PrefixMode != sharedmailbox.PrefixCustom},
 		}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

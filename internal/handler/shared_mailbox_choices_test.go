@@ -65,9 +65,16 @@ func TestSharedMailboxChoices(t *testing.T) {
 		}
 	}
 
-	rec = as("owner", httptest.NewRequest(http.MethodGet, "/api/accounts/victim-account/shared-mailboxes/summary", nil))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `data-account-shared-mailbox="support@example.com" data-enabled="false"`) {
-		t.Fatalf("summary = %d\n%s", rec.Code, rec.Body.String())
+	// The account's menu opens the list in a dialog of its own, labelled
+	// with the names it shows.
+	rec = as("owner", httptest.NewRequest(http.MethodGet, "/api/accounts/victim-account/shared-mailboxes/manage", nil))
+	body := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(body, `id="shared-mailboxes-dialog"`) || !strings.Contains(body, `data-shared-mailbox="support@example.com"`) ||
+		!strings.Contains(body, `aria-label="Use Support"`) || strings.Contains(body, `aria-label="Use support@example.com"`) {
+		t.Fatalf("dialog = %d\n%s", rec.Code, body)
+	}
+	if rec := as("attacker", httptest.NewRequest(http.MethodGet, "/api/accounts/victim-account/shared-mailboxes/manage", nil)); rec.Code != http.StatusNotFound {
+		t.Fatalf("another user's dialog = %d", rec.Code)
 	}
 }
 

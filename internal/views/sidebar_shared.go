@@ -2,6 +2,7 @@ package views
 
 import (
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -113,4 +114,12 @@ func sidebarFolderCollapsedState(settings map[string]string) map[string]bool {
 		return nil
 	}
 	return state
+}
+
+// accountOpensSharedMailboxes reports whether an account's menu offers its
+// shared mailboxes: IMAP lists them in its shared namespaces and JMAP as
+// further accounts of the login. Gmail, Outlook and DAV accounts have none
+// that Gofer reads.
+func accountOpensSharedMailboxes(account models.Account) bool {
+	return account.EmailSyncEnabled && !account.IsDeleting && (account.Provider == "imap" || account.Provider == providers.ProviderJMAP)
 }
