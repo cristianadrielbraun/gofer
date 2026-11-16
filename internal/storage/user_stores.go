@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -114,6 +116,7 @@ func NewUserStores(system *DB, options UserStoreOptions) (*UserStores, error) {
 	if err := ensureUserStoreDirectory(system); err != nil {
 		return nil, errors.Join(err, lock.Close())
 	}
+	removeInitializingUserStores(directory)
 	m := &UserStores{
 		system: system, directory: directory, maxOpen: options.MaxOpen,
 		idleTimeout: options.IdleTimeout, lock: lock,
@@ -518,7 +521,7 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 	// Initialize privately, close/checkpoint every connection, then publish
 	// without replacing an existing file. A failed creation cannot be mistaken
 	// for a complete user database on the next acquisition.
-	file, err := os.CreateTemp(m.directory, ".initializing-*.db")
+	file, err := os.CreateTemp(m.directory, initializingUserStorePrefix+"*.db")
 	if err != nil {
 		return nil, err
 	}
@@ -527,11 +530,12 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 		os.Remove(temporary)
 		return nil, err
 	}
-	defer func() {
+	removeTemporary := func() {
 		for _, suffix := range []string{"", "-wal", "-shm"} {
 			_ = os.Remove(temporary + suffix)
 		}
-	}()
+	}
+	defer removeTemporary()
 	db, err := New(temporary)
 	if err != nil {
 		return nil, err
@@ -550,6 +554,10 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 	if err := os.Link(temporary, path); err != nil {
 		return nil, fmt.Errorf("publish user database: %w", err)
 	}
+	// Remove the private name before the published file is opened. Windows
+	// refuses to remove a name of a file that is open, which left it behind
+	// as a second name for the user's database.
+	removeTemporary()
 	opened, err := New(path)
 	if err == nil {
 		opened.userMailDelivery = true
@@ -557,6 +565,38 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 		opened.contactHookSource = m.system
 	}
 	return opened, err
+}
+
+// initializingUserStorePrefix starts the private name a user database is
+// built under before it is published under its own name.
+const initializingUserStorePrefix = ".initializing-"
+
+// removeInitializingUserStores deletes private build files left in directory.
+// One is a database whose creation stopped before it was published, or, from
+// Gofer on Windows before the private name was removed ahead of opening, a
+// second name for a published database, which keeps its own name. The manager
+// lock is held, so no other process is building a database here. A file that
+// cannot be removed is logged and left: it does not stop Gofer from starting.
+func removeInitializingUserStores(directory string) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		log.Printf("storage: list user databases for leftover build files: %v", err)
+		return
+	}
+	removed := 0
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), initializingUserStorePrefix) || !entry.Type().IsRegular() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("storage: remove leftover user database build file %s: %v", entry.Name(), err)
+			continue
+		}
+		removed++
+	}
+	if removed > 0 {
+		log.Printf("storage: removed %d leftover user database build file(s)", removed)
+	}
 }
 
 func checkUserStoreIdentity(path, owner string) error {
