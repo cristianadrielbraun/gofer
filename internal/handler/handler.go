@@ -2060,6 +2060,14 @@ func buildBodyDocument(ctx context.Context, body []byte, resizeScript []byte, th
 		s = strings.Replace(s, ">"+i18n.CalendarOnlyBody+"<", ">"+template.HTMLEscapeString(i18n.T(ctx, "mail.calendar_only_body"))+"<", 1)
 	}
 	lower := strings.ToLower(s)
+	if strings.Contains(lower, "<html") && !hasLeadingHTMLDoctype(s) {
+		// Full email documents often omit a doctype. Without one, browsers use
+		// quirks mode, where percentage heights on nested elements can resolve
+		// against the viewport and make the iframe resize itself repeatedly.
+		// Fragments already receive a standards doctype in the wrapper below.
+		s = "<!DOCTYPE html>" + s
+		lower = strings.ToLower(s)
+	}
 	isDark := theme == "dark"
 	injection := nonced(emailExternalLinksScript()) + nonced(emailQuoteScript(ctx)) + nonced(resizeScript)
 
