@@ -2838,7 +2838,31 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 	}
 	filters.SortBy = normalizeEmailSortBy(filters.SortBy)
 	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
+	if filters.Unread {
+		filters.KeepRead = parseKeepRead(q.Get("keep"))
+	}
 	return filters
+}
+
+// maxKeepRead bounds the messages one list keeps once read; the page sends
+// the latest ones.
+const maxKeepRead = 200
+
+// parseKeepRead reads the comma-separated message IDs of keep, leaving out
+// anything that is not one.
+func parseKeepRead(value string) []int64 {
+	var ids []int64
+	for _, part := range strings.Split(value, ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		ids = append(ids, id)
+		if len(ids) == maxKeepRead {
+			break
+		}
+	}
+	return ids
 }
 
 func normalizeRecipientType(value string) string {

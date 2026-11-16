@@ -245,6 +245,9 @@ class VirtualMailList {
     this.syncBannerHideTimer = null
     this.syncBannerShownAt = 0
     this.filters = this.readFiltersFromURL()
+    // Messages read while the Unread filter is on, which the list keeps
+    // until its filters change (keepRead).
+    this.keptRead = []
     this.sidebarTag = this.readSidebarTagFromURL()
     this.refreshInFlight = null
     this.refreshQueued = false
@@ -2539,7 +2542,23 @@ class VirtualMailList {
       url += sep + "tag_provider_type=" + encodeURIComponent(tag.providerType)
       sep = "&"
     }
+    if (filters.unread && this.keptRead && this.keptRead.length) {
+      url += sep + "keep=" + this.keptRead.join(",")
+      sep = "&"
+    }
     return this.searchScope && window.GoferMailSearch ? window.GoferMailSearch.scopeURL(url, this.searchScope) : url
+  }
+
+  // keepRead keeps emailId's row in an Unread list once it is read, as
+  // opening a message there marks it read, until the filters change. The
+  // server is told the latest 200 (maxKeepRead).
+  keepRead(emailId) {
+    if (!this.filters || !this.filters.unread || !/^\d+$/.test(String(emailId))) return
+    var id = String(emailId)
+    if (!this.keptRead) this.keptRead = []
+    if (this.keptRead.indexOf(id) !== -1) return
+    this.keptRead.push(id)
+    if (this.keptRead.length > 200) this.keptRead.shift()
   }
 
   emptyFilters() {
@@ -2736,6 +2755,7 @@ class VirtualMailList {
       else next[key] = (filters[key] || "").trim()
     }
     this.filters = next
+    this.keptRead = []
     if (this.navigationMode === "pagination") {
       var previousSelectedPaginated = this.selectedEmailId
       if (replacing) {

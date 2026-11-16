@@ -5523,7 +5523,7 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	var withArgs []any
 	var args []any
 	if filters.Unread {
-		outerParts = append(outerParts, "thread_is_read = 0")
+		outerParts = append(outerParts, "(thread_is_read = 0"+keptReadSQL(filters, "account_id", "COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id))", "id")+")")
 	} else if filters.Read {
 		outerParts = append(outerParts, "thread_is_read = 1")
 	}
@@ -8714,6 +8714,7 @@ func defaultUISettings() map[string]string {
 		"mail_card_layout":                  "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
 		"mail_card_date_time":               "false",
 		"mail_card_account_marker":          "true",
+		"mail_card_actions_on_hover":        "true",
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
 		"sidebar_account_collapsed":         "{}",

@@ -372,6 +372,9 @@ document.addEventListener("DOMContentLoaded", function () {
   // rows not loaded in the list. A message's account never changes, so it's
   // kept until the next such selection.
   var selectedMailAccounts = new Map()
+  // What the pointer was last over, for the selected cards to follow a card
+  // under it (syncMailSelectionHover).
+  var mailPointerTarget = null
   // The messages shown under each expanded thread row, by the row's id. Once
   // one of them is picked on its own, the thread row stands for its own
   // message only, and these say which of the others are picked too.
@@ -2190,6 +2193,8 @@ document.addEventListener("DOMContentLoaded", function () {
     setupMailTouchSelection()
     setupMailPullToRefresh()
     setupMailSwipeActions()
+    setupMailCardActionLabels()
+    setupMailSelectionHover()
 
     // With no reading pane, a click selects a message, and a double click
     // opens it in the list's place (a single click does, with that setting on).
@@ -2200,7 +2205,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (Date.now() < suppressMailRowClickUntil) return
       if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
       var link = e.target.closest && e.target.closest("#mail-list-scroll :is(.mail-list-item[data-email-id], .thread-sub-item) > a")
-      if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+      if (!link || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action]")) return
       e.preventDefault()
       e.stopPropagation()
       var singleClickOpen = window.GoferSettings && GoferSettings.get("mail_single_click_open") === "true"
@@ -2250,10 +2255,18 @@ document.addEventListener("DOMContentLoaded", function () {
         if (toggleList) toggleList.toggleThreadExpand(threadToggle.dataset.threadToggle, { select: false })
         return
       }
+      // A card's action button acts on its message and leaves the row as it is.
+      var cardAction = e.target.closest && e.target.closest("#mail-list-scroll [data-mail-card-action]")
+      if (cardAction) {
+        e.preventDefault()
+        e.stopPropagation()
+        runMailCardAction(cardAction)
+        return
+      }
       // While selecting, or with Ctrl/Cmd, a thread's message picks itself
       // instead of opening.
       var subLink = e.target.closest && e.target.closest("#mail-list-scroll .thread-sub-item[data-sub-email-id] > a")
-      if (subLink && (e.metaKey || e.ctrlKey || mailSelectionModeActive()) && !e.target.closest(".star-btn")) {
+      if (subLink && (e.metaKey || e.ctrlKey || mailSelectionModeActive()) && !e.target.closest(".star-btn, [data-mail-card-action]")) {
         e.preventDefault()
         e.stopPropagation()
         toggleMailThreadSubSelected(subLink.parentElement)
@@ -2834,7 +2847,7 @@ document.addEventListener("DOMContentLoaded", function () {
         start = null
         if (!mobile.matches || e.touches.length !== 1 || mailSelectionModeActive()) return
         var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
-        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        if (!link || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action]")) return
         start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
         row = link.parentElement
         anchor = link
@@ -2893,7 +2906,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function setupMailTouchSelection() {
-      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle]", function (link) {
+      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle], [data-mail-card-action]", function (link) {
         var row = link.closest(".mail-list-item[data-email-id]")
         if (!row || !row.isConnected) return false
         if (!mailSelectionModeActive()) {
@@ -3163,6 +3176,127 @@ document.addEventListener("DOMContentLoaded", function () {
       // The rest are the toolbar's actions, which follow its read and star state.
       var button = document.querySelector('.mail-list-toolbar button[data-mail-selection-action="' + action + '"]')
       performMailSelectionAction(button ? mailSelectionActionName(button) : action, target ? mailRowById(target.id) : null)
+    }
+
+    // A card's action buttons (mailCardActionButtons) act on the selection
+    // when their card is in it, as the context menu does. Otherwise they act
+    // on that card's message alone, or its whole thread when the card stands
+    // for one, and leave the selection as it is.
+    function runMailCardAction(button) {
+      var row = button.closest(".mail-list-item[data-email-id]")
+      if (!row || !row.dataset.emailId) return
+      var action = mailCardActionName(button, row)
+      var only = selectedMailIds.has(row.dataset.emailId) ? null : [{ id: row.dataset.emailId, thread: row.dataset.hasThread === "true" }]
+      var run = function () { performMailSelectionAction(action, button, only) }
+      // In Trash, Delete is for good. The button is a single click away on
+      // every card, so it asks first.
+      if (action === "delete" && mailFolderIsTrash(currentMailListFolderID())) {
+        var count = only ? 1 : selectedMailIds.size
+        window.goferConfirm({
+          title: goferTn("js.mail.delete.confirm_title", count),
+          message: goferTn("js.mail.delete.in_trash", count),
+          destructive: true,
+          confirmLabel: goferT("js.mail.delete.permanently"),
+        }).then(function (accepted) { if (accepted) run() })
+        return
+      }
+      run()
+    }
+
+    // What a card button does here: Read follows the message's state, Spam
+    // undoes in Spam. Archive and Delete follow the folder in
+    // performMailSelectionAction.
+    function mailCardActionName(button, row) {
+      var action = button.getAttribute("data-mail-card-action")
+      if (action === "read") return row.dataset.isRead === "true" ? "unread" : "read"
+      if (action === "spam" && mailFolderIsSpam(currentMailListFolderID())) return "not-spam"
+      return action
+    }
+
+    // A card button's label says what it will do, which depends on the folder
+    // and, for Read, on the message's state since the card was drawn.
+    function syncMailCardActionLabel(button) {
+      var row = button.closest(".mail-list-item[data-email-id]")
+      if (!row) return
+      var folderID = currentMailListFolderID()
+      var action = mailCardActionName(button, row)
+      var label = ""
+      if (action === "read") label = goferT("js.mail.action.mark_read")
+      else if (action === "unread") label = goferT("js.mail.action.mark_unread")
+      else if (action === "archive") label = mailFolderIsArchive(folderID) ? goferT("js.mail.action.move_to_inbox") : goferT("js.mail.action.archive")
+      else if (action === "delete") label = mailFolderIsTrash(folderID) ? goferT("js.mail.action.delete_permanently") : goferT("js.mail.action.delete")
+      else if (action === "spam") label = goferT("js.mail.action.report_spam")
+      else if (action === "not-spam") label = goferT("js.mail.action.not_spam")
+      if (!label) return
+      button.setAttribute("aria-label", label)
+      button.title = label
+    }
+
+    // Labels the card buttons under root as the cards are drawn, for screen
+    // readers that read a card without hovering or focusing it. ui-settings.js
+    // calls this as it lays the cards out. Hidden buttons aren't read out, so
+    // a layout that shows none is left alone.
+    function syncMailCardActionLabels(root) {
+      var scroll = document.getElementById("mail-list-scroll")
+      if (!scroll || !/Action(,|$)/.test(scroll.dataset.mailCardFields || "")) return
+      var buttons = (root && root !== document ? root : scroll).querySelectorAll("[data-mail-card-action]")
+      for (var i = 0; i < buttons.length; i++) syncMailCardActionLabel(buttons[i])
+    }
+
+    function setupMailCardActionLabels() {
+      window.syncMailCardActionLabels = syncMailCardActionLabels
+      if (document.body._goferMailCardActionLabelsBound) return
+      document.body._goferMailCardActionLabelsBound = true
+      // Cards drawn before this ran.
+      syncMailCardActionLabels()
+      // Hovering or focusing a button catches up with what changed since,
+      // such as Read after the message was marked read.
+      var sync = function (e) {
+        var button = e.target.closest && e.target.closest("#mail-list-scroll [data-mail-card-action]")
+        if (button) syncMailCardActionLabel(button)
+      }
+      document.addEventListener("mouseover", sync, { passive: true })
+      document.addEventListener("focusin", sync)
+    }
+
+    // With several cards selected, a card's button acts on all of them
+    // (runMailCardAction), so the pointer over one of them shows every
+    // selected card's action buttons, and the button under it lights up on
+    // all of them. The CSS follows the list's data-mail-selection-hover and
+    // data-mail-selection-hover-action.
+    function setupMailSelectionHover() {
+      if (document.body._goferMailSelectionHoverBound) return
+      document.body._goferMailSelectionHoverBound = true
+      document.addEventListener("mouseover", function (e) {
+        mailPointerTarget = e.target
+        syncMailSelectionHover()
+      }, { passive: true })
+      // Leaving the window.
+      document.addEventListener("mouseout", function (e) {
+        if (e.relatedTarget) return
+        mailPointerTarget = null
+        syncMailSelectionHover()
+      }, { passive: true })
+    }
+
+    // syncMailSelectionControls also runs this, as the selection changes
+    // under a still pointer.
+    function syncMailSelectionHover() {
+      var scroll = document.getElementById("mail-list-scroll")
+      if (!scroll) return
+      var target = mailPointerTarget && mailPointerTarget.isConnected && mailPointerTarget.closest ? mailPointerTarget : null
+      var row = target && target.closest("#mail-list-scroll .mail-list-item[data-email-id]")
+      var shared = !!row && selectedMailIds.size > 1 && selectedMailIds.has(row.dataset.emailId)
+      var button = shared ? target.closest("[data-mail-card-action]") : null
+      setScrollAttribute("data-mail-selection-hover", shared ? "" : null)
+      setScrollAttribute("data-mail-selection-hover-action", button ? button.getAttribute("data-mail-card-action") : null)
+
+      // Only a change touches the list, which restyles it.
+      function setScrollAttribute(name, value) {
+        if (scroll.getAttribute(name) === value) return
+        if (value === null) scroll.removeAttribute(name)
+        else scroll.setAttribute(name, value)
+      }
     }
 
     // Right-clicking a folder in the sidebar offers what applies to the whole
@@ -4985,6 +5119,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var deleteSlotFrom = toolbarSynced ? null : mailDeleteSlotLeft()
       syncMailSelectAllControls(selectedMailIds.size)
       syncMailRowSelection()
+      syncMailSelectionHover()
 
       var count = selectedMailIds.size
       if (count === 0 && !keepMailSelectionModeWhenEmpty) setMailSelectionMode(false)
@@ -5290,10 +5425,10 @@ document.addEventListener("DOMContentLoaded", function () {
       return action
     }
 
-    function markSelectedReadInBackground(ids) {
-      var targets = selectedMailTargets(ids)
+    // finish is what performMailSelectionAction does with the selection.
+    function markSelectedReadInBackground(ids, targets, finish) {
       for (var i = 0; i < ids.length; i++) applyOptimisticRead(ids[i])
-      clearMailSelection()
+      finish()
 
       sendBulkMessageAction("/api/messages/read", targets).then(function () {
         if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -5365,14 +5500,19 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // anchor is where the action was asked for, for a popover about it.
-    function performMailSelectionAction(action, anchor) {
-      if (mailSelectionBusy || selectedMailIds.size === 0) return
-      var ids = Array.from(selectedMailIds)
-      if (action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) && archiveSelectionBlocked(ids, anchor)) return
+    // only, when given, is what to act on instead of the selection, as
+    // { id, thread } targets, and the selection then stays as it is: a
+    // card's button on a card outside the selection.
+    function performMailSelectionAction(action, anchor, only) {
+      if (mailSelectionBusy || (!only && selectedMailIds.size === 0)) return
+      var ids = only ? only.map(function (target) { return target.id }) : Array.from(selectedMailIds)
+      var actionTargets = function () { return only || selectedMailTargets(ids) }
+      var finish = only ? function () {} : clearMailSelection
+      if (action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) && archiveSelectionBlocked(ids, anchor, only)) return
       if (action === "labels") {
-        var labelTargets = selectedMailTargets(ids)
+        var labelTargets = actionTargets()
         openLabelsDialog(labelTargets, function () {
-          clearMailSelection()
+          finish()
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
             virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
           }
@@ -5384,12 +5524,12 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       if (action === "read") {
-        markSelectedReadInBackground(ids)
+        markSelectedReadInBackground(ids, actionTargets(), finish)
         return
       }
       if (action === "unread") {
-        var unreadTargets = selectedMailTargets(ids)
-        clearMailSelection()
+        var unreadTargets = actionTargets()
+        finish()
         sendBulkMessageAction("/api/messages/read", unreadTargets, { state: "unread" }).then(function () {
           for (var u = 0; u < ids.length; u++) invalidateMailListItem(ids[u])
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -5402,13 +5542,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (action === "archive" && mailFolderIsArchive(currentMailListFolderID())) action = "unarchive"
       if (action === "archive" || action === "unarchive" || action === "delete" || action === "star" || action === "unstar" || action === "spam" || action === "not-spam") {
-        var targets = selectedMailTargets(ids)
+        var targets = actionTargets()
         var current = virtualMailList && virtualMailList.selectedEmailId
         var starring = action === "star" || action === "unstar"
         var removesFromFolder = !starring
         if (removesFromFolder && current && ids.indexOf(current) !== -1) setMailViewEmpty()
         if (removesFromFolder) applyOptimisticRemove(ids)
-        clearMailSelection()
+        finish()
         var path = action === "unarchive" ? "/api/messages/unarchive" : action === "archive" ? "/api/messages/archive" : (action === "delete" ? "/api/messages/delete" : (action === "spam" ? "/api/messages/spam" : (action === "not-spam" ? "/api/messages/not-spam" : "/api/messages/star")))
         var extra = starring ? { state: action === "star" ? "starred" : "unstarred" } : null
         if (action === "delete") extra = { folder_id: currentMailListFolderID() }
@@ -5438,7 +5578,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var mailView = document.getElementById("mail-view")
         var current = virtualMailList && virtualMailList.selectedEmailId
         if ((action === "archive" || action === "delete") && current && ids.indexOf(current) !== -1 && mailView) setMailViewEmpty()
-        clearMailSelection()
+        finish()
         for (var i = 0; i < ids.length; i++) invalidateMailListItem(ids[i])
         if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
           virtualMailList.refreshCurrentFolder({ noAnimation: action === "read" }).catch(function () {})
@@ -5461,8 +5601,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // archiveSelectionBlocked shows why ids can't all be archived and returns
     // true, or returns false when they can. When some of them can, the
-    // popover offers to archive just those.
-    function archiveSelectionBlocked(ids, anchor) {
+    // popover offers to archive just those. only is performMailSelectionAction's.
+    function archiveSelectionBlocked(ids, anchor, only) {
       var missing = selectionWithoutArchive(ids)
       if (!missing.length) return false
       var archivable = ids.filter(function (id) { return missing.indexOf(mailRowAccountID(id)) === -1 })
@@ -5471,6 +5611,10 @@ document.addEventListener("DOMContentLoaded", function () {
         anchor = button && button.offsetParent ? button : mailRowById(ids[0])
       }
       showArchiveUnavailable(anchor, missing, archivable.length ? function () {
+        if (only) {
+          performMailSelectionAction("archive", null, only.filter(function (target) { return archivable.indexOf(target.id) !== -1 }))
+          return
+        }
         selectedMailIds.clear()
         archivable.forEach(function (id) { setMailSelected(id, true) })
         syncMailSelectionControls()
@@ -8060,7 +8204,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (e.pointerType !== "touch" && e.pointerType !== "pen") return
       clearTouchPrefetch()
       var row = e.target && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id]")
-      if (!row || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-row-check]")) return
+      if (!row || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action], [data-mail-row-check]")) return
       touchPrefetchRow = row
       touchPrefetchTimer = setTimeout(function () {
         clearTouchPrefetch()
@@ -11331,6 +11475,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // A thread counts as read only once all its messages are, so opening one
     // marks the whole thread read, not just the message that was opened.
     var thread = (row && row.dataset.hasThread === "true") || !!document.querySelector('#mail-view [data-read-thread="' + emailId + '"]')
+    keepMailListItemRead(emailId)
     fetch("/api/messages/" + emailId + (thread ? "/thread/read" : "/read") + "?state=read", { method: "POST" })
       .then(function (r) { return r.json() })
       .then(function (data) {
@@ -18988,7 +19133,6 @@ function autoComposeSignatureGapHTML() {
 
 function placeComposeCursorBeforeSignature(editor, signatureNode) {
   if (!editor || !signatureNode) return
-  editor.focus()
   var target = editor.querySelector('[data-gofer-signature-cursor]')
   if (!target) target = signatureNode.previousSibling
   if (!target || target.nodeType !== Node.ELEMENT_NODE) {
@@ -18996,6 +19140,13 @@ function placeComposeCursorBeforeSignature(editor, signatureNode) {
     target = editor.querySelector('[data-gofer-signature-cursor]') || signatureNode.previousSibling
   }
   if (target.removeAttribute) target.removeAttribute("data-gofer-signature-cursor")
+  // The signature comes in after compose has opened. A cursor already in
+  // another field, such as To on a new message, stays there; the body
+  // still starts on the line above the signature for when it gets there.
+  var root = _composeRootForForm(_composeFormFrom(editor))
+  var active = document.activeElement
+  if (root && active && active !== editor && root.contains(active)) return
+  editor.focus()
   var range = document.createRange()
   if (target.nodeType === Node.ELEMENT_NODE) {
     range.selectNodeContents(target)
@@ -20246,6 +20397,60 @@ function toggleComposeFormat(el) {
   })
 }
 
+// A toolbar marked data-toolbar-arrows is one Tab stop, as in the ARIA
+// toolbar pattern: Tab reaches the button last used there, and the arrow
+// keys, Home and End move between its buttons. The menus it opens keep their
+// own keys.
+function toolbarArrowButtons(toolbar) {
+  return Array.prototype.filter.call(toolbar.querySelectorAll("button"), function (button) {
+    return !button.closest("[data-tui-popover-content]")
+  })
+}
+
+// A folded part (data-mail-collapsed) slides to no width and fades out but
+// keeps its boxes, so it is ruled out by its mark.
+function _toolbarButtonShown(button) {
+  return !button.disabled && !button.closest("[data-mail-collapsed]") && button.getClientRects().length > 0
+}
+
+// syncToolbarTabStop makes current the toolbar's Tab stop, or else keeps the
+// one it has, or else takes the first button shown. It runs again whenever
+// buttons show or hide, so the stop is never a button Tab can't reach.
+function syncToolbarTabStop(toolbar, current) {
+  if (!toolbar) return
+  var buttons = toolbarArrowButtons(toolbar)
+  var shown = buttons.filter(_toolbarButtonShown)
+  // A hidden toolbar keeps its stop for when it shows again.
+  if (!shown.length) return
+  if (shown.indexOf(current) < 0) {
+    current = shown.find(function (button) { return button.tabIndex === 0 }) || shown[0]
+  }
+  buttons.forEach(function (button) { button.tabIndex = button === current ? 0 : -1 })
+}
+
+document.addEventListener("keydown", function (event) {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  var key = event.key
+  if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") return
+  var toolbar = event.target && event.target.closest ? event.target.closest("[data-toolbar-arrows]") : null
+  if (!toolbar) return
+  var shown = toolbarArrowButtons(toolbar).filter(_toolbarButtonShown)
+  var at = shown.indexOf(event.target)
+  if (at < 0) return
+  var next = key === "Home" ? 0 : key === "End" ? shown.length - 1 : (at + (key === "ArrowRight" ? 1 : -1) + shown.length) % shown.length
+  event.preventDefault()
+  syncToolbarTabStop(toolbar, shown[next])
+  shown[next].focus()
+})
+
+// A button that gets focus some other way, such as a menu handing it back
+// as it closes, becomes the stop.
+document.addEventListener("focusin", function (event) {
+  var button = event.target
+  var toolbar = button && button.closest ? button.closest("[data-toolbar-arrows]") : null
+  if (toolbar && button.tabIndex === -1 && toolbarArrowButtons(toolbar).indexOf(button) >= 0) syncToolbarTabStop(toolbar, button)
+})
+
 // The compose toolbar folds its tools into a ⋯ menu as its room runs out,
 // as the mail list's toolbar and the contact header do: undo first, then
 // quote and code, and so on (the ranks in ComposeToolbar). Bold to lists,
@@ -20277,6 +20482,8 @@ function syncComposeToolbarOverflow(toolbar, force) {
   toolbar.querySelectorAll("[data-compose-overflow-menu-item]").forEach(function (item) {
     item.style.display = parseInt(item.getAttribute("data-compose-overflow-menu-item"), 10) <= step ? "" : "none"
   })
+  // Folding, and the format switch that folds again, show and hide buttons.
+  syncToolbarTabStop(toolbar)
 }
 
 // observeComposeToolbars watches each compose toolbar's width; the dialog's
@@ -20843,7 +21050,10 @@ function updateComposeSendState(form) {
   var disabled = pending > 0 || sending
   // Switching format while an image uploads would lose it.
   var formatToggle = form.querySelector("[data-compose-format-toggle]")
-  if (formatToggle) formatToggle.disabled = disabled
+  if (formatToggle) {
+    formatToggle.disabled = disabled
+    syncToolbarTabStop(formatToggle.closest("[data-toolbar-arrows]"))
+  }
   var root = _composeRootForForm(form)
   var mobileSend = root && root.querySelector("[data-compose-mobile-send]")
   if (mobileSend) {
@@ -22525,7 +22735,7 @@ function loadDraftIntoCompose(emailId) {
       var form = document.getElementById("compose-form")
       _writeComposeFormValues(form, vals, "compose-")
       _showComposeOptionalFields(form, vals)
-      if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+      openComposeDialog("new")
     })
     .catch(function (err) {
       showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.draft.load_failed"))
@@ -23452,8 +23662,16 @@ function writeComposeIntoView(vals, mode) {
   }
   var form = document.getElementById("compose-form")
   writeComposePrefill(form, vals, "compose-", mode)
-  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  openComposeDialog(mode)
   return true
+}
+
+// openComposeDialog opens the compose dialog and puts the cursor where the
+// message goes on: To while it is empty, else Subject, else the body. Opening
+// a modal dialog focuses its first button, so the cursor is set after.
+function openComposeDialog(mode) {
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  focusComposePrefill(document.getElementById("compose-form"), mode)
 }
 
 function mailtoDecodedPath(pathname) {
@@ -23600,9 +23818,7 @@ function openNewCompose() {
     openComposeInMain(view === "full", view === "full")
     return
   }
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
   applyDefaultComposeSignatureWhenReady(document.getElementById("compose-form"), true)
 }
 
@@ -23777,6 +23993,7 @@ function syncThreadReadButtons() {
 }
 
 function toggleRead(emailId) {
+  keepMailListItemRead(emailId)
   fetch("/api/messages/" + emailId + "/read", { method: "POST" })
     .then(function (r) { return r.json() })
     .then(function (data) {
@@ -23790,6 +24007,7 @@ function toggleRead(emailId) {
 }
 
 function toggleThreadRead(emailId, threadId) {
+  keepMailListItemRead(emailId)
   if (window.GoferMailSearch && window.GoferMailSearch.scope()) {
     var row = window.GoferMailSearch.rowData(emailId)
     return runScopedMailAction(emailId, "read", true, { state: row && row.isRead === "true" ? "unread" : "read" })
@@ -25470,6 +25688,17 @@ function invalidateMailListItem(emailId) {
   }
 }
 
+// keepMailListItemRead keeps the row of an opened message in an Unread list
+// once it is read, instead of taking it away from under the reader. It is
+// called before the message is marked read, so the list's next request
+// already keeps it.
+function keepMailListItemRead(emailId) {
+  var container = document.getElementById("mail-list-scroll")
+  if (container && container._virtualMailList) {
+    container._virtualMailList.keepRead(emailId)
+  }
+}
+
 // A thread opens with every message listed and only the selected one expanded.
 // Bring that one to the top of the reader instead of leaving the pane at the
 // first message. The messages above it stay collapsed, so their height is settled.
@@ -26186,8 +26415,7 @@ function writeComposePane(html, vals, fullWidth, instantFullWidth) {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  var bodyField = paneForm && paneForm.querySelector('[data-compose-editor]')
-  if (bodyField) bodyField.focus()
+  focusComposePrefill(paneForm, "new")
 
   if (fullWidth) {
     if (instantFullWidth) {
@@ -26223,9 +26451,7 @@ function collapseToDialog() {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
 }
 
 function discardComposePane(anchor) {

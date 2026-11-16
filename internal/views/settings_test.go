@@ -1363,6 +1363,70 @@ func TestSyncFolderShortName(t *testing.T) {
 	}
 }
 
+// A special folder still called by the English name sync gave it shows that
+// name in the page's language on its pill, with its path on hover; any other
+// folder shows its path, as before.
+func TestSyncFolderPillNamesSpecialFoldersInPageLanguage(t *testing.T) {
+	ctx := i18n.WithLocale(context.Background(), "es")
+	for _, test := range []struct {
+		folder         models.FolderSyncStatus
+		label, tooltip string
+	}{
+		{models.FolderSyncStatus{ID: "acc_inbox", Name: "INBOX", RemoteID: "INBOX", FolderName: "Inbox", Role: "inbox", Icon: "inbox"}, "Recibidos", "INBOX"},
+		{models.FolderSyncStatus{ID: "acc_trash", Name: "Deleted Messages", RemoteID: "Deleted Messages", FolderName: "Trash", Role: "trash", Icon: "trash"}, "Papelera", "Deleted Messages"},
+		{models.FolderSyncStatus{ID: "acc_sent", Name: "Sent Items", RemoteID: "Sent Items", FolderName: "Sent Items", Role: "sent", Icon: "send"}, "Sent Items", ""},
+		{models.FolderSyncStatus{ID: "acc_old", Name: "Projects/Old", RemoteID: "Projects/Old", FolderName: "Old", Icon: "folder"}, "Projects/Old", ""},
+	} {
+		var out bytes.Buffer
+		if err := syncFolderPill(test.folder, 5, "acc").Render(ctx, &out); err != nil {
+			t.Fatalf("syncFolderPill.Render() error = %v", err)
+		}
+		html := out.String()
+		for _, want := range []string{`<span class="truncate">` + test.label + `</span>`, `data-folder-name="` + test.label + `"`} {
+			if !strings.Contains(html, want) {
+				t.Errorf("%s: pill missing %s: %s", test.folder.RemoteID, want, html)
+			}
+		}
+		if got := syncFolderNeedsFullName(ctx, test.folder); got != (test.tooltip != "") {
+			t.Errorf("%s: syncFolderNeedsFullName() = %v, want %v", test.folder.RemoteID, got, test.tooltip != "")
+		}
+		if test.tooltip != "" && !strings.Contains(html, ">"+test.tooltip+"<") {
+			t.Errorf("%s: pill tooltip missing %q: %s", test.folder.RemoteID, test.tooltip, html)
+		}
+	}
+}
+
+// The real-time fallback text names a special folder in the page's language
+// too.
+func TestIdleFallbackTooltipNamesSpecialFolderInPageLanguage(t *testing.T) {
+	text := idleFallbackTooltip(i18n.WithLocale(context.Background(), "es"), models.FolderSyncStatus{
+		Name:               "Deleted Messages",
+		RemoteID:           "Deleted Messages",
+		FolderName:         "Trash",
+		Role:               "trash",
+		IDLEFallbackReason: "the IDLE connection was closed",
+	})
+	if want := "Papelera pasó a consulta periódica porque se cerró la conexión IDLE."; text != want {
+		t.Fatalf("idleFallbackTooltip() = %q, want %q", text, want)
+	}
+}
+
+// A unified folder's row in Sync settings names it in the page's language.
+func TestUnifiedFolderSettingRowNamesFolderInPageLanguage(t *testing.T) {
+	var out bytes.Buffer
+	folder := unifiedFolderOption{ID: "inbox", Name: "Inbox", Icon: "inbox"}
+	if err := UnifiedFolderSettingRow(folder, nil, nil).Render(i18n.WithLocale(context.Background(), "es"), &out); err != nil {
+		t.Fatalf("UnifiedFolderSettingRow.Render() error = %v", err)
+	}
+	html := out.String()
+	if want := `<span id="unified-folder-inbox-label" class="text-sm font-medium text-foreground">Recibidos</span>`; !strings.Contains(html, want) {
+		t.Fatalf("row missing %s: %s", want, html)
+	}
+	if strings.Contains(html, "Inbox") {
+		t.Fatalf("row still names the folder Inbox: %s", html)
+	}
+}
+
 // A Gmail account's Calendar sync offers full calendar access until it has
 // it, and then says how to take it back.
 func TestGoogleCalendarManageAccess(t *testing.T) {

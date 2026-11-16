@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -154,7 +156,7 @@ func (db *DB) summaryListScope(ctx context.Context, userID, folderID string, fil
 	}
 	scope.where += src.live
 	if filters.Unread {
-		scope.where += ` AND ` + src.read + ` = 0`
+		scope.where += ` AND (` + src.read + ` = 0` + keptReadSQL(filters, "s.account_id", "s.thread_key", "s.message_id") + `)`
 	} else if filters.Read {
 		scope.where += ` AND ` + src.read + ` = 1`
 	}
@@ -181,6 +183,25 @@ func (db *DB) summaryListScope(ctx context.Context, userID, folderID string, fil
 		scope.args = append(scope.args, args...)
 	}
 	return scope, true, nil
+}
+
+// keptReadSQL is the OR term that keeps the rows of filters.KeepRead in an
+// Unread list, given the columns holding a row's account and conversation
+// key, or its message in a list of single messages. The IDs were parsed as
+// numbers, so they are written into the query.
+func keptReadSQL(filters models.EmailFilters, account, threadKey, message string) string {
+	if len(filters.KeepRead) == 0 {
+		return ""
+	}
+	ids := make([]string, len(filters.KeepRead))
+	for i, id := range filters.KeepRead {
+		ids[i] = strconv.FormatInt(id, 10)
+	}
+	list := strings.Join(ids, ", ")
+	if filters.ByMessage {
+		return ` OR ` + message + ` IN (` + list + `)`
+	}
+	return ` OR (` + account + `, ` + threadKey + `) IN (SELECT account_id, COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id)) FROM messages WHERE id IN (` + list + `))`
 }
 
 // summaryFiltersOnly reports whether the filters use nothing beyond the
