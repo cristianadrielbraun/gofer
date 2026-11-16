@@ -36,7 +36,7 @@ Configure Calendar under **Settings → Accounts**: enable it for an account, di
 
 For server deployments, use personal or managed authentication, serve the application through an HTTPS reverse proxy, and configure `GOFER_ADDR` and `GOFER_BASE_URL` for your deployment. The listener binds to loopback by default. Set `GOFER_TRUSTED_PROXY_CIDRS` only for your actual proxy peers; use `GOFER_ALLOWED_CIDRS` when you need to restrict client networks.
 
-To sign in over plain HTTP on a home or office network, set `GOFER_BASE_URL` to the server's private address and `GOFER_ALLOW_INSECURE_LAN=true`. Sign-in cookies then travel unencrypted on that network, and Gofer logs a warning at startup; public addresses and host names still require HTTPS.
+To sign in over plain HTTP on a home or office network, see [private network access](./lan-access.md). Public addresses and host names still require HTTPS.
 
 Gofer doesn't connect to servers on private network addresses unless they are approved. If your mail, calendar, or contacts server is on your local network, approve it under Mail security: in Settings, Security for personal and open installations, or in the admin panel in managed mode.
 
@@ -47,10 +47,6 @@ Gofer looks up sender pictures from Gravatar, Libravatar, BIMI, and the sender d
 Set `GOFER_GOOGLE_FONTS=true` to let people pick text and heading fonts from the Google Fonts library under Settings, Appearance. The fonts apply to every style except Express. Gofer fetches the family list, stylesheets and font files itself, keeps them in `google-fonts/` next to the database, and serves them from its own address.
 
 Runtime data is stored in `data/` by default. Protect the data directory, configuration, and secrets, and back them up together before upgrades. Shared databases apply schema migrations at startup, and managed mode converts them to per-user storage as described in [pre-0.5.0-migration.md](./pre-0.5.0-migration.md). Going back to an older version may require restoring its matching backup, and the retained shared database does not include changes made after conversion. I recommend testing your providers and access setup before relying on Gofer for anything critical.
-
-## appearance
-
-Messages follow the app theme by default, so a dark theme also darkens email content. To show emails as their senders designed them, go to **Settings → Appearance → Messages → Message style** and choose **Original**. The Dark, Light and Original buttons on a message change only that message.
 
 ## outlook change notifications
 
@@ -74,7 +70,7 @@ docker compose logs gofer   # shows the first-run setup token
 
 The image differs from a plain binary in a few defaults: it runs in `personal` mode, listens on all addresses inside the container on port 8090, and keeps its data in the `/data` volume. Every setting from [`.env.example`](../.env.example) can be passed as an environment variable, or from a file with `env_file`.
 
-The example publishes the port on `127.0.0.1` only, for an HTTPS reverse proxy on the same machine. That proxy reaches Gofer through the Docker network gateway, so set `GOFER_TRUSTED_PROXY_CIDRS: 172.16.0.0/12` to pass on the real client address. To reach Gofer from other machines without a proxy, publish `"8090:8090"` instead, and see the plain HTTP note above.
+The example publishes the port on `127.0.0.1` only, for an HTTPS reverse proxy on the same machine. That proxy reaches Gofer through the Docker network gateway, so set `GOFER_TRUSTED_PROXY_CIDRS: 172.16.0.0/12` to pass on the real client address. To reach Gofer from other machines without a proxy, publish `"8090:8090"` instead, and see [private network access](./lan-access.md).
 
 If the setup token is lost or expired, rotate it while Gofer is running:
 

@@ -2,7 +2,7 @@
 
 These steps apply to any Gofer installation. For other providers, see [accounts](./setup.md#accounts).
 
-## Gmail with an app password
+## gmail with an app password
 
 An IMAP/SMTP option when your Google account allows app passwords. It does not require a Google Cloud OAuth client. For Google contacts and Calendar through the Google APIs, use [Google sign-in](#gmail-and-google-workspace-with-google-sign-in).
 
@@ -25,7 +25,7 @@ If app passwords are unavailable, check these possible causes in [Google's app p
 - The only second step is a security key, or the account uses Advanced Protection.
 - Your work or school account restricts app passwords. Use Google sign-in below, subject to your administrator's policies.
 
-## Gmail and Google Workspace with Google sign-in
+## gmail and google workspace with google sign-in
 
 For access from other devices, use an HTTPS address and your own Google Cloud OAuth client. [Tailscale](./tailscale.md) is one HTTPS option; another reverse proxy works too. One client can cover both personal Gmail and Workspace accounts when its audience allows them. Google's [redirect URI rules](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation) allow HTTP for localhost development, but not for a private LAN address.
 
@@ -67,6 +67,6 @@ External apps in **Testing** are limited to listed test users. For the scopes Go
 
 For ongoing use, review the app's **Branding**, **Audience**, and **Data Access** settings, then choose **Publish app** under **Audience** when ready. Publishing and verification are separate. Personal-use and organization-internal apps can qualify for [verification exceptions](https://support.google.com/cloud/answer/13464323); an unverified external app can still show a warning and have a user cap. Follow the requirements shown for your project, including any domain and branding requirements, before making it available to others.
 
-### Workspace accounts
+### workspace accounts
 
 If your Workspace limits third-party apps, Google blocks the sign-in. A Workspace administrator can allow it in the Admin console under **Security → Access and data control → API controls**: turn on **Trust internal, domain-owned apps** for an Internal client, or mark the client ID as trusted under **Manage Third-Party App Access**.

@@ -29,5 +29,4 @@ Follow [running Gofer as a Linux service](./linux-service.md). Its example uses 
 ## add accounts and keep it updated
 
 - [Gmail and Google Workspace](./gmail.md) covers app passwords and Google sign-in. For other providers, see [accounts](./setup.md#accounts).
-- [Appearance](./setup.md#appearance) explains how to display messages in their original colors.
 - [Updating a Linux binary installation](./binary-updates.md) covers backups and rollback. Use `ARCH=arm64` for the Pi.
