@@ -1014,13 +1014,31 @@ templ ListLayoutSelector(cardOpenAttribute string, list string, columns []ListCo
 					@icon.Settings(icon.Props{Class: "size-3.5"})
 				}
 			}
-			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "normal-case tracking-normal", Attributes: templ.Attributes{"data-mail-list-display-menu": ""}}) {
+			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "normal-case tracking-normal max-h-none overflow-visible", Attributes: templ.Attributes{"data-mail-list-display-menu": ""}}) {
 				<div data-mail-table-column-menu data-table-columns-list={ list }>
-					@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
-						{ i18n.T(ctx, "mail.columns.title") }
-					}
-					for _, column := range columns {
-						@MailListColumnOption(column.ID, column.Label)
+					// The columns scroll on their own, so the footer below them
+					// always shows.
+					<div class="max-h-[min(24rem,70dvh)] overflow-y-auto overflow-x-hidden">
+						@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
+							{ i18n.T(ctx, "mail.columns.title") }
+						}
+						for _, column := range columns {
+							@MailListColumnOption(column.ID, column.Label)
+						}
+					</div>
+					if list == "mail" {
+						// The footer: the folder or tag on screen can keep columns
+						// of its own. Search results are no folder, so app.js turns
+						// it off there.
+						@dropdown.Separator()
+						@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 transition-opacity duration-200 ease-out aria-disabled:pointer-events-none aria-disabled:opacity-50 motion-reduce:transition-none", PreventClose: true, Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": "false", "aria-disabled": "false", "data-mail-table-place-item": ""}}) {
+							// The item takes the click; app.js keeps the box checked.
+							@checkbox.Checkbox(checkbox.Props{
+								Class:      "pointer-events-none",
+								Attributes: templ.Attributes{"tabindex": "-1", "aria-hidden": "true", "data-mail-table-place-check": ""},
+							})
+							{ i18n.T(ctx, "mail.columns.this_folder_only") }
+						}
 					}
 				</div>
 			}

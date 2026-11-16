@@ -4016,6 +4016,7 @@
   "mail.column.thread": "Conversa",
   "mail.column.to": "Para",
   "mail.columns.customize": "Personalizar as colunas da tabela",
+  "mail.columns.this_folder_only": "Somente para esta pasta",
   "mail.columns.title": "Colunas",
   "mail.compose": "Escrever",
   "mail.draft.continue": "Continuar editando",

@@ -4016,6 +4016,7 @@
   "mail.column.thread": "会话",
   "mail.column.to": "收件人",
   "mail.columns.customize": "自定义表格列",
+  "mail.columns.this_folder_only": "仅用于此文件夹",
   "mail.columns.title": "列",
   "mail.compose": "写邮件",
   "mail.draft.continue": "继续编辑",

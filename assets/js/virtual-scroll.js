@@ -1096,6 +1096,7 @@ class VirtualMailList {
     var scrollLeft = this.container.scrollLeft
     var scrollTop = this.container.scrollTop
     var last = null
+    var clones = []
     for (var i = 0; i < leaving.length; i++) {
       var item = leaving[i]
       var clone = document.createElement("div")
@@ -1106,6 +1107,7 @@ class VirtualMailList {
       clone.style.width = item.rect.width + "px"
       clone.style.height = item.rect.height + "px"
       overlay.appendChild(clone)
+      clones.push(clone)
       if (typeof clone.animate !== "function") continue
       last = clone.animate([
         { opacity: 1, translate: "0 0", scale: "1" },
@@ -1113,6 +1115,7 @@ class VirtualMailList {
         { opacity: 0, translate: "0 18px", scale: "0.99" },
       ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
     }
+    if (this.viewMode === "table") this.keepTableColumns(overlay, clones)
     var done = function () {
       if (overlay.parentNode) overlay.remove()
       itemsContainer.style.zIndex = ""
@@ -1146,6 +1149,24 @@ class VirtualMailList {
             { opacity: 1, translate: "0 0", scale: "1" },
           ], { duration: 220, delay: delay + Math.min(150, j * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
         }
+      })
+    })
+  }
+
+  // keepTableColumns holds the leaving rows' copies to the columns they were
+  // drawn with: a folder with columns of its own changes them for the list
+  // (syncTableColumnsPlace) while those rows are still fading out.
+  keepTableColumns(overlay, clones) {
+    if (clones.length === 0) return
+    overlay.style.setProperty("--mail-list-table-columns", this.container.style.getPropertyValue("--mail-list-table-columns"))
+    var displays = {}
+    clones[0].querySelectorAll("[data-mail-table-cell]").forEach(function (cell) {
+      if (!(cell.dataset.mailTableCell in displays)) displays[cell.dataset.mailTableCell] = getComputedStyle(cell).display
+    })
+    clones.forEach(function (clone) {
+      clone.querySelectorAll("[data-mail-table-cell]").forEach(function (cell) {
+        var display = displays[cell.dataset.mailTableCell]
+        if (display) cell.style.display = display
       })
     })
   }
@@ -2082,6 +2103,7 @@ class VirtualMailList {
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
 
+    this.syncTableColumnsPlace()
     if (typeof window.applyMailTableColumnSettings === "function") {
       window.applyMailTableColumnSettings(this.container)
     }
@@ -2894,8 +2916,116 @@ class VirtualMailList {
     }
   }
 
+  // The folder or tag whose own table columns show, if it has some
+  // (ui-settings.js). It follows the header, which names the same place.
+  syncTableColumnsPlace() {
+    var tag = this.sidebarTag || this.emptySidebarTag()
+    var place = this.searchScope || typeof window.mailTableColumnsPlace !== "function" ? "" : window.mailTableColumnsPlace(this.folderID, tag)
+    if (this.container.dataset.tableColumnsPlace === place) return
+    // The first place is set before anything is drawn, with nothing to move.
+    var before = this.container.dataset.tableColumnsPlace === undefined ? null : this.measureTableHeader()
+    this.container.dataset.tableColumnsPlace = place
+    if (typeof window.applyMailTableColumnSettings === "function") window.applyMailTableColumnSettings(this.container)
+    if (before) this.animateTableHeader(before)
+  }
+
+  // measureTableHeader notes where each column name sits in the table
+  // header, so animateTableHeader can move them to where other columns put
+  // them. A move still under way is measured where it is, and goes on from
+  // there.
+  measureTableHeader() {
+    if (this.viewMode !== "table" || this.prefersReducedMotion()) return null
+    var header = this.container.querySelector(".mail-list-table-header")
+    if (!header || typeof header.animate !== "function") return null
+    var box = header.getBoundingClientRect()
+    var cells = new Map()
+    header.querySelectorAll(":scope > [data-mail-table-column-id]").forEach(function (cell) {
+      var rect = cell.getBoundingClientRect()
+      if (!rect.width) return
+      cells.set(cell.dataset.mailTableColumnId, {
+        cell: cell,
+        left: rect.left - box.left,
+        top: rect.top - box.top,
+        width: rect.width,
+        height: rect.height,
+        display: getComputedStyle(cell).display,
+      })
+    })
+    ;(this.tableHeaderAnimations || []).forEach(function (animation) { animation.cancel() })
+    this.tableHeaderAnimations = []
+    header.querySelectorAll(":scope > [data-mail-table-header-leaving]").forEach(function (clone) { clone.remove() })
+    return {
+      header: header,
+      cells: cells,
+      columns: this.container.style.getPropertyValue("--mail-list-table-columns"),
+      hidden: this.container.dataset.mailTableHidden || "",
+    }
+  }
+
+  // animateTableHeader moves the column names from where measureTableHeader
+  // found them to where the columns now put them, paced with the rows
+  // changing below: a name in both slides and stretches to its new place,
+  // one gone fades out where it was, and one new fades in as the new rows
+  // arrive.
+  animateTableHeader(before) {
+    var header = before.header
+    if (!header.isConnected) return
+    if (before.columns === this.container.style.getPropertyValue("--mail-list-table-columns") && before.hidden === (this.container.dataset.mailTableHidden || "")) return
+    // Everything is measured before any animation starts, so the header is
+    // laid out once.
+    var box = header.getBoundingClientRect()
+    var after = []
+    header.querySelectorAll(":scope > [data-mail-table-column-id]").forEach(function (cell) {
+      var rect = cell.getBoundingClientRect()
+      if (rect.width) after.push({ cell: cell, left: rect.left - box.left, width: rect.width })
+    })
+    var animations = this.tableHeaderAnimations
+    var staying = new Set()
+    after.forEach(function (item) {
+      var id = item.cell.dataset.mailTableColumnId
+      var old = before.cells.get(id)
+      if (!old) {
+        animations.push(item.cell.animate([
+          { opacity: 0, translate: "0 -4px" },
+          { opacity: 1, translate: "0 0" },
+        ], { duration: 220, delay: 60, easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" }))
+        return
+      }
+      staying.add(id)
+      var dx = old.left - item.left
+      if (Math.abs(dx) < 0.5 && Math.abs(old.width - item.width) < 0.5) return
+      animations.push(item.cell.animate([
+        { translate: dx + "px 0", width: old.width + "px" },
+        { translate: "0 0", width: item.width + "px" },
+      ], { duration: 300, easing: "cubic-bezier(0.2, 0, 0, 1)" }))
+    })
+    // A name gone is drawn where it was, over the header, while it fades.
+    before.cells.forEach(function (old, id) {
+      if (staying.has(id)) return
+      var clone = old.cell.cloneNode(true)
+      clone.setAttribute("data-mail-table-header-leaving", "")
+      clone.setAttribute("aria-hidden", "true")
+      clone.removeAttribute("data-mail-table-column-id")
+      clone.querySelectorAll("[data-mail-table-resize]").forEach(function (handle) { handle.removeAttribute("data-mail-table-resize") })
+      clone.style.position = "absolute"
+      clone.style.pointerEvents = "none"
+      clone.style.margin = "0"
+      clone.style.display = old.display
+      clone.style.left = old.left + "px"
+      clone.style.top = old.top + "px"
+      clone.style.width = old.width + "px"
+      clone.style.height = old.height + "px"
+      header.appendChild(clone)
+      var fade = clone.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+      var remove = function () { clone.remove() }
+      fade.finished.then(remove, remove)
+      animations.push(fade)
+    })
+  }
+
   updateHeader() {
     if (window.GoferMailSearch) window.GoferMailSearch.sync()
+    this.syncTableColumnsPlace()
     var nameEl = document.getElementById("mail-folder-name")
     // Search results are named so, a tag's among them, as the server does.
     if (nameEl && this.searchScope) {

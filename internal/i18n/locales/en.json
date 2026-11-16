@@ -4016,6 +4016,7 @@
   "mail.column.thread": "Thread",
   "mail.column.to": "To",
   "mail.columns.customize": "Customize table columns",
+  "mail.columns.this_folder_only": "Only for this folder",
   "mail.columns.title": "Columns",
   "mail.compose": "Compose",
   "mail.draft.continue": "Continue editing",

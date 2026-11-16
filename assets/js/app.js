@@ -11311,8 +11311,8 @@ document.addEventListener("DOMContentLoaded", function () {
       return column.fixed || column.min || 0
     }
 
-    function widthSetting(model, widths, ids) {
-      var values = model.ratios(window.GoferSettings ? GoferSettings.get(model.widthsKey) : null)
+    function widthSetting(model, widths, ids, scroll) {
+      var values = model.ratios(model.widths(scroll))
       var total = 0
       for (var i = 0; i < widths.length; i++) {
         if (!model.columns[columnIndex(model, ids[i])].fixed) total += widths[i]
@@ -11378,7 +11378,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         widths[visibleIndex] = nextLeft
         widths[visibleIndex + 1] = nextRight
-        model.applyWidths(widthSetting(model, widths, state.ids), scroll)
+        model.applyWidths(widthSetting(model, widths, state.ids, scroll), scroll)
       }
 
       function onUp() {
@@ -11386,7 +11386,7 @@ document.addEventListener("DOMContentLoaded", function () {
         document.removeEventListener("pointerup", onUp)
         document.body.classList.remove("mail-list-column-resizing")
         handle.removeAttribute("data-resizing")
-        if (window.GoferSettings) GoferSettings.set(model.widthsKey, widthSetting(model, widths, state.ids))
+        model.saveWidths(widthSetting(model, widths, state.ids, scroll), scroll)
       }
 
       document.addEventListener("pointermove", onMove)
@@ -11406,6 +11406,18 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      // "Only for this folder" gives the folder or tag on screen columns of
+      // its own, starting from the ones it shows, or takes them away.
+      var placeItem = e.target.closest("[data-mail-table-place-item]")
+      if (placeItem) {
+        var placeMenu = placeItem.closest("[data-mail-table-column-menu]")
+        var placeModel = placeMenu && menuModel(placeMenu)
+        if (!placeModel || !placeModel.hasPlace()) return
+        placeModel.setOwn(!placeModel.hasOwn())
+        syncColumnMenu(placeMenu)
+        return
+      }
+
       var item = e.target.closest("[data-mail-table-column-item]")
       if (item) {
         var menuPanel = item.closest("[data-mail-table-column-menu]")
@@ -11422,7 +11434,7 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
         selected.sort(function (a, b) { return columnIndex(model, a) - columnIndex(model, b) })
-        if (window.GoferSettings) GoferSettings.set(model.columnsKey, selected.join(","))
+        model.saveColumns(selected)
         var parentMenu = item.closest("[data-mail-list-display-menu]")
         if (parentMenu) syncDisplayMenu(parentMenu)
         else syncColumnMenu(menuPanel)
@@ -11441,6 +11453,14 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var i = 0; i < model.ids.length; i++) {
         var check = menu.querySelector('[data-mail-table-column-check="' + model.ids[i] + '"]')
         if (check) check.classList.toggle("opacity-0", selected.indexOf(model.ids[i]) === -1)
+      }
+      var place = menu.querySelector("[data-mail-table-place-item]")
+      if (place) {
+        var own = model.hasOwn()
+        place.setAttribute("aria-disabled", model.hasPlace() ? "false" : "true")
+        place.setAttribute("aria-checked", own ? "true" : "false")
+        var placeCheck = place.querySelector("[data-mail-table-place-check]")
+        if (placeCheck) placeCheck.checked = own
       }
     }
 
