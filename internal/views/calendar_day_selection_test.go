@@ -10,7 +10,7 @@ import (
 
 func TestCalendarAgendaHasNoEightEventLimit(t *testing.T) {
 	start := time.Now().UTC().AddDate(0, 0, 1)
-	month := NewCalendarMonthData(start)
+	month := NewCalendarMonthData(start, time.Monday)
 	for index := 0; index < 12; index++ {
 		at := start.Add(time.Duration(index) * time.Hour)
 		end := at.Add(time.Hour)
@@ -26,7 +26,7 @@ func TestCalendarAgendaListsEveryEventInTheView(t *testing.T) {
 	// from the previous month that the grid shows. Both are listed, not just what is
 	// still to come.
 	today := time.Date(2026, time.October, 10, 12, 0, 0, 0, time.UTC)
-	month := NewCalendarMonthData(today)
+	month := NewCalendarMonthData(today, time.Monday)
 	earlier := time.Date(2026, time.October, 2, 9, 0, 0, 0, time.UTC)
 	leading := time.Date(2026, time.September, 29, 9, 0, 0, 0, time.UTC)
 	for _, at := range []time.Time{earlier, leading} {
@@ -66,7 +66,7 @@ func TestCalendarDaySelectionIncludesPastEventsAndOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Date(2020, time.October, 25, 8, 0, 0, 0, prague)
-	month := NewCalendarMonthData(start)
+	month := NewCalendarMonthData(start, time.Monday)
 	for index := 0; index < 12; index++ {
 		at := start.Add(time.Duration(index) * time.Hour)
 		end := at.Add(30 * time.Minute)

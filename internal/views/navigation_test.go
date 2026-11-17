@@ -16,7 +16,7 @@ func TestAppLayoutsPreloadNavigationOnce(t *testing.T) {
 	pages := map[string]templ.Component{
 		"mail":     Layout(nil, "inbox", nil, nil, -1, -1, 0, settings, nil, "", 0, models.EmailFilters{}),
 		"contacts": ContactsLayout(nil, nil, nil, nil, false, false, models.ContactFilters{}, 0, settings),
-		"calendar": CalendarLayout(nil, NewCalendarMonthData(time.Now()), settings),
+		"calendar": CalendarLayout(nil, NewCalendarMonthData(time.Now(), time.Monday), settings),
 		"settings": SettingsLayout(nil, models.SyncSettings{}, "accounts", settings, nil),
 		"security": PasswordSecurityLayout(settings, PasswordSecurityData{}),
 	}

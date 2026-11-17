@@ -14124,7 +14124,7 @@ function calendarLoadingWeekCount(month) {
   if (!parts) return null
   var year = Number(parts[1]), index = Number(parts[2]) - 1
   if (index < 0 || index > 11) return null
-  var leading = (new Date(Date.UTC(year, index, 1)).getUTCDay() + 6) % 7
+  var leading = (new Date(Date.UTC(year, index, 1)).getUTCDay() - goferDates.weekStart + 7) % 7
   return Math.ceil((leading + new Date(Date.UTC(year, index + 1, 0)).getUTCDate()) / 7)
 }
 
@@ -14133,7 +14133,7 @@ function calendarLoadingPeriodLabel(view, date) {
   var at = new Date(date.length === 7 ? date + "-01T12:00:00Z" : date + "T12:00:00Z")
   if (isNaN(at.getTime())) return ""
   if (view !== "week") return goferDates.monthYear(at, "UTC")
-  at.setUTCDate(at.getUTCDate() - (at.getUTCDay() + 6) % 7)
+  at.setUTCDate(at.getUTCDate() - (at.getUTCDay() - goferDates.weekStart + 7) % 7)
   var end = new Date(at.getTime())
   end.setUTCDate(end.getUTCDate() + 6)
   return goferDates.dateRange(at, end, "UTC")
@@ -14198,7 +14198,7 @@ function showCalendarContentPending(event) {
   if (view === "week") {
     var weekDate = (url.searchParams.get("date") || calendar.dataset.calendarTodayDate).split("-").map(Number)
     var weekStart = new Date(Date.UTC(weekDate[0], weekDate[1] - 1, weekDate[2]))
-    weekStart.setUTCDate(weekStart.getUTCDate() - (weekStart.getUTCDay() + 6) % 7)
+    weekStart.setUTCDate(weekStart.getUTCDate() - (weekStart.getUTCDay() - goferDates.weekStart + 7) % 7)
     var weekDays = []
     loading.querySelectorAll("[data-calendar-week-header] [data-calendar-day]").forEach(function (day, index) {
       var date = new Date(weekStart.getTime() + index * 86400000)

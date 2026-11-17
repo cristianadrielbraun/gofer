@@ -4897,7 +4897,7 @@ func MailFilterCalendarField(name string, id string, placeholder string) templ.C
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = calendar.Calendar(calendar.Props{ID: id, Name: name, Class: "[--cell-size:1.9rem]", HideHiddenInput: false, MinYear: 1970, MaxYear: time.Now().Year() + 1}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = calendar.Calendar(calendar.Props{ID: id, Name: name, Class: "[--cell-size:1.9rem]", HideHiddenInput: false, MinYear: 1970, MaxYear: time.Now().Year() + 1, StartOfWeek: pickerStartOfWeek(ctx)}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -124,6 +125,30 @@ func TestLocaleMiddlewareCarriesTheDateSettings(t *testing.T) {
 	h.LocaleMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
 	if format != "dd-mm-yyyy" || clock != "24h" {
 		t.Fatalf("date settings = %q %q", format, clock)
+	}
+}
+
+func TestLocaleMiddlewareCarriesTheWeekStart(t *testing.T) {
+	h := localeTestHandler(t)
+	request := func() time.Weekday {
+		var day time.Weekday
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { day = i18n.WeekStart(r.Context()) })
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "locale-user"}))
+		h.LocaleMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
+		return day
+	}
+	forgetSavedRegional("locale-user")
+	if day := request(); day != time.Monday {
+		t.Fatalf("week start with nothing saved = %s", day)
+	}
+	if err := h.db.MergeUISettings(context.Background(), "locale-user", map[string]string{i18n.WeekStartSettingKey: "sunday"}); err != nil {
+		t.Fatal(err)
+	}
+	// Saving the one setting must not leave the earlier choice cached.
+	rememberSavedRegional("locale-user", map[string]string{i18n.WeekStartSettingKey: "sunday"})
+	if day := request(); day != time.Sunday {
+		t.Fatalf("week start after saving Sunday = %s", day)
 	}
 }
 

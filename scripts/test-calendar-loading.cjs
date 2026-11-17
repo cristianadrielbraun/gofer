@@ -25,6 +25,19 @@ for (const [view, date, label] of [
   ['week', '2026-03-29', 'Mar 23–29, 2026'], // DST cannot shift the weekday axis.
 ]) assert.equal(context.calendarLoadingPeriodLabel(view, date), label)
 assert.equal(context.calendarLoadingPeriodLabel('month', 'invalid'), '')
+// The skeleton follows the week start setting, like the grid that replaces it.
+// August 1, 2026 is a Saturday and October 4, 2026 a Sunday.
+for (const [weekStart, rows, label] of [
+  ['1', {'2026-08': 6, '2027-02': 4, '2026-03': 6}, 'Sep 28 – Oct 4, 2026'],
+  ['0', {'2026-08': 6, '2027-02': 5, '2026-03': 5}, 'Oct 4–10, 2026'],
+  ['6', {'2026-08': 5, '2027-02': 5, '2026-03': 5}, 'Oct 3–9, 2026'],
+]) {
+  const chosen = loadI18n(vm.createContext({}), 'en', 'auto', 'auto', weekStart)
+  vm.runInContext(['calendarLoadingWeekCount', 'calendarLoadingPeriodLabel'].map(helper).join('\n'), chosen)
+  for (const [month, count] of Object.entries(rows)) assert.equal(chosen.calendarLoadingWeekCount(month), count, 'Skeleton rows for ' + month + ' with weeks starting on day ' + weekStart)
+  assert.equal(chosen.calendarLoadingPeriodLabel('week', '2026-10-04'), label)
+}
+assert.ok(helper('showCalendarContentPending').includes('goferDates.weekStart'), 'The incoming week headers must start on the chosen day')
 assert.ok(!helper('showCalendarContentPending').includes('calendar-skeleton'), 'Date navigation must not inject pulsing placeholders into the empty grid')
 
 const viewSwitchContext = vm.createContext({
@@ -69,4 +82,4 @@ assert.ok(appNav.indexOf('setSidebarAppNavMode(mode)') < appNav.indexOf('showApp
 assert.ok(appNav.includes('xhr !== request'), 'Old app responses must not overwrite the new tab')
 assert.ok(appNav.includes('goferAppPaneMode !== sidebar.dataset.sidebarAppBody'), 'Background replies from the previous app must not overwrite a skeleton or a new app')
 assert.ok(appNav.includes('htmx:sendAbort'), 'Interrupted loading must have a recovery path')
-console.log('Calendar loading: exact month row counts, week labels/DST, no view-switch skeleton flash, target identity, saved widths, rollback, immediate tab selection, and stale request guards passed.')
+console.log('Calendar loading: exact month row counts, week labels/DST, chosen week start, no view-switch skeleton flash, target identity, saved widths, rollback, immediate tab selection, and stale request guards passed.')

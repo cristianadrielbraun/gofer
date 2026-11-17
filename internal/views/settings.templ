@@ -873,6 +873,29 @@ templ SettingsRegionalTab(uiSettings map[string]string) {
 			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.regional.week_start.title") }</h4>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.regional.week_start.description") }</p>
+				</div>
+				<div class="w-full shrink-0 sm:w-64" data-week-start-picker>
+					{{ weekStart := i18n.ParseWeekStart(uiSettingGet(uiSettings, i18n.WeekStartSettingKey, "")) }}
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: i18n.WeekStartSettingKey, Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-week-start-input": ""}}) {
+							@selectbox.Value() {
+								{ weekStartLabel(ctx, weekStart) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							for _, day := range i18n.WeekStarts() {
+								@selectbox.Item(selectbox.ItemProps{Value: i18n.WeekStartSetting(day), Selected: day == weekStart}) {
+									{ weekStartLabel(ctx, day) }
+								}
+							}
+						}
+					}
+				</div>
+			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.regional.timezone.title") }</h4>
 					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.regional.timezone.description") }</p>
 				</div>
@@ -951,6 +974,13 @@ func timeFormatSetting(uiSettings map[string]string) string {
 func timeFormatLabel(ctx context.Context, id string) string {
 	sample := i18n.NewDateFormatter(i18n.FromContext(ctx), "auto", id).Time(formatSampleTime())
 	return i18n.T(ctx, "settings.regional.time_format."+id, "sample", sample)
+}
+
+// weekStartLabel names a first day of the week in the picker. It has its own
+// text because weekday names are lowercase in some languages, which suits a
+// date but not a menu.
+func weekStartLabel(ctx context.Context, day time.Weekday) string {
+	return i18n.T(ctx, "settings.regional.week_start."+i18n.WeekStartSetting(day))
 }
 
 templ SettingsAdvancedTab(uiSettings map[string]string) {

@@ -296,10 +296,11 @@ func calendarMonthFromRequest(r *http.Request, uiSettings map[string]string) tim
 
 func calendarDataFromRequest(r *http.Request, uiSettings map[string]string) views.CalendarMonthData {
 	at := calendarMonthFromRequest(r, uiSettings)
+	weekStart := i18n.ParseWeekStart(uiSettings[i18n.WeekStartSettingKey])
 	if calendarViewFromRequest(r, uiSettings) == "week" {
-		return views.NewCalendarWeekData(at)
+		return views.NewCalendarWeekData(at, weekStart)
 	}
-	return views.NewCalendarMonthData(at)
+	return views.NewCalendarMonthData(at, weekStart)
 }
 
 // A link to a month or date names its view. Plain /calendar opens the view

@@ -16,7 +16,7 @@ import (
 // app.js). Both sidebar panes must come whole before the list starts.
 func TestSectionPartialsPutTheSidebarBeforeTheList(t *testing.T) {
 	accounts := []models.Account{{ID: "acc-1", Email: "ana@example.test", Provider: "imap"}}
-	month := NewCalendarMonthData(time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC))
+	month := NewCalendarMonthData(time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC), time.Monday)
 	list := regexp.MustCompile(`\sid="mail-list"`)
 	for name, partial := range map[string]templ.Component{
 		"mail":     MailAppPartial(accounts, "inbox", nil, nil, 0, 0, nil, nil, "", 0, 0, models.EmailFilters{}),

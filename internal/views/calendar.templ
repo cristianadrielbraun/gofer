@@ -760,8 +760,8 @@ templ CalendarMainContent(month CalendarMonthData) {
 			} else {
 				<div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_1px_2px_rgba(0,0,0,0.04)]" data-calendar-month-grid>
 					<div class="grid shrink-0 grid-cols-7 border-b border-border bg-muted/35">
-						for index := 0; index < 7; index++ {
-							<div class="px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]">{ calendarWeekdayLabel(ctx, index) }</div>
+						for _, day := range month.Weeks[0].Days {
+							<div class="px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]">{ i18n.Dates(ctx).WeekdayShortName(day.Date.Weekday()) }</div>
 						}
 					</div>
 					<div class="grid min-h-0 flex-1 grid-cols-7" style={ "grid-template-rows:repeat(" + strconv.Itoa(len(month.Weeks)) + ",minmax(0,1fr));" }>

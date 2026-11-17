@@ -10,7 +10,7 @@ import (
 )
 
 func TestCalendarInvitationStatesAcrossGridAndAgenda(t *testing.T) {
-	week := NewCalendarWeekData(time.Now().UTC().AddDate(0, 0, 7))
+	week := NewCalendarWeekData(time.Now().UTC().AddDate(0, 0, 7), time.Monday)
 	start := week.Weeks[0].Days[0].Date.Add(9 * time.Hour)
 	end := start.AddDate(0, 0, 2)
 	for _, state := range []struct{ raw, state, label string }{
@@ -33,9 +33,9 @@ func TestCalendarInvitationStatesAcrossGridAndAgenda(t *testing.T) {
 				}
 				t.Run(name, func(t *testing.T) {
 					event := CalendarEvent{ID: "invitation", Summary: "Planning", SourceColor: "#a3dcef", ResponseStatus: state.raw, Status: "tentative", AllDay: allDay, StartAt: &start, EndAt: &end, StartDate: start.Format("2006-01-02"), EndDate: end.Format("2006-01-02")}
-					data := NewCalendarMonthData(start)
+					data := NewCalendarMonthData(start, time.Monday)
 					if view == "week" {
-						data = NewCalendarWeekData(start)
+						data = NewCalendarWeekData(start, time.Monday)
 					}
 					data.Events = []CalendarEvent{event}
 					var out bytes.Buffer

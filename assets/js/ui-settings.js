@@ -1156,10 +1156,11 @@ var GoferSettings;
         detail: { key: key, value: value, oldValue: oldValue },
       }));
 
-      // The page is drawn in the time zone, language and date formats, so
-      // reload it.
+      // The page is drawn in the time zone, language, date formats and week
+      // start, so reload it.
       var drawn = key === "language" || key === "date_format" || key === "time_format";
-      if ((key === "timezone" && oldValue !== value) || (drawn && (oldValue || "auto") !== (value || "auto"))) {
+      var weekStartChanged = key === "week_start" && (oldValue || "monday") !== (value || "monday");
+      if ((key === "timezone" && oldValue !== value) || (drawn && (oldValue || "auto") !== (value || "auto")) || weekStartChanged) {
         if (_saveTimer) clearTimeout(_saveTimer);
         persistSettingsNow().finally(function () {
           window.location.reload();

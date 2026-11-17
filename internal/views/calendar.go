@@ -59,9 +59,10 @@ func calendarLoadingData(view string, uiSettings map[string]string) CalendarMont
 		}
 	}
 	at := time.Now().In(location)
-	data := NewCalendarMonthData(at)
+	weekStart := i18n.ParseWeekStart(uiSettings[i18n.WeekStartSettingKey])
+	data := NewCalendarMonthData(at, weekStart)
 	if view == "week" {
-		data = NewCalendarWeekData(at)
+		data = NewCalendarWeekData(at, weekStart)
 	}
 	data.Loading = true
 	return data
@@ -89,7 +90,10 @@ type CalendarEvent struct {
 	Occurrence bool
 }
 
-func NewCalendarMonthData(at time.Time) CalendarMonthData {
+// NewCalendarMonthData lays out the month holding at as whole weeks that
+// begin on weekStart, with the neighbouring months' days filling the first
+// and last ones. A zero at is now.
+func NewCalendarMonthData(at time.Time, weekStart time.Weekday) CalendarMonthData {
 	if at.IsZero() {
 		at = time.Now()
 	}
@@ -98,7 +102,7 @@ func NewCalendarMonthData(at time.Time) CalendarMonthData {
 	today := time.Now().In(location)
 	monthKey := month.Format("2006-01")
 
-	leadingDays := (int(month.Weekday()) + 6) % 7
+	leadingDays := calendarDaysIntoWeek(month, weekStart)
 	daysInMonth := time.Date(month.Year(), month.Month()+1, 0, 0, 0, 0, 0, location).Day()
 	cellCount := leadingDays + daysInMonth
 	weekCount := (cellCount + 6) / 7
@@ -136,6 +140,12 @@ func NewCalendarMonthData(at time.Time) CalendarMonthData {
 	}
 }
 
+// calendarDaysIntoWeek counts the days from the start of date's week to date,
+// in a week that begins on weekStart.
+func calendarDaysIntoWeek(date time.Time, weekStart time.Weekday) int {
+	return (int(date.Weekday()) - int(weekStart) + 7) % 7
+}
+
 func sameCalendarDate(left, right time.Time) bool {
 	return left.Year() == right.Year() && left.Month() == right.Month() && left.Day() == right.Day()
 }
@@ -160,11 +170,6 @@ func calendarPeriodLabel(ctx context.Context, month CalendarMonthData) string {
 		return dates.DateRange(days[0].Date, days[len(days)-1].Date)
 	}
 	return dates.MonthYear(month.Month)
-}
-
-// calendarWeekdayLabel names a column of a week that starts on Monday.
-func calendarWeekdayLabel(ctx context.Context, index int) string {
-	return i18n.Dates(ctx).WeekdayShortName(time.Weekday((index + 1) % 7))
 }
 
 func calendarDayLabel(ctx context.Context, day CalendarDay) string {

@@ -5118,15 +5118,15 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			for index := 0; index < 7; index++ {
+			for _, day := range month.Weeks[0].Days {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 333, "<div class=\"px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var260 string
-				templ_7745c5c3_Var260, templ_7745c5c3_Err = templ.JoinStringErrs(calendarWeekdayLabel(ctx, index))
+				templ_7745c5c3_Var260, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Dates(ctx).WeekdayShortName(day.Date.Weekday()))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 764, Col: 171}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 764, Col: 191}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var260))
 				if templ_7745c5c3_Err != nil {

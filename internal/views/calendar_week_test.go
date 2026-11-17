@@ -16,7 +16,7 @@ func TestCalendarWeekBuildsMondayFirstAcrossMonthAndYear(t *testing.T) {
 		{"2026-10-05", "2026-10-05", "2026-10-11", "Oct 5–11, 2026"},
 	} {
 		at, _ := time.Parse("2006-01-02", test.date)
-		week := NewCalendarWeekData(at)
+		week := NewCalendarWeekData(at, time.Monday)
 		if len(week.Weeks) != 1 || len(week.Weeks[0].Days) != 7 {
 			t.Fatal("week must contain exactly seven days")
 		}
@@ -123,7 +123,7 @@ func TestCalendarWeekSplitsTimezoneTransitions(t *testing.T) {
 
 func TestCalendarWeekRendersAllDayRowTimelineAndDetails(t *testing.T) {
 	at := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	data := NewCalendarWeekData(at)
+	data := NewCalendarWeekData(at, time.Monday)
 	data.AutoSync = true
 	data.Events = []CalendarEvent{
 		calendarTestTimedEvent("Planning", at, 540, 600),
@@ -157,7 +157,7 @@ func TestCalendarWeekRendersAllDayRowTimelineAndDetails(t *testing.T) {
 
 func TestCalendarViewSwitchMatchesAppTabStructure(t *testing.T) {
 	for _, view := range []string{"month", "week"} {
-		data := NewCalendarMonthData(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+		data := NewCalendarMonthData(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), time.Monday)
 		data.View = view
 		var out bytes.Buffer
 		if err := CalendarMainContent(data).Render(t.Context(), &out); err != nil {
@@ -191,7 +191,7 @@ func TestCalendarViewSwitchMatchesAppTabStructure(t *testing.T) {
 
 func TestCalendarResponsiveHeightAndZoomMarkup(t *testing.T) {
 	at := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	for _, data := range []CalendarMonthData{NewCalendarMonthData(at), NewCalendarWeekData(at)} {
+	for _, data := range []CalendarMonthData{NewCalendarMonthData(at, time.Monday), NewCalendarWeekData(at, time.Monday)} {
 		var output bytes.Buffer
 		if err := CalendarMainContent(data).Render(t.Context(), &output); err != nil {
 			t.Fatal(err)
@@ -254,5 +254,35 @@ func TestCalendarWeekPointEventShowsOnlyItsTime(t *testing.T) {
 	ranged := calendarTimedBlocks(day, []CalendarEvent{calendarTestTimedEvent("meeting", day.Date, 14*60, 15*60)})
 	if got := calendarTimedBlockRange(ctx, ranged[0]); got == calendarMinuteLabel(ctx, 14*60) {
 		t.Fatalf("event with a length lost its end: %q", got)
+	}
+}
+
+func TestCalendarWeekStartsOnTheChosenDay(t *testing.T) {
+	for _, test := range []struct {
+		weekStart         time.Weekday
+		date, first, last string
+	}{
+		{time.Sunday, "2026-10-02", "2026-09-27", "2026-10-03"},
+		// A Sunday opens its own week, not the one that ended on it.
+		{time.Sunday, "2026-10-04", "2026-10-04", "2026-10-10"},
+		{time.Saturday, "2026-10-02", "2026-09-26", "2026-10-02"},
+		{time.Saturday, "2027-01-01", "2026-12-26", "2027-01-01"},
+	} {
+		at, _ := time.Parse("2006-01-02", test.date)
+		week := NewCalendarWeekData(at, test.weekStart)
+		days := week.Weeks[0].Days
+		if len(days) != 7 || days[0].ISODate != test.first || days[6].ISODate != test.last || days[0].Date.Weekday() != test.weekStart {
+			t.Fatalf("%s-first week of %s = %s to %s, want %s to %s", test.weekStart, test.date, days[0].ISODate, days[6].ISODate, test.first, test.last)
+		}
+		if week.DateKey != test.date || week.PeriodKey != "week:"+test.first {
+			t.Fatalf("%s-first week of %s has date %s and period %s", test.weekStart, test.date, week.DateKey, week.PeriodKey)
+		}
+		var output bytes.Buffer
+		if err := CalendarWeekGrid(week).Render(t.Context(), &output); err != nil {
+			t.Fatal(err)
+		}
+		if html := output.String(); strings.Index(html, `data-calendar-timed-column="`+test.first+`"`) < 0 || strings.Index(html, `data-calendar-timed-column="`+test.first+`"`) > strings.Index(html, `data-calendar-timed-column="`+test.last+`"`) {
+			t.Fatalf("%s-first week columns do not run %s to %s", test.weekStart, test.first, test.last)
+		}
 	}
 }

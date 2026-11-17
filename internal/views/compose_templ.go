@@ -4158,7 +4158,7 @@ func ComposeSchedulePopover(fromPane bool, buttonClass string) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = calendar.Calendar(calendar.Props{ID: "compose-" + suffix + "schedule-calendar", Name: "compose_" + suffix + "schedule_date", Class: "[--cell-size:1.75rem]", HideHiddenInput: false, MinYear: time.Now().Year(), MaxYear: time.Now().Year() + 10}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = calendar.Calendar(calendar.Props{ID: "compose-" + suffix + "schedule-calendar", Name: "compose_" + suffix + "schedule_date", Class: "[--cell-size:1.75rem]", HideHiddenInput: false, MinYear: time.Now().Year(), MaxYear: time.Now().Year() + 10, StartOfWeek: pickerStartOfWeek(ctx)}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

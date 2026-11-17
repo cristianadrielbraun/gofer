@@ -13,14 +13,16 @@ import (
 
 const calendarWeekHourHeight = 64
 
-// Week view reuses the same cached events, agenda, and sync state as Month.
-func NewCalendarWeekData(at time.Time) CalendarMonthData {
+// NewCalendarWeekData lays out the week holding at, beginning on weekStart. A
+// zero at is now. Week view reuses the same cached events, agenda, and sync
+// state as Month.
+func NewCalendarWeekData(at time.Time, weekStart time.Weekday) CalendarMonthData {
 	if at.IsZero() {
 		at = time.Now()
 	}
-	data := NewCalendarMonthData(at)
+	data := NewCalendarMonthData(at, weekStart)
 	date := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
-	start := date.AddDate(0, 0, -((int(date.Weekday()) + 6) % 7))
+	start := date.AddDate(0, 0, -calendarDaysIntoWeek(date, weekStart))
 	data.View = "week"
 	data.PeriodKey = "week:" + start.Format("2006-01-02")
 	week := CalendarWeek{}

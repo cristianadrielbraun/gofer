@@ -11,7 +11,6 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
-	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 const calendarSourceTimeout = 90 * time.Second
@@ -69,12 +68,14 @@ func (h *Handler) calendarSourceInterval(ctx context.Context, source storage.Cal
 	return h.calendarSyncInterval(ctx, source.UserID)
 }
 
+// calendarBackgroundWindow is the span kept up to date without anyone
+// looking: last month through three months ahead, plus the six days a month
+// grid can show of its neighbours on either side, so the window covers those
+// grids whatever day the owner's weeks start on.
 func calendarBackgroundWindow(now time.Time, location *time.Location) (time.Time, time.Time) {
 	now = now.In(location)
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, location)
-	start, _ := calendarVisibleWindow(views.NewCalendarMonthData(month.AddDate(0, -1, 0)))
-	_, end := calendarVisibleWindow(views.NewCalendarMonthData(month.AddDate(0, 3, 0)))
-	return start, end
+	return month.AddDate(0, -1, -6), month.AddDate(0, 4, 6)
 }
 
 func (h *Handler) runCalendarSyncTick(ctx context.Context, now time.Time) {

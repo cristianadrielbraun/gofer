@@ -1300,6 +1300,10 @@
     if (dateFormat && dateFormat.value && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('date_format', dateFormat.value);
     }
+    var weekStart = e.target.closest('[data-week-start-input]');
+    if (weekStart && weekStart.value && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('week_start', weekStart.value);
+    }
     var timeFormat = e.target.closest('[data-time-format-input]');
     if (timeFormat && timeFormat.value && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('time_format', timeFormat.value);

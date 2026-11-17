@@ -163,6 +163,30 @@ func TestDatesReadTheContext(t *testing.T) {
 	}
 }
 
+func TestWeekStartIsMondayUnlessSet(t *testing.T) {
+	for setting, want := range map[string]time.Weekday{
+		"": time.Monday, "monday": time.Monday, "sunday": time.Sunday, "saturday": time.Saturday,
+		// Days Gofer doesn't offer, and other spellings, are not a choice.
+		"friday": time.Monday, "Sunday": time.Monday, "0": time.Monday,
+	} {
+		if got := ParseWeekStart(setting); got != want {
+			t.Errorf("ParseWeekStart(%q) = %s, want %s", setting, got, want)
+		}
+		if got := WeekStart(WithWeekStart(context.Background(), setting)); got != want {
+			t.Errorf("WeekStart with %q = %s, want %s", setting, got, want)
+		}
+	}
+	if got := WeekStart(context.Background()); got != time.Monday {
+		t.Errorf("default WeekStart = %s", got)
+	}
+	// Each day offered must be read back from the value saved for it.
+	for _, day := range WeekStarts() {
+		if got := ParseWeekStart(WeekStartSetting(day)); got != day {
+			t.Errorf("%s saved as %q reads back as %s", day, WeekStartSetting(day), got)
+		}
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	en := WithLocale(context.Background(), English)
 	es := WithLocale(context.Background(), "es")

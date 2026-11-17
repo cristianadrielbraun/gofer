@@ -22,6 +22,27 @@ func TestCalendarWeekRequestUsesExactLocalSevenDayWindow(t *testing.T) {
 	}
 }
 
+func TestCalendarRequestStartsWeeksOnTheSavedDay(t *testing.T) {
+	// October 25, 2026 is a Sunday: the last day of a Monday-first week and
+	// the first of a Sunday-first one.
+	for _, test := range []struct{ target, weekStart, start, end string }{
+		{"/calendar?view=week&date=2026-10-25", "", "2026-10-19", "2026-10-26"},
+		{"/calendar?view=week&date=2026-10-25", "monday", "2026-10-19", "2026-10-26"},
+		{"/calendar?view=week&date=2026-10-25", "sunday", "2026-10-25", "2026-11-01"},
+		{"/calendar?view=week&date=2026-10-25", "saturday", "2026-10-24", "2026-10-31"},
+		{"/calendar?view=week&date=2026-10-25", "someday", "2026-10-19", "2026-10-26"},
+		{"/calendar?month=2026-10", "", "2026-09-28", "2026-11-02"},
+		{"/calendar?month=2026-10", "sunday", "2026-09-27", "2026-11-01"},
+		{"/calendar?month=2026-10", "saturday", "2026-09-26", "2026-11-07"},
+	} {
+		data := calendarDataFromRequest(httptest.NewRequest(http.MethodGet, test.target, nil), map[string]string{"timezone": "Europe/Prague", "week_start": test.weekStart})
+		start, end := calendarVisibleWindow(data)
+		if start.Format("2006-01-02") != test.start || end.Format("2006-01-02") != test.end {
+			t.Errorf("%s with week_start %q shows %s to %s, want %s to %s", test.target, test.weekStart, start.Format("2006-01-02"), end.Format("2006-01-02"), test.start, test.end)
+		}
+	}
+}
+
 func TestCalendarOpensInSavedViewUnlessLinkNamesOne(t *testing.T) {
 	settings := map[string]string{"calendar_view": "week"}
 	for target, expected := range map[string]string{

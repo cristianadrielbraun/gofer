@@ -279,7 +279,7 @@ templ calendarCreateDateTimeLine(kind, text, date, clock string, allDay bool) {
 			{ text }
 		}
 		<div class="min-w-0 flex-1">
-			@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-" + kind + "-date", Name: kind + "_date", Value: calendarCreatePickerValue("2006-01-02", date)})
+			@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-" + kind + "-date", Name: kind + "_date", Value: calendarCreatePickerValue("2006-01-02", date), StartOfWeek: pickerStartOfWeek(ctx)})
 		</div>
 		<div class="w-28 shrink-0" data-calendar-create-time hidden?={ allDay }>
 			@timepicker.TimePicker(timepicker.Props{ID: "calendar-create-" + kind + "-time", Name: kind + "_time", Value: calendarCreatePickerValue("15:04", clock), Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "calendar.create.time_at", "label", text)}})
