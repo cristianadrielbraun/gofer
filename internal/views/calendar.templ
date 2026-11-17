@@ -15,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/progress"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	"github.com/cristianadrielbraun/gofer/components/slider"
 	"github.com/cristianadrielbraun/gofer/components/timepicker"
 	"github.com/cristianadrielbraun/gofer/components/toast"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
@@ -759,18 +760,19 @@ templ CalendarMainContent(month CalendarMonthData) {
 				<p data-calendar-week-scale-status class="text-[11px] text-muted-foreground" aria-live="polite">{ i18n.T(ctx, "calendar.week.scale_fit_condensed") }</p>
 				<div class="inline-flex items-center gap-1" role="group" aria-label={ i18n.T(ctx, "calendar.week.zoom") }>
 					<button type="button" data-calendar-week-zoom="fit" aria-pressed="true" class="inline-flex h-7 items-center rounded-md border border-border bg-accent px-2.5 text-xs font-semibold transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{ i18n.T(ctx, "calendar.week.fit") }</button>
-					<div class="inline-flex overflow-hidden rounded-md border border-border bg-background shadow-sm">
-						<button type="button" data-calendar-week-zoom="out" disabled class="inline-flex size-7 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_out") }>
+					<div class="inline-flex items-center gap-1.5">
+						<button type="button" data-calendar-week-zoom="out" class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_out") }>
 							@icon.Minus(icon.Props{Class: "size-3.5"})
 						</button>
-						<button type="button" data-calendar-week-zoom="in" class="inline-flex size-7 items-center justify-center border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_in") }>
+						@slider.Slider(slider.Props{Class: "w-28", Min: 1, Max: calendarWeekZoomLevels, Value: calendarWeekZoomDefaultLevel, Label: i18n.T(ctx, "calendar.week.zoom"), Attributes: templ.Attributes{"data-calendar-week-zoom-slider": true, "data-calendar-week-zoom-fit": true}})
+						<button type="button" data-calendar-week-zoom="in" class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_in") }>
 							@icon.Plus(icon.Props{Class: "size-3.5"})
 						</button>
 					</div>
 				</div>
 			</div>
 		}
-		<div class={ "min-h-0 flex-1 overflow-auto", templ.KV("flex flex-col p-3 sm:p-5", !calendarTimelineView(month.View)) } data-calendar-surface data-calendar-week-scroll?={ calendarTimelineView(month.View) } inert?={ month.Loading }>
+		<div class={ "min-h-0 flex-1", templ.KV("flex flex-col overflow-auto px-3.5 py-1.5", !calendarTimelineView(month.View)), templ.KV("mx-3.5 my-1.5 overflow-hidden border border-border bg-background shadow-[0_1px_2px_rgba(0,0,0,0.04)]", calendarTimelineView(month.View)) } data-calendar-surface data-calendar-week-card?={ calendarTimelineView(month.View) } inert?={ month.Loading }>
 			if calendarTimelineView(month.View) {
 				@CalendarWeekGrid(month)
 			} else {

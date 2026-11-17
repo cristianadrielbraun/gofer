@@ -15,6 +15,8 @@ function node() {
     setAttribute(name, value) { this.attributes.push({name, value}) },
     removeAttribute(name) { this.attributes = this.attributes.filter(attribute => attribute.name !== name) },
     querySelectorAll() { return this.children },
+    querySelector() { return null },
+    hasAttribute(name) { return this.attributes.some(attribute => attribute.name === name) },
     remove() { this.removed = true },
     getBoundingClientRect() { return {top: 100, left: 256, width: 1000, height: 700} },
     cloneNode() {
@@ -47,7 +49,7 @@ const context = vm.createContext({
 })
 vm.runInContext('var CALENDAR_MONTH_FADE_MS = 240; var _calendarNavigationRequest = null; var _calendarNavigationTransition = null; var _calendarWeekSlide = null;\n' +
   source.slice(source.indexOf('var CALENDAR_VIEWS'), source.indexOf('\n', source.indexOf('var CALENDAR_VIEWS'))) + '\n' +
-  ['finishCalendarNavigationTransition', 'fadeInCalendarMonthContents', 'configureCalendarNavigationRequest', 'prepareCalendarNavigation', 'animateCalendarNavigation', 'handleCalendarNavigationResult'].map(helper).join('\n'), context)
+  ['calendarScrollArea', 'calendarSnapshotScrollArea', 'finishCalendarNavigationTransition', 'fadeInCalendarMonthContents', 'configureCalendarNavigationRequest', 'prepareCalendarNavigation', 'animateCalendarNavigation', 'handleCalendarNavigationResult'].map(helper).join('\n'), context)
 function event(xhr, shouldSwap = true) { return {detail: {xhr, shouldSwap, target: {id: 'main-content'}}} }
 function navigate(direction) {
   const xhr = {goferCalendarNavigationDirection: direction}

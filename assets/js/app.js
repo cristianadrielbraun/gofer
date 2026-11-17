@@ -14295,7 +14295,13 @@ var _calendarSelectedDay = null
 var _calendarSelectTodayPending = ""
 var _calendarViewSwitchRequest = null
 var _calendarWeekScrollState = null
+// 0 is Fit, which gives hours with events more room. 1 and up are the slider's
+// even zoom levels, from the whole day on screen to the largest hours.
 var _calendarWeekZoom = 0
+var CALENDAR_WEEK_ZOOM_LEVELS = 6
+// The slider keeps showing the last level while Fit is on, so - and + go on
+// from there.
+var _calendarWeekZoomLevel = 2
 var _calendarViewportObserver = null
 var _calendarViewportPane = null
 var _calendarViewportSurface = null
@@ -14303,7 +14309,7 @@ var _calendarNavigationRequest = null
 var _calendarNavigationTransition = null
 // Moving between weeks slides only the day headers; the events in the hour grid fade
 // out during the slide and fade back in once it ends.
-var CALENDAR_WEEK_SLIDE_MS = 480
+var CALENDAR_WEEK_SLIDE_MS = 320
 var _calendarWeekSlide = null
 
 // Shows view as the chosen one in the view menu, and marks its link current.
@@ -14830,7 +14836,9 @@ function _calendarWeekAxis(availableHeight, periods, zoom) {
   var height = Math.max(1, availableHeight)
   var heights
   if (zoom > 0) {
-    height = Math.max(height * [1, 1.4, 2, 2.6][zoom], [0, 960, 1536, 2304][zoom])
+    // Level 1 shows the whole day; each level after it grows the hours, with a
+    // smallest hour size so short panes still zoom in.
+    height = Math.max(height * [1, 1, 1.25, 1.6, 2, 2.6, 3.4][zoom], 24 * [0, 0, 30, 40, 56, 76, 100][zoom])
     heights = Array(24).fill(height / 24)
   } else {
     var minimum = Math.min(4, height / 48)
@@ -15004,6 +15012,14 @@ function layoutCalendarWeekAllDay(grid) {
   rows.forEach(function (row, button) { button.style.gridRow = String(row + 1) })
 }
 
+// The label for a run of condensed hours, which may break after its dash and
+// nowhere else: "3 PM–" over "12 AM", never "3" over "PM–12 AM".
+function calendarHourRangeLabel(range) {
+  return String(range).replace(/\s/g, "\u00A0").replace(/([–—-])(\u00A0)?/, function (match, dash, space) {
+    return dash + (space ? " " : "\u200B")
+  })
+}
+
 function initializeCalendarWeekScroll() {
   var calendar = document.getElementById("calendar-main")
   var scroller = calendar && calendar.querySelector("[data-calendar-week-scroll]")
@@ -15011,11 +15027,14 @@ function initializeCalendarWeekScroll() {
   // Keep day widths stable as zoom adds or removes the vertical scrollbar.
   scroller.style.scrollbarGutter = "stable"
   scroller.style.overflowAnchor = "none"
-  var grid = scroller.querySelector("[data-calendar-week-grid]")
+  var grid = calendar.querySelector("[data-calendar-week-grid]")
   var header = grid && grid.querySelector("[data-calendar-week-header]")
   var timeline = grid && grid.querySelector("[data-calendar-week-timeline]")
   if (!header || !timeline) return
   layoutCalendarWeekAllDay(grid)
+  // The header rows end in an empty track as wide as the scrollbar, so their days
+  // line up with the hours' (input.css, HOUR GRID HEADERS).
+  grid.style.setProperty("--calendar-week-gutter", Math.max(0, (scroller.offsetWidth - scroller.clientWidth) || 0) + "px")
   var nodes = Array.from(grid.querySelectorAll("[data-calendar-week-event]"))
   var visibility = nodes.map(function (node) { return _calendarSourceIsVisible(node) ? "1" : "0" }).join("")
   var key = [scroller.clientHeight, scroller.clientWidth, header.offsetHeight, _calendarWeekZoom, visibility].join(":")
@@ -15026,8 +15045,8 @@ function initializeCalendarWeekScroll() {
   var wasInitialized = !!scroller.dataset.calendarLayoutKey
   nodes = nodes.filter(_calendarSourceIsVisible)
   var periods = nodes.map(function (node) { return { start: Number(node.dataset.calendarWeekStart), end: Number(node.dataset.calendarWeekEnd) } })
-  var axis = _calendarWeekAxis(Math.max(1, scroller.clientHeight - header.offsetHeight - 2), periods, _calendarWeekZoom)
-  grid.style.height = (axis.height + header.offsetHeight + 2) + "px"
+  // The headers sit above the scroller, so all of its height is for the hours.
+  var axis = _calendarWeekAxis(Math.max(1, scroller.clientHeight), periods, _calendarWeekZoom)
   grid._calendarWeekAxis = axis
   timeline.style.height = axis.height + "px"
   timeline.style.flex = "0 0 auto"
@@ -15039,6 +15058,7 @@ function initializeCalendarWeekScroll() {
     row.style.borderTopStyle = compact && !first ? "none" : "solid"
     row.querySelector("[data-calendar-half-hour]").hidden = compact || axis.heights[hour] < 28
   })
+  var ranges = []
   grid.querySelectorAll("[data-calendar-week-hour-label]").forEach(function (row) {
     var hour = Number(row.dataset.calendarWeekHourLabel)
     var text = row.querySelector("[data-calendar-week-hour-text]")
@@ -15046,13 +15066,26 @@ function initializeCalendarWeekScroll() {
     text.hidden = false
     text.textContent = goferDates.hourLabel(hour)
     text.title = ""
+    text.style.whiteSpace = ""
+    text.style.left = ""
     if (_calendarWeekZoom === 0 && !axis.expanded[hour]) {
       var end = hour + 1
       while (end < 24 && !axis.expanded[end]) end++
-      text.hidden = (hour > 0 && !axis.expanded[hour - 1]) || axis.offsets[end] - axis.offsets[hour] < 15
-      text.textContent = goferDates.hourRange(hour, end)
+      var space = axis.offsets[end] - axis.offsets[hour]
+      text.hidden = (hour > 0 && !axis.expanded[hour - 1]) || space < 15
+      text.textContent = calendarHourRangeLabel(goferDates.hourRange(hour, end))
       text.title = goferT("js.calendar.week.condensed")
+      // A range like "3 PM–12 AM" is wider than the time column, so it may break
+      // after its dash onto a second line.
+      text.style.whiteSpace = "normal"
+      text.style.left = "0.125rem"
+      if (!text.hidden) ranges.push({ text: text, space: space })
     } else if (axis.heights[hour] < 15) text.hidden = hour % 2 !== 0
+  })
+  // Read after all the writes above: a range that needs two lines but has room
+  // for one is left out rather than spilling into the next hour.
+  ranges.forEach(function (range) {
+    if (range.text.offsetHeight > range.space - 2) range.text.hidden = true
   })
   grid.querySelectorAll("[data-calendar-timed-column]").forEach(function (column) {
     var buttons = Array.from(column.querySelectorAll("[data-calendar-week-event]")).filter(_calendarSourceIsVisible)
@@ -15072,20 +15105,31 @@ function initializeCalendarWeekScroll() {
   if (_calendarWeekZoom === 0) scroller.scrollTop = 0
   else if (!wasInitialized) scroller.scrollTop = saved && saved.zoom === _calendarWeekZoom ? saved.top : _calendarWeekMinutePosition(7 * 60, axis)
   else if (previousAxis && previousAxis.zoom !== _calendarWeekZoom) {
-    var center = _calendarWeekMinuteAtPosition(previousTop + (scroller.clientHeight - header.offsetHeight - 2) / 2, previousAxis)
-    scroller.scrollTop = Math.max(0, _calendarWeekMinutePosition(center, axis) - (scroller.clientHeight - header.offsetHeight - 2) / 2)
+    var center = _calendarWeekMinuteAtPosition(previousTop + scroller.clientHeight / 2, previousAxis)
+    scroller.scrollTop = Math.max(0, _calendarWeekMinutePosition(center, axis) - scroller.clientHeight / 2)
   } else if (previousAxis) scroller.scrollTop = previousTop * axis.height / previousAxis.height
   if (!wasInitialized) scroller.scrollLeft = saved ? saved.left : 0
+  header.scrollLeft = scroller.scrollLeft
   var status = calendar.querySelector("[data-calendar-week-scale-status]")
   if (status) status.textContent = _calendarWeekZoom === 0 ? goferT("js.calendar.week.zoom_fit") : goferT("js.calendar.week.zoom_level", { size: goferNumber(Math.round(axis.height / 24)) })
   calendar.querySelectorAll("[data-calendar-week-zoom]").forEach(function (button) {
     var action = button.dataset.calendarWeekZoom
-    button.disabled = action === "out" ? _calendarWeekZoom === 0 : action === "in" && _calendarWeekZoom === 3
+    button.disabled = action === "out" ? _calendarWeekZoom === 1 : action === "in" && _calendarWeekZoom === CALENDAR_WEEK_ZOOM_LEVELS
     if (action === "fit") {
       button.setAttribute("aria-pressed", _calendarWeekZoom === 0 ? "true" : "false")
       button.classList.toggle("bg-accent", _calendarWeekZoom === 0)
     }
   })
+  var zoomSlider = calendar.querySelector("[data-calendar-week-zoom-slider]")
+  if (zoomSlider) {
+    // A slider that hasn't started yet reads its hidden input when it does.
+    var zoomInput = zoomSlider.querySelector("[data-input]")
+    if (zoomInput) zoomInput.value = String(_calendarWeekZoomLevel)
+    zoomSlider.dispatchEvent(new CustomEvent("tui-slider:set", { detail: { value: _calendarWeekZoomLevel } }))
+    zoomSlider.toggleAttribute("data-calendar-week-zoom-fit", _calendarWeekZoom === 0)
+    var thumb = zoomSlider.querySelector("[data-thumb]")
+    if (thumb && status) thumb.setAttribute("aria-valuetext", status.textContent)
+  }
 }
 
 function cancelCalendarWeekZoom(scroller) {
@@ -15097,9 +15141,10 @@ function cancelCalendarWeekZoom(scroller) {
 
 function setCalendarWeekZoom(zoom) {
   if (zoom === _calendarWeekZoom) return
+  if (zoom > 0) _calendarWeekZoomLevel = zoom
   var calendar = document.getElementById("calendar-main")
   var scroller = calendar && calendar.querySelector("[data-calendar-week-scroll]")
-  var grid = scroller && scroller.querySelector("[data-calendar-week-grid]")
+  var grid = calendar && calendar.querySelector("[data-calendar-week-grid]")
   cancelCalendarWeekZoom(scroller)
   var fromAxis = grid && grid._calendarWeekAxis
   var animate = fromAxis && scroller.clientHeight > 0 &&
@@ -15112,7 +15157,6 @@ function setCalendarWeekZoom(zoom) {
       var properties = element.hasAttribute("data-calendar-week-event") ? ["top", "height", "left", "width"] : ["height"]
       frames.push({ element: element, properties: properties })
     })
-    frames.push({ element: grid, properties: ["height"] })
     frames.forEach(function (frame) {
       var computed = window.getComputedStyle(frame.element)
       frame.from = frame.properties.map(function (property) { return parseFloat(computed[property]) })
@@ -15344,6 +15388,9 @@ function initializeCalendarViewport() {
 document.addEventListener("scroll", function (event) {
   var scroller = event.target
   if (!scroller.hasAttribute || !scroller.hasAttribute("data-calendar-week-scroll") || scroller.clientHeight === 0) return
+  // The headers are outside the scroller, so they follow it sideways by hand.
+  var weekHeader = scroller.parentElement && scroller.parentElement.querySelector("[data-calendar-week-header]")
+  if (weekHeader && weekHeader.scrollLeft !== scroller.scrollLeft) weekHeader.scrollLeft = scroller.scrollLeft
   var calendar = document.getElementById("calendar-main")
   if (calendar) _calendarWeekScrollState = { period: calendar.dataset.calendarPeriod, zoom: _calendarWeekZoom, top: scroller.scrollTop, left: scroller.scrollLeft }
 }, true)
@@ -15352,7 +15399,24 @@ document.addEventListener("click", function (event) {
   if (!button || button.disabled) return
   finishCalendarNavigationTransition()
   var action = button.dataset.calendarWeekZoom
-  setCalendarWeekZoom(action === "fit" ? 0 : Math.max(0, Math.min(3, _calendarWeekZoom + (action === "in" ? 1 : -1))))
+  if (action === "fit") return setCalendarWeekZoom(0)
+  // From Fit, - and + step from the level the slider shows.
+  var level = (_calendarWeekZoom || _calendarWeekZoomLevel) + (action === "in" ? 1 : -1)
+  setCalendarWeekZoom(Math.max(1, Math.min(CALENDAR_WEEK_ZOOM_LEVELS, level)))
+})
+// Dragging the zoom slider, clicking its track or using the arrow keys on it.
+document.addEventListener("input", function (event) {
+  var slider = event.target.closest && event.target.closest("[data-calendar-week-zoom-slider]")
+  if (!slider) return
+  finishCalendarNavigationTransition()
+  setCalendarWeekZoom(Math.max(1, Math.min(CALENDAR_WEEK_ZOOM_LEVELS, Number(event.target.value) || 1)))
+})
+// While Fit is on, grabbing the slider's thumb where it is leaves Fit for that level.
+document.addEventListener("pointerdown", function (event) {
+  var thumb = event.target.closest && event.target.closest("[data-calendar-week-zoom-slider] [data-thumb]")
+  if (!thumb || _calendarWeekZoom !== 0) return
+  finishCalendarNavigationTransition()
+  setCalendarWeekZoom(_calendarWeekZoomLevel)
 })
 window.addEventListener("resize", initializeCalendarViewport)
 document.addEventListener("gofer:panels-slid", initializeCalendarViewport)
@@ -15361,6 +15425,17 @@ document.body.addEventListener("htmx:afterSwap", function (event) {
 })
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initializeCalendarViewport)
 else initializeCalendarViewport()
+
+// What scrolls in a calendar surface: the hours' scroller in the hour-grid views,
+// the surface itself in Month.
+function calendarScrollArea(surface) {
+  return (surface && surface.querySelector("[data-calendar-week-scroll]")) || surface
+}
+
+// The same for an outgoing copy, whose data-calendar attributes are gone.
+function calendarSnapshotScrollArea(snapshot) {
+  return snapshot.querySelector("[data-gofer-snapshot-scroll]") || snapshot
+}
 
 function finishCalendarNavigationTransition() {
   var transition = _calendarNavigationTransition
@@ -15386,9 +15461,9 @@ function prepareCalendarNavigation(event) {
     var sliding = _calendarNavigationTransition
     if (sliding && sliding.weekSlide) {
       xhr.goferCalendarWeekSlideContinue = {
-        snapshot: sliding.snapshot, distance: sliding.distance, endsAt: sliding.endsAt,
+        snapshot: sliding.snapshot, moving: sliding.moving, distance: sliding.distance, endsAt: sliding.endsAt,
         incoming: window.getComputedStyle(sliding.surface).transform,
-        outgoing: window.getComputedStyle(sliding.snapshot).transform,
+        outgoing: window.getComputedStyle(sliding.moving).transform,
       }
       _calendarNavigationTransition = null
       sliding.incoming.cancel()
@@ -15403,7 +15478,7 @@ function prepareCalendarNavigation(event) {
     var incoming = window.getComputedStyle(active.surface)
     var outgoing = window.getComputedStyle(active.snapshot)
     xhr.goferCalendarNavigationSnapshot = {
-      element: active.snapshot, top: active.snapshot.scrollTop, left: active.snapshot.scrollLeft,
+      element: active.snapshot, top: calendarSnapshotScrollArea(active.snapshot).scrollTop, left: calendarSnapshotScrollArea(active.snapshot).scrollLeft,
       incoming: { opacity: incoming.opacity, transform: incoming.transform },
       outgoing: { opacity: outgoing.opacity, transform: outgoing.transform },
       crossover: active.crossover, bounds: active.bounds,
@@ -15447,9 +15522,13 @@ function prepareCalendarNavigation(event) {
   var surface = document.querySelector("#calendar-main [data-calendar-surface]")
   if (!surface || !surface.clientHeight || !surface.animate) return
   var snapshot = surface.cloneNode(true)
+  var scrollArea = calendarScrollArea(surface)
   // The outgoing grid is only a visual layer, never a second set of live controls.
   var elements = [snapshot].concat(Array.from(snapshot.querySelectorAll("*")))
   elements.forEach(function (element) {
+    // Marked so the copy's hours can be put back where they were scrolled to.
+    if (element.hasAttribute("data-calendar-week-scroll")) element.setAttribute("data-gofer-snapshot-scroll", "")
+    if (element.hasAttribute("data-calendar-week-header")) element.setAttribute("data-gofer-snapshot-header", "")
     Array.from(element.attributes).forEach(function (attribute) {
       if (attribute.name === "id" || /^(data-calendar-|(?:data-)?hx-)/.test(attribute.name)) element.removeAttribute(attribute.name)
     })
@@ -15458,7 +15537,7 @@ function prepareCalendarNavigation(event) {
   snapshot.setAttribute("aria-hidden", "true")
   snapshot.setAttribute("data-calendar-navigation-overlay", "")
   xhr.goferCalendarNavigationSnapshot = {
-    element: snapshot, top: surface.scrollTop, left: surface.scrollLeft,
+    element: snapshot, top: scrollArea.scrollTop, left: scrollArea.scrollLeft,
     bounds: xhr.goferCalendarNavigationCrossover ? surface.getBoundingClientRect() : null,
   }
 }
@@ -15501,8 +15580,11 @@ function animateCalendarNavigation(event) {
   // background. Keep the old geometry so switching layouts cannot stretch it.
   if (crossover) snapshot.style.backgroundColor = "var(--color-card)"
   calendar.appendChild(snapshot)
-  snapshot.scrollTop = saved.top
-  snapshot.scrollLeft = saved.left
+  var snapshotScroll = calendarSnapshotScrollArea(snapshot)
+  snapshotScroll.scrollTop = saved.top
+  snapshotScroll.scrollLeft = saved.left
+  var snapshotHeader = snapshot.querySelector("[data-gofer-snapshot-header]")
+  if (snapshotHeader) snapshotHeader.scrollLeft = saved.left
   var distance = crossover ? 0 : saved.distance || xhr.goferCalendarNavigationDirection * 12
   var timing = { duration: saved.duration === undefined ? (crossover ? 140 : 220) : saved.duration, easing: crossover ? "ease-out" : "cubic-bezier(0.22, 1, 0.36, 1)" }
   var incoming = crossover ? [{ opacity: 1 }, { opacity: 1 }] : [saved.incoming || { opacity: 0, transform: "translateX(" + distance + "px) scale(0.98)" }, { opacity: 1, transform: "translateX(0) scale(1)" }]
@@ -15542,17 +15624,32 @@ function animateCalendarWeekSlide(calendar, saved, direction) {
   var parent = calendar.getBoundingClientRect()
   var bounds = saved.bounds
   var copy = saved.header
-  Object.assign(copy.style, {
+  // The copy slides inside a layer cut to the headers' place in the hour grid's
+  // card, rounded corners included, so it never shows outside the card.
+  var card = calendar.querySelector("[data-calendar-week-card]")
+  var cardStyle = card ? window.getComputedStyle(card) : null
+  var radius = cardStyle ? "max(0px, calc(" + cardStyle.borderTopLeftRadius + " - " + cardStyle.borderTopWidth + "))" : "0px"
+  var clip = document.createElement("div")
+  clip.inert = true
+  clip.setAttribute("aria-hidden", "true")
+  clip.setAttribute("data-calendar-navigation-overlay", "")
+  Object.assign(clip.style, {
     position: "absolute", top: (bounds.top - parent.top) + "px", left: (bounds.left - parent.left) + "px",
-    width: bounds.width + "px", height: bounds.height + "px", margin: "0", overflow: "hidden",
-    pointerEvents: "none", zIndex: "30", backgroundColor: "var(--color-card)",
+    width: bounds.width + "px", height: bounds.height + "px", overflow: "hidden",
+    borderRadius: radius + " " + radius + " 0 0", pointerEvents: "none", zIndex: "30",
   })
-  calendar.appendChild(copy)
+  Object.assign(copy.style, {
+    position: "absolute", top: "0", left: "0",
+    width: bounds.width + "px", height: bounds.height + "px", margin: "0", overflow: "hidden",
+    backgroundColor: "var(--color-card)",
+  })
+  clip.appendChild(copy)
+  calendar.appendChild(clip)
   var distance = direction * bounds.width
   var timing = { duration: CALENDAR_WEEK_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
   var endsAt = performance.now() + timing.duration
   if (_calendarWeekSlide) _calendarWeekSlide.endsAt = endsAt
-  startCalendarWeekSlideTransition(header, copy, distance, endsAt,
+  startCalendarWeekSlideTransition(header, clip, copy, distance, endsAt,
     [{ transform: "translateX(" + distance + "px)" }, { transform: "translateX(0)" }],
     [{ transform: "translateX(0)" }, { transform: "translateX(" + -distance + "px)" }], timing)
 }
@@ -15566,16 +15663,17 @@ function continueCalendarWeekSlide(continued) {
   if (!header || !header.animate || remaining <= 0) { continued.snapshot.remove(); return }
   calendar.appendChild(continued.snapshot)
   var timing = { duration: remaining, easing: "ease-out" }
-  startCalendarWeekSlideTransition(header, continued.snapshot, continued.distance, continued.endsAt,
+  startCalendarWeekSlideTransition(header, continued.snapshot, continued.moving, continued.distance, continued.endsAt,
     [{ transform: continued.incoming === "none" ? "translateX(0)" : continued.incoming }, { transform: "translateX(0)" }],
     [{ transform: continued.outgoing === "none" ? "translateX(0)" : continued.outgoing }, { transform: "translateX(" + -continued.distance + "px)" }], timing)
 }
 
-function startCalendarWeekSlideTransition(header, copy, distance, endsAt, incoming, outgoing, timing) {
+// snapshot is what gets removed at the end; moving is the header copy inside it.
+function startCalendarWeekSlideTransition(header, snapshot, moving, distance, endsAt, incoming, outgoing, timing) {
   var transition = {
-    weekSlide: true, snapshot: copy, surface: header, duration: timing.duration, distance: distance, endsAt: endsAt,
+    weekSlide: true, snapshot: snapshot, moving: moving, surface: header, duration: timing.duration, distance: distance, endsAt: endsAt,
     incoming: header.animate(incoming, timing),
-    outgoing: copy.animate(outgoing, timing),
+    outgoing: moving.animate(outgoing, timing),
   }
   _calendarNavigationTransition = transition
   transition.incoming.onfinish = function () {
@@ -27230,9 +27328,10 @@ function stepCalendarAutoScroll() {
   var dy = state.x >= box.left && state.x <= box.right ? calendarScrollStep(state.y, top, box.bottom) : 0
   // A picked range stays in its day, so it only scrolls up and down.
   var dx = !pick && state.y >= box.top && state.y <= box.bottom ? calendarScrollStep(state.x, box.left, box.right) : 0
-  var scrollTop = surface.scrollTop, scrollLeft = surface.scrollLeft
-  if (dx || dy) surface.scrollBy(dx, dy)
-  if (surface.scrollTop === scrollTop && surface.scrollLeft === scrollLeft) return
+  var area = calendarScrollArea(surface)
+  var scrollTop = area.scrollTop, scrollLeft = area.scrollLeft
+  if (dx || dy) area.scrollBy(dx, dy)
+  if (area.scrollTop === scrollTop && area.scrollLeft === scrollLeft) return
   // The calendar moved under the pointer, so what it points at changed.
   if (drag) updateCalendarDrag(drag, {clientX: state.x, clientY: state.y})
   else updateCalendarPick(pick, state.y)
@@ -27923,8 +28022,8 @@ document.addEventListener("touchstart", function (event) {
     x: touch.clientX,
     y: touch.clientY,
     time: Date.now(),
-    atStart: surface.scrollLeft <= 0,
-    atEnd: surface.scrollLeft + surface.clientWidth >= surface.scrollWidth - 1,
+    atStart: calendarScrollArea(surface).scrollLeft <= 0,
+    atEnd: calendarScrollArea(surface).scrollLeft + calendarScrollArea(surface).clientWidth >= calendarScrollArea(surface).scrollWidth - 1,
   }
 }, {passive: true})
 

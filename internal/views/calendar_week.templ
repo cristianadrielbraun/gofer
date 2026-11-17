@@ -9,9 +9,13 @@ import (
 
 templ CalendarWeekGrid(data CalendarMonthData) {
 	{{ shownDay := calendarShownDay(data) }}
-	<div class="flex h-full min-w-[calc(56px+var(--calendar-columns)*3.5rem)] flex-col border border-border bg-background" style={ calendarTimelineGridStyle(data) } data-calendar-week-grid>
-		<div class="sticky top-0 z-20 shrink-0 border-b border-border bg-card shadow-sm" data-calendar-week-header>
-			<div class="grid grid-cols-[56px_repeat(var(--calendar-days),minmax(0,1fr))] border-b border-border bg-muted/35">
+	// The day headers are their own section above the scrolling hours, so the
+	// scrollbar runs beside the hours only. The header rows end in an empty track
+	// as wide as that scrollbar (--calendar-week-gutter, set by app.js) to keep
+	// the days in line; sideways, app.js scrolls the headers with the hours.
+	<div class="flex h-full min-h-0 flex-col bg-background" style={ calendarTimelineGridStyle(data) } data-calendar-week-grid>
+		<div class="relative z-20 shrink-0 overflow-hidden border-b border-border bg-card shadow-sm" data-calendar-week-header>
+			<div class="grid min-w-[calc(56px+var(--calendar-columns)*3.5rem+var(--calendar-week-gutter,0px))] grid-cols-[56px_repeat(var(--calendar-days),minmax(0,1fr))_var(--calendar-week-gutter,0px)] border-b border-border bg-muted/35">
 				<div class="flex items-end justify-center overflow-hidden px-1 pb-3 text-[10px] font-semibold text-muted-foreground" title={ data.Month.Location().String() } data-calendar-week-timezone>{ data.Weeks[0].Days[0].Date.Format("MST") }</div>
 				for _, day := range data.Weeks[0].Days {
 					<div class={ calendarWeekColumnClass(day) } data-calendar-day={ day.ISODate } data-calendar-shown-day?={ day.ISODate == shownDay } data-calendar-day-selected="false" data-calendar-day-start={ day.Date.Format(time.RFC3339) } data-calendar-day-end={ day.Date.AddDate(0, 0, 1).Format(time.RFC3339) } data-calendar-day-title={ i18n.Dates(ctx).LongDateNoYear(day.Date) }>
@@ -24,7 +28,7 @@ templ CalendarWeekGrid(data CalendarMonthData) {
 					</div>
 				}
 			</div>
-			<div class="grid max-h-36 grid-cols-[56px_repeat(var(--calendar-days),minmax(0,1fr))] overflow-y-auto" data-calendar-all-day-row>
+			<div class="grid max-h-36 min-w-[calc(56px+var(--calendar-columns)*3.5rem+var(--calendar-week-gutter,0px))] grid-cols-[56px_repeat(var(--calendar-days),minmax(0,1fr))_var(--calendar-week-gutter,0px)] overflow-y-auto" data-calendar-all-day-row>
 				<div class="px-1 py-3 text-center text-[10px] font-semibold text-muted-foreground">{ i18n.T(ctx, "calendar.all_day") }</div>
 				for dayIndex, day := range data.Weeks[0].Days {
 					<div class={ calendarWeekColumnClass(day) + " grid grid-cols-1 content-start gap-1 p-1.5" } data-calendar-all-day-column={ day.ISODate } data-calendar-shown-day?={ day.ISODate == shownDay }>
@@ -45,7 +49,8 @@ continuesAfter := event.EndDate > day.Date.AddDate(0, 0, 1).Format("2006-01-02")
 				}
 			</div>
 		</div>
-		<div class="grid min-h-0 flex-1 grid-cols-[56px_repeat(var(--calendar-days),minmax(0,1fr))]" data-calendar-week-timeline>
+		<div class="min-h-0 flex-1 overflow-auto" data-calendar-week-scroll>
+		<div class="grid min-h-full min-w-[calc(56px+var(--calendar-columns)*3.5rem)] grid-cols-[56px_repeat(var(--calendar-days),minmax(0,1fr))]" data-calendar-week-timeline>
 			<div class="relative text-[10px] font-medium tabular-nums text-muted-foreground" aria-hidden="true">
 				for hour := 0; hour < 24; hour++ {
 					<div class="relative pr-2 text-right" style="height:calc(100% / 24);" data-calendar-week-hour-label={ strconv.Itoa(hour) }><span class="absolute right-2 top-0.5 whitespace-nowrap" data-calendar-week-hour-text>{ calendarHourLabel(ctx, hour) }</span></div>
@@ -75,6 +80,7 @@ continuesAfter := event.EndDate > day.Date.AddDate(0, 0, 1).Format("2006-01-02")
 					}
 				</div>
 			}
+		</div>
 		</div>
 	</div>
 }

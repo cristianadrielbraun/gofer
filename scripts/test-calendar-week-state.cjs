@@ -13,13 +13,14 @@ function helper(name) {
 function mockScroller() {
   const header = {offsetHeight: 104}
   const timeline = {style: {}}
-  const grid = {style: {}, querySelectorAll() { return [] }, querySelector(selector) { return selector === '[data-calendar-week-header]' ? header : timeline }}
-  return {dataset: {}, style: {}, clientHeight: 800, clientWidth: 1000, scrollTop: 0, scrollLeft: 0, querySelector() { return grid }}
+  const grid = {style: {setProperty(name, value) { this[name] = value }}, querySelectorAll() { return [] }, querySelector(selector) { return selector === '[data-calendar-week-header]' ? header : timeline }}
+  // The headers sit above the scroller, so all 696px of it is for the hours.
+  return {dataset: {}, style: {}, clientHeight: 696, clientWidth: 990, offsetWidth: 1000, scrollTop: 0, scrollLeft: 0, grid, header}
 }
 let scroller = mockScroller()
 const calendar = {
   dataset: {calendarMonth: '2026-10', calendarDate: '2026-10-01', calendarView: 'week', calendarPeriod: 'week:2026-09-28'},
-  querySelector(selector) { return selector === '[data-calendar-week-scroll]' ? scroller : null },
+  querySelector(selector) { return selector === '[data-calendar-week-scroll]' ? scroller : selector === '[data-calendar-week-grid]' ? scroller.grid : null },
   querySelectorAll() { return [] },
   hasAttribute() { return false },
 }
@@ -35,16 +36,18 @@ assert.equal(scroller.scrollTop, 0, 'New week should fit the screen without vert
 scroller.scrollTop = 600
 context.initializeCalendarWeekScroll()
 assert.equal(scroller.scrollTop, 600, 'Unrelated swaps must not reset the timeline')
-context._calendarWeekZoom = 1
-context._calendarWeekScrollState = {period: 'week:2026-09-28', zoom: 1, top: 613, left: 250}
+context._calendarWeekZoom = 3
+context._calendarWeekScrollState = {period: 'week:2026-09-28', zoom: 3, top: 613, left: 250}
 scroller = mockScroller()
 context.initializeCalendarWeekScroll()
 assert.equal(scroller.scrollTop, 613, 'Refresh should preserve vertical scroll')
 assert.equal(scroller.scrollLeft, 250, 'Refresh should preserve horizontal scroll')
+assert.equal(scroller.header.scrollLeft, 250, 'The headers must follow the hours sideways')
+assert.equal(scroller.grid.style['--calendar-week-gutter'], '10px', "The headers' last column must cover the scrollbar's strip")
 calendar.dataset.calendarPeriod = 'week:2026-10-05'
 scroller = mockScroller()
 context.initializeCalendarWeekScroll()
-assert.equal(scroller.scrollTop, context._calendarWeekAxis(694, [], 1).offsets[7], 'A different zoomed week should get its own scroll state')
+assert.equal(scroller.scrollTop, context._calendarWeekAxis(696, [], 3).offsets[7], 'A different zoomed week should get its own scroll state')
 assert.equal(scroller.scrollLeft, 0)
 scroller = {dataset: {}, clientHeight: 0, scrollTop: 0, scrollLeft: 0}
 context.initializeCalendarWeekScroll()

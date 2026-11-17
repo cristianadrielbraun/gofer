@@ -4018,7 +4018,8 @@ body.mail-list-column-resizing {
   border-radius: min(0.25rem, var(--radius));
 }
 
-:is([data-calendar-agenda-event], [data-calendar-month-grid]) {
+/* The hour grid is a card like the month grid. */
+:is([data-calendar-agenda-event], [data-calendar-month-grid], [data-calendar-week-card]) {
   border-radius: calc(var(--radius) + min(var(--radius), 4px));
 }
 
@@ -7807,6 +7808,62 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 }
 
+/* === CALENDAR: HOUR GRID HEADERS ===
+   The day headers are their own section above the hours' scroller. Where they
+   line up with the hours' days, their rows end in a track as wide as the hours'
+   scrollbar (--calendar-week-gutter, set by app.js), and the last day reaches
+   over it to the card's edge, its contents kept over its own column. The day
+   strip (Day view, and on phones) is a picker, not lined up with the hours, so
+   it has no such track (see ONE DAY AT A TIME and the phone rules). */
+[data-calendar-week-header] > div:first-child > :last-child,
+[data-calendar-all-day-row] > :last-child {
+  grid-column-end: span 2;
+}
+
+[data-calendar-week-header] > div:first-child > :last-child {
+  padding-right: var(--calendar-week-gutter, 0px);
+}
+
+[data-calendar-all-day-row] > :last-child {
+  padding-right: calc(0.375rem + var(--calendar-week-gutter, 0px));
+}
+
+/* The last day has no divider: below the headers the scrollbar (or the card's
+   edge) already ends it, and in the headers a divider would box the empty track
+   off as an extra column, so the headers' background runs on to the edge. */
+[data-calendar-week-header] > div > :last-child,
+[data-calendar-week-timeline] > [data-calendar-timed-column]:last-child,
+#calendar-main[data-calendar-view="day"] [data-calendar-week-grid] :is([data-calendar-all-day-column], [data-calendar-timed-column])[data-calendar-shown-day] {
+  border-right: 0;
+}
+
+/* === CALENDAR: ZOOM SLIDER ===
+   The thumb and fill glide to each new level instead of jumping. While Fit is on
+   the slider is greyed out: Fit is none of its levels, and the thumb only marks
+   where - and + will go on from. Solid greys, not transparency, so the thumb
+   doesn't show the fill through it. */
+[data-calendar-week-zoom-slider] [data-thumb] {
+  transition: left 200ms cubic-bezier(0.32, 0.72, 0.24, 1), background-color 150ms ease-out;
+}
+
+[data-calendar-week-zoom-slider] [data-fill] {
+  transition: right 200ms cubic-bezier(0.32, 0.72, 0.24, 1), background-color 150ms ease-out;
+}
+
+[data-calendar-week-zoom-slider][data-calendar-week-zoom-fit] [data-fill] {
+  background-color: color-mix(in oklab, var(--muted-foreground) 35%, var(--secondary));
+}
+
+[data-calendar-week-zoom-slider][data-calendar-week-zoom-fit] [data-thumb] {
+  background-color: color-mix(in oklab, var(--muted-foreground) 70%, var(--secondary));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-calendar-week-zoom-slider] :is([data-thumb], [data-fill]) {
+    transition: none;
+  }
+}
+
 /* === CALENDAR: ONE DAY AT A TIME ===
    Day view shows one day of its week at full width, with the week above as a strip
    to pick the day. Small screens show Week and Work week the same way (see below).
@@ -7816,6 +7873,11 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
 @media (min-width: 1024px) {
   #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child {
     grid-template-columns: repeat(var(--calendar-days), minmax(0, 1fr));
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child > :last-child {
+    grid-column-end: auto;
+    padding-right: 0;
   }
 
   #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
@@ -7833,6 +7895,10 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     overflow-x: hidden;
   }
 
+  #calendar-main[data-calendar-view="day"] [data-calendar-all-day-row] {
+    grid-template-columns: 56px minmax(0, 1fr) var(--calendar-week-gutter, 0px);
+  }
+
   #calendar-main[data-calendar-view="day"] :is([data-calendar-all-day-column], [data-calendar-timed-column]):not([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
     display: none;
   }
@@ -7840,6 +7906,13 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   #calendar-main[data-calendar-view="day"] :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
     grid-row: 1;
     grid-column: 2;
+  }
+
+  /* The all-day row is in the headers: the day shown reaches over the scrollbar's
+     track to the card's edge (HOUR GRID HEADERS). */
+  #calendar-main[data-calendar-view="day"] [data-calendar-all-day-column]:is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
+    grid-column: 2 / -1;
+    padding-right: calc(0.375rem + var(--calendar-week-gutter, 0px));
   }
 
   #calendar-main[data-calendar-view="day"] [data-calendar-all-day-row]:not(:has([data-calendar-shown-day] [data-calendar-week-all-day]:not([hidden]))) {
@@ -8015,17 +8088,30 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     padding: 0.375rem 0.75rem;
   }
 
+  /* On phones the hour grid runs edge to edge instead of sitting in a card. */
+  #calendar-main [data-calendar-week-card] {
+    margin: 0;
+    border-inline: 0;
+    border-bottom: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
   #calendar-main [data-calendar-week-scroll] {
     overflow-x: hidden;
   }
 
-  #calendar-main [data-calendar-week-grid] {
+  #calendar-main :is([data-calendar-week-header] > div, [data-calendar-week-timeline]) {
     min-width: 0;
-    border-inline: 0;
   }
 
   #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child {
     grid-template-columns: repeat(var(--calendar-days), minmax(0, 1fr));
+  }
+
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child > :last-child {
+    grid-column-end: auto;
+    padding-right: 0;
   }
 
   #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
@@ -8046,13 +8132,19 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     box-shadow: inset 0 -2px 0 var(--primary);
   }
 
-  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-row],
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-row] {
+    grid-template-columns: 3rem minmax(0, 1fr) var(--calendar-week-gutter, 0px);
+  }
+
   #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-timeline] {
     grid-template-columns: 3rem minmax(0, 1fr);
   }
 
   #calendar-main[data-calendar-view="3day"] [data-calendar-week-header] > div:first-child,
-  #calendar-main[data-calendar-view="3day"] [data-calendar-all-day-row],
+  #calendar-main[data-calendar-view="3day"] [data-calendar-all-day-row] {
+    grid-template-columns: 3rem repeat(var(--calendar-days), minmax(0, 1fr)) var(--calendar-week-gutter, 0px);
+  }
+
   #calendar-main[data-calendar-view="3day"] [data-calendar-week-timeline] {
     grid-template-columns: 3rem repeat(var(--calendar-days), minmax(0, 1fr));
   }
@@ -8186,6 +8278,8 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
 
   #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-column]:is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
     display: grid;
+    grid-column: 2 / -1;
+    padding-right: calc(0.375rem + var(--calendar-week-gutter, 0px));
   }
 
   #calendar-main [data-calendar-week-timeline] > :first-child,

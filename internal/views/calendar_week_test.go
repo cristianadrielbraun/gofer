@@ -228,7 +228,7 @@ func TestCalendarResponsiveHeightAndZoomMarkup(t *testing.T) {
 			}
 		}
 		if data.View == "week" {
-			for _, want := range []string{`data-calendar-week-zoom="fit"`, `data-calendar-week-zoom="in"`, `data-calendar-week-zoom="out"`, `data-calendar-week-hour-label="23"`, `data-calendar-week-hour="0"`, `data-calendar-week-timeline`, `data-calendar-week-header`} {
+			for _, want := range []string{`data-calendar-week-zoom="fit"`, `data-calendar-week-zoom="in"`, `data-calendar-week-zoom="out"`, `data-calendar-week-zoom-slider`, `aria-label="Week timeline zoom"`, `data-calendar-week-hour-label="23"`, `data-calendar-week-hour="0"`, `data-calendar-week-timeline`, `data-calendar-week-header`} {
 				if !strings.Contains(html, want) {
 					t.Errorf("missing responsive Week markup %q", want)
 				}

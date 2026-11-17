@@ -17,6 +17,8 @@ type Props struct {
 	Step       int
 	Value      int
 	Disabled   bool
+	// Label is the thumb's aria-label, the name people hear for the slider.
+	Label string
 }
 
 type RangeProps struct {
@@ -73,6 +75,9 @@ templ Slider(props ...Props) {
 				data-thumb
 				role="slider"
 				tabindex={ utils.IfElse(p.Disabled, "-1", "0") }
+				if p.Label != "" {
+					aria-label={ p.Label }
+				}
 				aria-valuemin={ fmt.Sprintf("%d", p.Min) }
 				aria-valuemax={ fmt.Sprintf("%d", p.Max) }
 				aria-valuenow={ fmt.Sprintf("%d", p.Value) }

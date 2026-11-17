@@ -90,6 +90,16 @@
       setVal(i, val);
     });
 
+    // Gofer: other controls (such as - and + buttons beside the slider) move it with
+    // a 'tui-slider:set' event carrying { value, index? }. It doesn't fire 'input',
+    // since whoever sets the value already knows about it.
+    root.addEventListener('tui-slider:set', e => {
+      const i = (e.detail && e.detail.index) || 0;
+      if (!inputs[i]) return;
+      inputs[i].value = clamp(snap(+e.detail.value, step), min, max);
+      update();
+    });
+
     update();
     root.dataset.tuiSliderInit = '1';
   }

@@ -109,6 +109,14 @@ func calendarViewURL(view, date string) string {
 }
 
 // calendarViewStep is how many days an arrow moves an hour-grid view.
+// The zoom slider's levels for the hour grid, from the whole day on screen to the
+// largest hours. Fit is separate and not one of them. app.js uses the same numbers
+// in CALENDAR_WEEK_ZOOM_LEVELS and _calendarWeekZoomLevel.
+const (
+	calendarWeekZoomLevels       = 6
+	calendarWeekZoomDefaultLevel = 2
+)
+
 func calendarViewStep(view string) int {
 	switch view {
 	case "day":
