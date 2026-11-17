@@ -34,6 +34,10 @@ func TestCalendarRequestStartsWeeksOnTheSavedDay(t *testing.T) {
 		{"/calendar?month=2026-10", "", "2026-09-28", "2026-11-02"},
 		{"/calendar?month=2026-10", "sunday", "2026-09-27", "2026-11-01"},
 		{"/calendar?month=2026-10", "saturday", "2026-09-26", "2026-11-07"},
+		// Day keeps its week up to date, for the strip; 3 days only its own.
+		{"/calendar?view=day&date=2026-10-25", "sunday", "2026-10-25", "2026-11-01"},
+		{"/calendar?view=3day&date=2026-10-25", "", "2026-10-25", "2026-10-28"},
+		{"/calendar?view=workweek&date=2026-10-25", "", "2026-10-19", "2026-10-24"},
 	} {
 		data := calendarDataFromRequest(httptest.NewRequest(http.MethodGet, test.target, nil), map[string]string{"timezone": "Europe/Prague", "week_start": test.weekStart})
 		start, end := calendarVisibleWindow(data)
@@ -78,6 +82,9 @@ func TestHandleCalendarRefreshPreservesWeekView(t *testing.T) {
 		{"week", "2026-10-01", http.StatusOK},
 		{"week", "invalid", http.StatusBadRequest},
 		{"other", "2026-10-01", http.StatusBadRequest},
+		{"day", "2026-10-01", http.StatusOK},
+		{"3day", "2026-10-01", http.StatusOK},
+		{"workweek", "2026-10-01", http.StatusOK},
 	} {
 		form := url.Values{"view": {test.view}, "date": {test.date}, "month": {"2026-10"}}
 		r := httptest.NewRequest(http.MethodPost, "/api/calendar/sync", strings.NewReader(form.Encode()))
@@ -88,8 +95,9 @@ func TestHandleCalendarRefreshPreservesWeekView(t *testing.T) {
 		if w.Code != test.status {
 			t.Fatalf("refresh %s %s: status %d, body %s", test.view, test.date, w.Code, w.Body.String())
 		}
-		if test.status == http.StatusOK && (!strings.Contains(w.Body.String(), `data-calendar-period="week:2026-09-28"`) || !strings.Contains(w.Body.String(), `data-calendar-view="week"`)) {
-			t.Fatal("refresh switched away from the requested week")
+		period := map[string]string{"week": "week:2026-09-28", "day": "day:2026-09-28", "3day": "3day:2026-10-01", "workweek": "workweek:2026-09-28"}[test.view]
+		if test.status == http.StatusOK && (!strings.Contains(w.Body.String(), `data-calendar-period="`+period+`"`) || !strings.Contains(w.Body.String(), `data-calendar-view="`+test.view+`"`)) {
+			t.Fatalf("refresh switched away from the requested %s", test.view)
 		}
 	}
 }

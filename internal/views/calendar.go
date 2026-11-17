@@ -59,11 +59,7 @@ func calendarLoadingData(view string, uiSettings map[string]string) CalendarMont
 		}
 	}
 	at := time.Now().In(location)
-	weekStart := i18n.ParseWeekStart(uiSettings[i18n.WeekStartSettingKey])
-	data := NewCalendarMonthData(at, weekStart)
-	if view == "week" {
-		data = NewCalendarWeekData(at, weekStart)
-	}
+	data := NewCalendarData(view, at, i18n.ParseWeekStart(uiSettings[i18n.WeekStartSettingKey]))
 	data.Loading = true
 	return data
 }
@@ -161,11 +157,16 @@ func calendarMonthURL(monthKey string) string {
 	return "/calendar"
 }
 
-// calendarPeriodLabel is the calendar's title: the month, or the days of the
-// week on screen.
+// calendarPeriodLabel is the calendar's title: the month, the day shown, or
+// the first and last of the days on screen.
 func calendarPeriodLabel(ctx context.Context, month CalendarMonthData) string {
 	dates := i18n.Dates(ctx)
-	if month.View == "week" && len(month.Weeks) > 0 && len(month.Weeks[0].Days) > 0 {
+	if month.View == "day" {
+		if date, err := time.ParseInLocation("2006-01-02", month.DateKey, month.Month.Location()); err == nil {
+			return dates.LongDate(date)
+		}
+	}
+	if calendarTimelineView(month.View) && len(month.Weeks) > 0 && len(month.Weeks[0].Days) > 0 {
 		days := month.Weeks[0].Days
 		return dates.DateRange(days[0].Date, days[len(days)-1].Date)
 	}

@@ -62,7 +62,7 @@ templ AppNavigationTemplates(uiSettings map[string]string) {
 			@ContactsPage(nil, nil, nil, false, false, models.ContactFilters{View: mode}, -1, uiSettings, nil)
 		</template>
 	}
-	for _, view := range []string{"month", "week"} {
+	for _, view := range CalendarViews() {
 		<template id={ "app-navigation-calendar-" + view }>
 			@CalendarPage(calendarLoadingData(view, uiSettings), uiSettings)
 		</template>

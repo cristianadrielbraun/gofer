@@ -11208,8 +11208,9 @@ document.addEventListener("DOMContentLoaded", function () {
       var template = document.getElementById("calendar-loading-month")
       if (!template) return
       var content = template.content.cloneNode(true)
-      var view = window.GoferSettings && GoferSettings.get("calendar_view") === "week" ? "week" : "month"
-      var weekTemplate = view === "week" && document.getElementById("calendar-loading-week")
+      var saved = window.GoferSettings && GoferSettings.get("calendar_view")
+      var view = CALENDAR_VIEWS.indexOf(saved) >= 0 ? saved : "month"
+      var weekTemplate = view !== "month" && document.getElementById("calendar-loading-" + view)
       var panes = weekTemplate ? weekTemplate.content.cloneNode(true) : content
       ;["sidebar-app-body", "sidebar-sync-controls", "mail-list", "mail-view"].forEach(function (id) {
         var root = document.getElementById(id)
@@ -14119,6 +14120,39 @@ function cancelCalendarPageRequests() {
   finishCalendarNavigationTransition()
 }
 
+// The calendar's views, in the order of the view menu (CalendarViews in
+// internal/views). All but Month lay their days on an hour grid.
+var CALENDAR_VIEWS = ["day", "3day", "workweek", "week", "month"]
+
+function calendarTimelineView(view) {
+  return view !== "month" && CALENDAR_VIEWS.indexOf(view) >= 0
+}
+
+// The date (YYYY-MM-DD) days after another; days may be negative.
+function calendarAddDays(date, days) {
+  var at = new Date(date + "T00:00:00Z")
+  at.setUTCDate(at.getUTCDate() + days)
+  return at.toISOString().slice(0, 10)
+}
+
+// The days an hour-grid view lays out around date, as NewCalendarTimelineData
+// does: the week holding it, that week's Monday to Friday, three days from it,
+// or, for Day, the week of its strip.
+function calendarViewDays(view, date) {
+  var at = new Date(date + "T00:00:00Z")
+  if (view === "3day") return [0, 1, 2].map(function (index) { return calendarAddDays(date, index) })
+  var first = calendarAddDays(date, -((at.getUTCDay() - goferDates.weekStart + 7) % 7))
+  var days = [0, 1, 2, 3, 4, 5, 6].map(function (index) { return calendarAddDays(first, index) })
+  if (view !== "workweek") return days
+  return days.filter(function (day) { var weekday = new Date(day + "T00:00:00Z").getUTCDay(); return weekday !== 0 && weekday !== 6 })
+}
+
+// The address of a view around date, written as the server writes it.
+function calendarViewURL(view, date) {
+  if (!calendarTimelineView(view)) return "/calendar?month=" + date.slice(0, 7)
+  return "/calendar?date=" + encodeURIComponent(date) + "&view=" + encodeURIComponent(view)
+}
+
 function calendarLoadingWeekCount(month) {
   var parts = /^(\d{4})-(\d{2})$/.exec(month || "")
   if (!parts) return null
@@ -14132,11 +14166,10 @@ function calendarLoadingPeriodLabel(view, date) {
   if (!/^\d{4}-\d{2}(?:-\d{2})?$/.test(date || "")) return ""
   var at = new Date(date.length === 7 ? date + "-01T12:00:00Z" : date + "T12:00:00Z")
   if (isNaN(at.getTime())) return ""
-  if (view !== "week") return goferDates.monthYear(at, "UTC")
-  at.setUTCDate(at.getUTCDate() - (at.getUTCDay() - goferDates.weekStart + 7) % 7)
-  var end = new Date(at.getTime())
-  end.setUTCDate(end.getUTCDate() + 6)
-  return goferDates.dateRange(at, end, "UTC")
+  if (!calendarTimelineView(view)) return goferDates.monthYear(at, "UTC")
+  if (view === "day") return goferDates.longDate(at, "UTC")
+  var days = calendarViewDays(view, date.length === 7 ? date + "-01" : date)
+  return goferDates.dateRange(new Date(days[0] + "T12:00:00Z"), new Date(days[days.length - 1] + "T12:00:00Z"), "UTC")
 }
 
 function showCalendarContentPending(event) {
@@ -14151,7 +14184,7 @@ function showCalendarContentPending(event) {
   var href = trigger.getAttribute("hx-get")
   if (!href || !href.startsWith("/calendar")) return
   var url = new URL(href, window.location.href)
-  var view = url.searchParams.get("view") === "week" ? "week" : "month"
+  var view = calendarTimelineView(url.searchParams.get("view")) ? url.searchParams.get("view") : "month"
   var template = document.getElementById("calendar-loading-" + view)
   if (!template) return
   var content = template.content.cloneNode(true)
@@ -14195,22 +14228,18 @@ function showCalendarContentPending(event) {
   })
   // The incoming week's dates are known from the link, so its headers can slide in
   // with them before the response arrives.
-  if (view === "week") {
-    var weekDate = (url.searchParams.get("date") || calendar.dataset.calendarTodayDate).split("-").map(Number)
-    var weekStart = new Date(Date.UTC(weekDate[0], weekDate[1] - 1, weekDate[2]))
-    weekStart.setUTCDate(weekStart.getUTCDate() - (weekStart.getUTCDay() - goferDates.weekStart + 7) % 7)
-    var weekDays = []
+  if (calendarTimelineView(view)) {
+    var viewDate = url.searchParams.get("date") || calendar.dataset.calendarTodayDate
+    var weekDays = calendarViewDays(view, viewDate)
     loading.querySelectorAll("[data-calendar-week-header] [data-calendar-day]").forEach(function (day, index) {
-      var date = new Date(weekStart.getTime() + index * 86400000)
-      weekDays.push(date.toISOString().slice(0, 10))
       var number = day.querySelector("span.inline-flex")
-      if (number) number.textContent = String(date.getUTCDate())
+      if (number && weekDays[index]) number.textContent = String(Number(weekDays[index].slice(8)))
     })
-    // Small screens show one day; mark the one the loaded week will show, so the
-    // highlight does not jump when it arrives.
-    var phoneDay = Math.max(0, weekDays.indexOf(calendar.dataset.calendarTodayDate))
+    // Day view, and small screens in the week views, show one day; mark the one
+    // the loaded view will show, so the highlight does not jump when it arrives.
+    var shownDay = view === "day" ? weekDays.indexOf(viewDate) : Math.max(0, weekDays.indexOf(calendar.dataset.calendarTodayDate))
     ;["[data-calendar-week-header] [data-calendar-day]", "[data-calendar-all-day-column]", "[data-calendar-timed-column]"].forEach(function (selector) {
-      loading.querySelectorAll(selector).forEach(function (node, index) { node.toggleAttribute("data-calendar-phone-day", index === phoneDay) })
+      loading.querySelectorAll(selector).forEach(function (node, index) { node.toggleAttribute("data-calendar-shown-day", index === shownDay) })
     })
   }
   var timezone = loading.querySelector("[data-calendar-week-timezone]")
@@ -14276,33 +14305,35 @@ var _calendarNavigationTransition = null
 // out during the slide and fade back in once it ends.
 var CALENDAR_WEEK_SLIDE_MS = 480
 var _calendarWeekSlide = null
-// Matches the indicator's duration-200 transition.
-var CALENDAR_VIEW_INDICATOR_MS = 200
 
+// Shows view as the chosen one in the view menu, and marks its link current.
 function setCalendarViewSwitch(view) {
   var group = document.querySelector("[data-calendar-view-nav]")
   if (!group) return
   group.querySelectorAll("[data-calendar-view-switch]").forEach(function (link) {
-    var active = link.dataset.calendarViewSwitch === view
-    link.classList.toggle("text-foreground", active)
-    link.classList.toggle("text-muted-foreground", !active)
-    link.classList.toggle("hover:text-foreground", !active)
-    link.setAttribute("aria-current", active ? "page" : "false")
+    link.setAttribute("aria-current", link.dataset.calendarViewSwitch === view ? "page" : "false")
   })
-  var indicator = group.querySelector("[data-calendar-view-indicator]")
-  if (!indicator) return
-  indicator.style.transform = view === "week" ? "translateX(calc(100% + 2px))" : "translateX(0)"
-  // Start the slide now. Otherwise the browser may only notice the change after the
-  // new view has been swapped in, and the indicator lands without sliding.
-  void window.getComputedStyle(indicator).transform
+  // The menu redraws its label when its value is set.
+  var select = group.querySelector("[data-calendar-view-select]")
+  if (select && select.value !== view) select.value = view
 }
+
+// Picking a view in the menu follows that view's link, so it loads like any
+// other move around the calendar.
+document.addEventListener("change", function (event) {
+  var select = event.target
+  if (!select.matches || !select.matches("[data-calendar-view-select]")) return
+  var calendar = document.getElementById("calendar-main")
+  var link = calendar && calendar.querySelector('[data-calendar-view-switch="' + CSS.escape(select.value) + '"]')
+  if (!link || calendar.dataset.calendarView === select.value) return
+  link.click()
+})
 
 document.body.addEventListener("htmx:beforeRequest", function (event) {
   var trigger = event.detail && event.detail.elt
   if (!trigger || !trigger.hasAttribute("data-calendar-view-switch")) return
   _calendarViewSwitchRequest = event.detail.xhr
   _calendarViewSwitchRequest.goferCalendarViewSwitch = trigger.dataset.calendarViewSwitch
-  _calendarViewSwitchRequest.goferCalendarViewSwitchStart = performance.now()
   setCalendarViewSwitch(trigger.dataset.calendarViewSwitch)
 })
 
@@ -14319,12 +14350,7 @@ document.body.addEventListener("htmx:sendAbort", handleCalendarViewSwitchResult)
 document.body.addEventListener("htmx:beforeSwap", function (event) {
   var xhr = event.detail && event.detail.xhr
   if (!xhr || typeof xhr.goferCalendarViewSwitch !== "string") return
-  if (xhr !== _calendarViewSwitchRequest) {
-    event.detail.shouldSwap = false
-    return
-  }
-  var indicator = document.querySelector("[data-calendar-view-indicator]")
-  if (indicator) xhr.goferCalendarViewTransform = window.getComputedStyle(indicator).transform
+  if (xhr !== _calendarViewSwitchRequest) event.detail.shouldSwap = false
 })
 document.body.addEventListener("htmx:afterSwap", function (event) {
   var xhr = event.detail && event.detail.xhr
@@ -14332,15 +14358,6 @@ document.body.addEventListener("htmx:afterSwap", function (event) {
   _calendarViewSwitchRequest = null
   setCalendarViewSwitch(xhr.goferCalendarViewSwitch)
   if (window.GoferSettings) GoferSettings.set("calendar_view", xhr.goferCalendarViewSwitch)
-  // The tabs were replaced with the new view. Carry on the indicator's slide from
-  // where the old one had got to, for the rest of its time, rather than restarting.
-  var indicator = document.querySelector("[data-calendar-view-indicator]")
-  var remaining = CALENDAR_VIEW_INDICATOR_MS - (performance.now() - xhr.goferCalendarViewSwitchStart)
-  if (!indicator || !indicator.animate || !xhr.goferCalendarViewTransform || remaining <= 0 ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-  indicator.style.transition = "none"
-  var slide = indicator.animate([{ transform: xhr.goferCalendarViewTransform }, { transform: indicator.style.transform }], { duration: remaining, easing: "ease-out" })
-  slide.onfinish = slide.oncancel = function () { indicator.style.transition = "" }
 })
 
 // Agenda events that were not on show fade in like the calendar's own events
@@ -14501,6 +14518,9 @@ function initializeCalendarDaySelection() {
   if (_calendarSelectedDay && _calendarSelectedDay.period !== calendar.dataset.calendarPeriod) _calendarSelectedDay = null
   var selected = _calendarSelectedDay && calendar.querySelector('[data-calendar-day="' + _calendarSelectedDay.date + '"]')
   if (!selected) _calendarSelectedDay = null
+  // Day view always has its day selected: the one it shows.
+  var dayView = calendar.dataset.calendarView === "day"
+  if (dayView) selected = calendar.querySelector('[data-calendar-week-header] [data-calendar-day="' + calendar.dataset.calendarDate + '"]')
   calendar.querySelectorAll("[data-calendar-day]").forEach(function (day) {
     day.setAttribute("data-calendar-day-selected", day === selected ? "true" : "false")
     day.querySelectorAll("[data-calendar-select-day]").forEach(function (button) {
@@ -14518,7 +14538,7 @@ function initializeCalendarDaySelection() {
   agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : goferT("js.calendar.agenda.all")
   agenda.querySelector("[data-calendar-agenda-context]").textContent = selected ?
     goferTn("js.calendar.events", visible) : calendar.dataset.calendarMonthLabel
-  agenda.querySelector("[data-calendar-agenda-clear]").hidden = !selected
+  agenda.querySelector("[data-calendar-agenda-clear]").hidden = !selected || dayView
   agenda.querySelector("#calendar-agenda-list").hidden = visible === 0
   agenda.querySelector("[data-calendar-agenda-empty]").hidden = visible !== 0
   var sources = Array.from(document.querySelectorAll("[data-calendar-visibility]"))
@@ -14527,25 +14547,26 @@ function initializeCalendarDaySelection() {
   agenda.querySelector("[data-calendar-agenda-empty-detail]").textContent = allHidden ?
     goferT("js.calendar.agenda.all_hidden_detail") : selected ?
     goferT("js.calendar.agenda.none_day_detail") :
-    calendar.dataset.calendarView === "week" ? goferT("js.calendar.agenda.none_week") : goferT("js.calendar.agenda.none_month")
+    calendar.dataset.calendarView === "3day" ? goferT("js.calendar.agenda.none_days") :
+    calendarTimelineView(calendar.dataset.calendarView) ? goferT("js.calendar.agenda.none_week") : goferT("js.calendar.agenda.none_month")
   // Switch views around the selected date rather than an unrelated week.
   var focusDate = selected ? selected.dataset.calendarDay : calendar.dataset.calendarDate
   calendar.querySelectorAll("[data-calendar-view-switch]").forEach(function (link) {
-    var url = link.dataset.calendarViewSwitch === "week" ?
-      "/calendar?date=" + encodeURIComponent(focusDate) + "&view=week" : "/calendar?month=" + focusDate.slice(0, 7)
+    var url = calendarViewURL(link.dataset.calendarViewSwitch, focusDate)
     if (link.getAttribute("hx-get") === url) return
     link.setAttribute("href", url)
     link.setAttribute("hx-get", url)
     link.setAttribute("hx-push-url", url)
     if (window.htmx) window.htmx.process(link)
   })
-  markCalendarPhoneDay(calendar, selected)
+  markCalendarShownDay(calendar, selected)
   initializeCalendarViewport()
 }
 
-// The day a small screen shows in the week view: the selected day, else today when
-// it is in the week, else the first day.
-function markCalendarPhoneDay(calendar, selected) {
+// The day the hour grid shows on its own: in Day view, and on small screens in
+// Week and Work week. It is the selected day, else today when it is in the week,
+// else the first day.
+function markCalendarShownDay(calendar, selected) {
   var grid = calendar.querySelector("[data-calendar-week-grid]")
   if (!grid) return
   var date = selected ? selected.dataset.calendarDay : ""
@@ -14556,7 +14577,7 @@ function markCalendarPhoneDay(calendar, selected) {
   }
   grid.querySelectorAll("[data-calendar-week-header] [data-calendar-day], [data-calendar-all-day-column], [data-calendar-timed-column]").forEach(function (node) {
     var nodeDate = node.dataset.calendarDay || node.dataset.calendarAllDayColumn || node.dataset.calendarTimedColumn
-    node.toggleAttribute("data-calendar-phone-day", nodeDate === date)
+    node.toggleAttribute("data-calendar-shown-day", nodeDate === date)
   })
 }
 
@@ -14570,7 +14591,7 @@ function calendarSheetElement() {
   var calendar = document.getElementById("calendar-main")
   var agenda = document.querySelector("#main-content > [data-calendar-agenda]")
   var phone = !window.matchMedia("(min-width: 1024px)").matches
-  return phone && calendar && agenda && calendar.dataset.calendarView !== "week" ? agenda : null
+  return phone && calendar && agenda && calendar.dataset.calendarView === "month" ? agenda : null
 }
 
 function calendarSheetRestingTop(agenda) {
@@ -14652,26 +14673,28 @@ window.addEventListener("resize", positionCalendarSheet)
 // the sheet's position; set it again once the swap has settled.
 document.body.addEventListener("htmx:afterSettle", positionCalendarSheet)
 
-// Small screens show one day of the week at a time. Picking another day slides the
-// hour column sideways, the new day coming in from the side it lies on.
-var CALENDAR_PHONE_DAY_SLIDE_MS = 320
-var _calendarPhoneDaySlide = null
+// Day view, and small screens in the week views, show one day at a time. Picking
+// another day slides the hour column sideways, the new day coming in from the side
+// it lies on.
+var CALENDAR_SHOWN_DAY_SLIDE_MS = 320
+var _calendarShownDaySlide = null
 
-function finishCalendarPhoneDaySlide() {
-  var slide = _calendarPhoneDaySlide
+function finishCalendarShownDaySlide() {
+  var slide = _calendarShownDaySlide
   if (!slide) return
-  _calendarPhoneDaySlide = null
+  _calendarShownDaySlide = null
   slide.animations.forEach(function (animation) { animation.cancel() })
-  slide.leaving.forEach(function (node) { node.removeAttribute("data-calendar-phone-day-leaving") })
+  slide.leaving.forEach(function (node) { node.removeAttribute("data-calendar-shown-day-leaving") })
   // The old day's events are hidden now; forget them so they do not fade out later.
   var calendar = document.getElementById("calendar-main")
   if (calendar && !calendar.hasAttribute("data-calendar-loading")) _calendarPillSnapshot = captureCalendarPills(calendar)
 }
 
-function slideCalendarPhoneDay(calendar, fromDate, toDate) {
-  finishCalendarPhoneDaySlide()
+function slideCalendarShownDay(calendar, fromDate, toDate) {
+  finishCalendarShownDaySlide()
   var grid = calendar.querySelector("[data-calendar-week-grid]")
-  if (!grid || !fromDate || fromDate === toDate || window.matchMedia("(min-width: 1024px)").matches ||
+  var oneDay = calendar.dataset.calendarView === "day" || !window.matchMedia("(min-width: 1024px)").matches
+  if (!grid || !fromDate || fromDate === toDate || !oneDay ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
   var column = function (date) {
     return Array.from(grid.querySelectorAll('[data-calendar-timed-column="' + date + '"], [data-calendar-all-day-column="' + date + '"]'))
@@ -14682,9 +14705,9 @@ function slideCalendarPhoneDay(calendar, fromDate, toDate) {
   if (!timed || !timed.offsetWidth || !timed.animate) return
   // The day change itself would cross-fade the events; the slide carries them instead.
   clearCalendarPillFades()
-  leaving.forEach(function (node) { node.setAttribute("data-calendar-phone-day-leaving", "") })
+  leaving.forEach(function (node) { node.setAttribute("data-calendar-shown-day-leaving", "") })
   var distance = (toDate > fromDate ? 1 : -1) * timed.offsetWidth
-  var timing = { duration: CALENDAR_PHONE_DAY_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
+  var timing = { duration: CALENDAR_SHOWN_DAY_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
   var slide = { leaving: leaving, animations: [] }
   leaving.forEach(function (node) {
     slide.animations.push(node.animate([{ transform: "translateX(0)" }, { transform: "translateX(" + -distance + "px)" }], timing))
@@ -14692,9 +14715,9 @@ function slideCalendarPhoneDay(calendar, fromDate, toDate) {
   entering.forEach(function (node) {
     slide.animations.push(node.animate([{ transform: "translateX(" + distance + "px)" }, { transform: "translateX(0)" }], timing))
   })
-  _calendarPhoneDaySlide = slide
+  _calendarShownDaySlide = slide
   slide.animations[slide.animations.length - 1].onfinish = function () {
-    if (_calendarPhoneDaySlide === slide) finishCalendarPhoneDaySlide()
+    if (_calendarShownDaySlide === slide) finishCalendarShownDaySlide()
   }
 }
 
@@ -14708,15 +14731,19 @@ document.addEventListener("click", function (event) {
     }
     return
   }
+  if (trigger && calendar && calendar.dataset.calendarView === "day") {
+    showCalendarDay(calendar, trigger.dataset.calendarSelectDay)
+    return
+  }
   if (trigger && calendar) {
     var scroller = calendar.querySelector("[data-calendar-week-scroll]")
     if (scroller && scroller.clientHeight) _calendarWeekScrollState = { period: calendar.dataset.calendarPeriod, zoom: _calendarWeekZoom, top: scroller.scrollTop, left: scroller.scrollLeft }
-    var shownDay = calendar.querySelector("[data-calendar-week-header] [data-calendar-day][data-calendar-phone-day]")
+    var shownDay = calendar.querySelector("[data-calendar-week-header] [data-calendar-day][data-calendar-shown-day]")
     _calendarSelectedDay = { period: calendar.dataset.calendarPeriod, date: trigger.dataset.calendarSelectDay }
     initializeCalendarDaySelection()
-    if (shownDay) slideCalendarPhoneDay(calendar, shownDay.dataset.calendarDay, trigger.dataset.calendarSelectDay)
+    if (shownDay) slideCalendarShownDay(calendar, shownDay.dataset.calendarDay, trigger.dataset.calendarSelectDay)
     document.getElementById("calendar-agenda-list").scrollTop = 0
-    if (window.matchMedia("(max-width: 1023px)").matches && calendar.dataset.calendarView !== "week") document.getElementById("calendar-agenda-heading").focus({ preventScroll: true })
+    if (window.matchMedia("(max-width: 1023px)").matches && calendar.dataset.calendarView === "month") document.getElementById("calendar-agenda-heading").focus({ preventScroll: true })
     return
   }
   if (calendar && event.target.closest && event.target.closest("[data-calendar-agenda-clear]")) {
@@ -14725,6 +14752,49 @@ document.addEventListener("click", function (event) {
     initializeCalendarDaySelection()
     if (previous) previous.focus({ preventScroll: true })
   }
+})
+
+// Day view moves to another day of its week in place, with no page to load: the
+// strip, the arrows within the week, and the address all follow the shown day,
+// so a refresh or a reload keeps it.
+function showCalendarDay(calendar, date) {
+  var from = calendar.dataset.calendarDate
+  if (!date || date === from) return
+  var scroller = calendar.querySelector("[data-calendar-week-scroll]")
+  if (scroller && scroller.clientHeight) _calendarWeekScrollState = { period: calendar.dataset.calendarPeriod, zoom: _calendarWeekZoom, top: scroller.scrollTop, left: scroller.scrollLeft }
+  calendar.dataset.calendarDate = date
+  calendar.dataset.calendarMonth = date.slice(0, 7)
+  var title = goferDates.longDate(new Date(date + "T12:00:00Z"), "UTC")
+  calendar.dataset.calendarMonthLabel = title
+  var heading = calendar.querySelector("[data-calendar-title]")
+  if (heading) heading.textContent = title
+  var setLink = function (link, url) {
+    if (link.hasAttribute("href")) link.setAttribute("href", url)
+    if (link.hasAttribute("hx-push-url")) link.setAttribute("hx-push-url", url)
+    link.setAttribute("hx-get", url)
+    if (window.htmx) window.htmx.process(link)
+  }
+  calendar.querySelectorAll("[data-calendar-navigate]").forEach(function (link) {
+    setLink(link, calendarViewURL("day", calendarAddDays(date, Number(link.dataset.calendarNavigate))))
+  })
+  var refresh = calendar.querySelector("[data-calendar-cache-refresh]")
+  if (refresh) setLink(refresh, calendarViewURL("day", date) + "&cache=1")
+  if (window.location.pathname === "/calendar") history.replaceState(history.state, "", calendarViewURL("day", date))
+  initializeCalendarDaySelection()
+  slideCalendarShownDay(calendar, from, date)
+  document.getElementById("calendar-agenda-list").scrollTop = 0
+}
+
+// In Day view, an arrow to a day of the same week only moves the strip.
+document.body.addEventListener("htmx:confirm", function (event) {
+  var trigger = event.detail && event.detail.elt
+  var calendar = document.getElementById("calendar-main")
+  if (!trigger || !calendar || !trigger.hasAttribute("data-calendar-navigate") || calendar.dataset.calendarView !== "day" ||
+      calendar.hasAttribute("data-calendar-loading")) return
+  var date = calendarAddDays(calendar.dataset.calendarDate, Number(trigger.dataset.calendarNavigate))
+  if (!calendar.querySelector('[data-calendar-week-header] [data-calendar-day="' + date + '"]')) return
+  event.preventDefault()
+  showCalendarDay(calendar, date)
 })
 
 // Switching sections swaps four side panes before the list, all at once.
@@ -15195,7 +15265,7 @@ function animateCalendarPills(calendar) {
     return
   }
   var current = captureCalendarPills(calendar), previous = _calendarPillSnapshot
-  if (_calendarWeekSlide && current.view === "week") {
+  if (_calendarWeekSlide && calendarTimelineView(current.view)) {
     var slide = _calendarWeekSlide
     _calendarWeekSlide = null
     _calendarPillSnapshot = current
@@ -15345,6 +15415,12 @@ function prepareCalendarNavigation(event) {
   _calendarWeekSlide = null
   if (!navigation || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
   var currentCalendar = document.getElementById("calendar-main")
+  // Month to month, the grid itself stays put; only what is in its days changes
+  // (fadeInCalendarMonthContents), so there is no outgoing copy to keep.
+  if (currentCalendar && currentCalendar.dataset.calendarView === "month" && !xhr.goferCalendarNavigationCrossover) {
+    xhr.goferCalendarMonthFade = true
+    return
+  }
   var weekHeader = currentCalendar && currentCalendar.querySelector("[data-calendar-week-header]")
   if (weekHeader && !xhr.goferCalendarNavigationCrossover && weekHeader.animate) {
     var headerCopy = weekHeader.cloneNode(true)
@@ -15391,6 +15467,11 @@ function animateCalendarNavigation(event) {
   var xhr = event.detail && event.detail.xhr
   if (!xhr || (typeof xhr.goferCalendarNavigationDirection === "number" && xhr !== _calendarNavigationRequest)) return
   if (xhr === _calendarNavigationRequest) _calendarNavigationRequest = null
+  if (xhr.goferCalendarMonthFade) {
+    delete xhr.goferCalendarMonthFade
+    fadeInCalendarMonthContents(document.getElementById("calendar-main"), xhr.goferCalendarNavigationDirection)
+    return
+  }
   var continued = xhr.goferCalendarWeekSlideContinue
   if (continued) {
     delete xhr.goferCalendarWeekSlideContinue
@@ -15436,6 +15517,21 @@ function animateCalendarNavigation(event) {
   transition.incoming.onfinish = function () {
     if (_calendarNavigationTransition === transition) finishCalendarNavigationTransition()
   }
+}
+
+// The new month's day numbers, busy dots and "+N more" fade in, drifting a few
+// pixels from the side the user is moving towards. Events fade in on their own
+// (animateCalendarPills); the grid's lines and weekday names do not move.
+var CALENDAR_MONTH_FADE_MS = 240
+
+function fadeInCalendarMonthContents(calendar, direction) {
+  var grid = calendar && calendar.querySelector("[data-calendar-month-grid]")
+  if (!grid || !grid.animate) return
+  var timing = { duration: CALENDAR_MONTH_FADE_MS, easing: "ease-out" }
+  var frames = [{ opacity: 0, transform: "translateX(" + (direction || 0) * 4 + "px)" }, { opacity: 1, transform: "translateX(0)" }]
+  grid.querySelectorAll("[data-calendar-day-head], [data-calendar-day-dots], [data-calendar-day-overflow]:not([hidden])").forEach(function (node) {
+    node.animate(frames, timing)
+  })
 }
 
 // The old week's headers slide out while the new ones slide in from the side the
@@ -15501,7 +15597,8 @@ function configureCalendarNavigationRequest(event) {
   _calendarNavigationRequest = detail.xhr
   detail.xhr.goferCalendarNavigationCrossover = viewSwitch
   if (viewSwitch) finishCalendarNavigationTransition()
-  detail.xhr.goferCalendarNavigationDirection = arrow ? Number(trigger.dataset.calendarNavigate) : trigger.dataset.calendarViewSwitch === "week" ? 1 : -1
+  detail.xhr.goferCalendarNavigationDirection = arrow ? Number(trigger.dataset.calendarNavigate) :
+    CALENDAR_VIEWS.indexOf(trigger.dataset.calendarViewSwitch) > CALENDAR_VIEWS.indexOf(calendar.dataset.calendarView) ? 1 : -1
 }
 document.body.addEventListener("htmx:beforeRequest", configureCalendarNavigationRequest)
 document.body.addEventListener("htmx:beforeRequest", showCalendarContentPending)
@@ -15688,7 +15785,7 @@ function configureCalendarCreateDialog(event) {
     return
   }
   var selected = _calendarSelectedDay && _calendarSelectedDay.period === calendar.dataset.calendarPeriod ? _calendarSelectedDay.date : ""
-  event.detail.parameters.date = selected || (calendar.dataset.calendarView === "week" ? calendar.dataset.calendarDate : calendar.dataset.calendarTodayDate.slice(0, 7) === calendar.dataset.calendarMonth ? calendar.dataset.calendarTodayDate : calendar.dataset.calendarMonth + "-01")
+  event.detail.parameters.date = selected || (calendarTimelineView(calendar.dataset.calendarView) ? calendar.dataset.calendarDate : calendar.dataset.calendarTodayDate.slice(0, 7) === calendar.dataset.calendarMonth ? calendar.dataset.calendarTodayDate : calendar.dataset.calendarMonth + "-01")
 }
 
 document.body.addEventListener("htmx:configRequest", function (event) {

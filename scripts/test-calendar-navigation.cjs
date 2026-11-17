@@ -32,8 +32,10 @@ function node() {
   }
 }
 const surface = node()
+// The period slide is for views without a month grid; months only fade their
+// days' contents (checked further down).
 const calendar = {
-  dataset: {calendarView: 'month'},
+  dataset: {calendarView: 'week'},
   querySelector(selector) { return selector === '[data-calendar-week-header]' ? null : surface },
   getBoundingClientRect() { return {top: 0, left: 256} },
   appendChild(snapshot) { this.snapshot = snapshot; snapshot.removed = false },
@@ -43,8 +45,9 @@ const context = vm.createContext({
   document: {querySelector() { return surface }, getElementById() { return calendar }},
   window: {matchMedia() { return {matches: reducedMotion} }, getComputedStyle() { return {opacity: '0.6', transform: 'matrix(0.99, 0, 0, 0.99, 3, 0)'} }},
 })
-vm.runInContext('var _calendarNavigationRequest = null; var _calendarNavigationTransition = null; var _calendarWeekSlide = null;\n' +
-  ['finishCalendarNavigationTransition', 'configureCalendarNavigationRequest', 'prepareCalendarNavigation', 'animateCalendarNavigation', 'handleCalendarNavigationResult'].map(helper).join('\n'), context)
+vm.runInContext('var CALENDAR_MONTH_FADE_MS = 240; var _calendarNavigationRequest = null; var _calendarNavigationTransition = null; var _calendarWeekSlide = null;\n' +
+  source.slice(source.indexOf('var CALENDAR_VIEWS'), source.indexOf('\n', source.indexOf('var CALENDAR_VIEWS'))) + '\n' +
+  ['finishCalendarNavigationTransition', 'fadeInCalendarMonthContents', 'configureCalendarNavigationRequest', 'prepareCalendarNavigation', 'animateCalendarNavigation', 'handleCalendarNavigationResult'].map(helper).join('\n'), context)
 function event(xhr, shouldSwap = true) { return {detail: {xhr, shouldSwap, target: {id: 'main-content'}}} }
 function navigate(direction) {
   const xhr = {goferCalendarNavigationDirection: direction}
@@ -71,9 +74,12 @@ for (const direction of [1, -1]) {
   assert.equal(context._calendarNavigationTransition, null)
   assert.ok(transition.snapshot.removed && transition.incoming.cancelled && transition.outgoing.cancelled)
 }
-for (const [from, to, direction] of [['month', 'week', 1], ['week', 'month', -1]]) {
-  calendar.dataset.calendarView = from
+// The tabs run Day, 3 days, Work week, Week, Month: moving right slides forward.
+for (const [from, to, direction] of [['month', 'week', -1], ['week', 'month', 1], ['day', '3day', 1], ['workweek', 'day', -1]]) {
+  // A week change still in flight, then the view switch.
+  calendar.dataset.calendarView = 'week'
   const previous = navigate(1)
+  calendar.dataset.calendarView = from
   const xhr = {}, request = event(xhr)
   request.detail.elt = {dataset: {calendarViewSwitch: to}, hasAttribute(name) { return name === 'data-calendar-view-switch' }}
   context.configureCalendarNavigationRequest(request)
@@ -110,6 +116,7 @@ for (const [from, to, direction] of [['month', 'week', 1], ['week', 'month', -1]
   assert.equal(unchanged.detail.xhr.goferCalendarNavigationDirection, undefined, 'The active tab must not replay the transition')
   assert.equal(context._calendarNavigationRequest, null)
 }
+calendar.dataset.calendarView = 'week'
 const first = navigate(1)
 const second = navigate(-1)
 assert.ok(first.snapshot.removed && first.incoming.cancelled, 'Rapid navigation must retire the previous overlay')
@@ -146,6 +153,34 @@ context.prepareCalendarNavigation(event(rejected, false))
 assert.equal(rejected.goferCalendarNavigationSnapshot, undefined)
 context.handleCalendarNavigationResult({detail: {xhr: rejected, successful: false}})
 assert.equal(context._calendarNavigationRequest, null, 'Errors/aborts must not leave a pending navigation')
+// Month to month: no outgoing copy and no moving grid; only the days' contents
+// fade in, drifting a few pixels from the side being moved towards.
+calendar.dataset.calendarView = 'month'
+const contents = [node(), node(), node()]
+let asked = ''
+calendar.querySelector = selector => selector === '[data-calendar-month-grid]' ? {animate() {}, querySelectorAll(query) { asked = query; return contents }} : surface
+for (const direction of [1, -1]) {
+  const xhr = {goferCalendarNavigationDirection: direction}
+  context._calendarNavigationRequest = xhr
+  context.prepareCalendarNavigation(event(xhr))
+  assert.equal(xhr.goferCalendarNavigationSnapshot, undefined, 'Months must not copy the outgoing grid')
+  context.animateCalendarNavigation(event(xhr))
+  assert.equal(context._calendarNavigationTransition, null, 'Months must not slide the grid')
+  for (const node of contents) {
+    assert.equal(JSON.stringify(node.animation.frames), JSON.stringify([{opacity: 0, transform: 'translateX(' + direction * 4 + 'px)'}, {opacity: 1, transform: 'translateX(0)'}]))
+    assert.equal(node.animation.timing.duration, 240)
+  }
+  assert.ok(asked.includes('[data-calendar-day-head]') && asked.includes('[data-calendar-day-dots]'), 'Only day numbers, dots and overflow fade')
+}
+// A view switch away from Month still dissolves the whole view.
+const leaving = {}, leave = event(leaving)
+leave.detail.elt = {dataset: {calendarViewSwitch: 'week'}, hasAttribute(name) { return name === 'data-calendar-view-switch' }}
+context.configureCalendarNavigationRequest(leave)
+context.prepareCalendarNavigation(leave)
+assert.ok(leaving.goferCalendarNavigationSnapshot, 'Leaving Month must keep its crossover')
+context.handleCalendarNavigationResult({detail: {xhr: leaving}})
+calendar.querySelector = selector => selector === '[data-calendar-week-header]' ? null : surface
+
 reducedMotion = true
 const immediate = {goferCalendarNavigationDirection: 1}
 context._calendarNavigationRequest = immediate
@@ -154,4 +189,4 @@ context.animateCalendarNavigation(event(immediate))
 assert.equal(immediate.goferCalendarNavigationSnapshot, undefined)
 assert.equal(context._calendarNavigationTransition, null)
 assert.equal(context._calendarNavigationRequest, null)
-console.log('Calendar navigation: period slide/fade/scale, opaque view crossover, active-tab no-op, inert snapshots, cleanup, refresh continuation, rapid requests, failures, and reduced motion passed.')
+console.log('Calendar navigation: month contents fade, period slide/fade/scale, opaque view crossover, active-tab no-op, inert snapshots, cleanup, refresh continuation, rapid requests, failures, and reduced motion passed.')

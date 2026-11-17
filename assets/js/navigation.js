@@ -48,7 +48,11 @@
   }
 
   function view(mode) {
-    if (mode === "calendar") return window.GoferSettings && GoferSettings.get("calendar_view") === "week" ? "week" : "month"
+    if (mode === "calendar") {
+      var saved = window.GoferSettings && GoferSettings.get("calendar_view")
+      // The calendar's views, as in CalendarViews (internal/views).
+      return ["day", "3day", "workweek", "week", "month"].indexOf(saved) >= 0 ? saved : "month"
+    }
     return window.matchMedia("(min-width: 1024px)").matches && window.GoferSettings && GoferSettings.get(mode === "contacts" ? "contacts_list_view" : "mail_list_view") === "table" ? "table" : "cards"
   }
 

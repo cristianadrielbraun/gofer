@@ -41,7 +41,7 @@ templ CalendarLoadingTemplates(accounts []models.Account, uiSettings map[string]
 	<template id="calendar-event-loading">
 		@CalendarEventLoadingDialog()
 	</template>
-	for _, view := range []string{"month", "week"} {
+	for _, view := range CalendarViews() {
 		{{ data := calendarLoadingData(view, uiSettings) }}
 		<template id={ "calendar-loading-" + view }>
 			@CalendarMainPane(data, uiSettings)

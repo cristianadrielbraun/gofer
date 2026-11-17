@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"sort"
 	"time"
 
@@ -13,24 +14,83 @@ import (
 
 const calendarWeekHourHeight = 64
 
-// NewCalendarWeekData lays out the week holding at, beginning on weekStart. A
-// zero at is now. Week view reuses the same cached events, agenda, and sync
-// state as Month.
+// The calendar's views, in the order the view menu lists them. All but
+// Month lay the days out on an hour grid.
+var calendarViews = []string{"day", "3day", "workweek", "week", "month"}
+
+// calendarPhoneViews are the views the view menu offers on phones. There the
+// hour grid shows one day at a time with the week as a strip above it, which
+// is the Day view, so Week and Work week would look the same.
+var calendarPhoneViews = []string{"day", "3day", "month"}
+
+// CalendarViews lists the calendar's views: "day", "3day" (three days from
+// the date), "workweek" (Monday to Friday), "week" and "month".
+func CalendarViews() []string {
+	return append([]string(nil), calendarViews...)
+}
+
+// CalendarViewKnown reports whether view is one of CalendarViews.
+func CalendarViewKnown(view string) bool {
+	return slices.Contains(calendarViews, view)
+}
+
+// calendarTimelineView reports whether a view lays its days on an hour grid.
+func calendarTimelineView(view string) bool {
+	return view != "month" && CalendarViewKnown(view)
+}
+
+// NewCalendarData lays out view for the date at, with weeks starting on
+// weekStart. An unknown view is Month.
+func NewCalendarData(view string, at time.Time, weekStart time.Weekday) CalendarMonthData {
+	if calendarTimelineView(view) {
+		return NewCalendarTimelineData(view, at, weekStart)
+	}
+	return NewCalendarMonthData(at, weekStart)
+}
+
+// NewCalendarWeekData lays out the week holding at, beginning on weekStart.
 func NewCalendarWeekData(at time.Time, weekStart time.Weekday) CalendarMonthData {
+	return NewCalendarTimelineData("week", at, weekStart)
+}
+
+// NewCalendarTimelineData lays out an hour-grid view around the date at; a
+// zero at is now. Week is the week holding at, beginning on weekStart. Work
+// week is that week's Monday to Friday. 3 days starts on at. Day carries the
+// whole week, for the strip that picks the day, and shows at. Every view
+// reuses the same cached events, agenda, and sync state as Month.
+func NewCalendarTimelineData(view string, at time.Time, weekStart time.Weekday) CalendarMonthData {
 	if at.IsZero() {
 		at = time.Now()
 	}
 	data := NewCalendarMonthData(at, weekStart)
 	date := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
-	start := date.AddDate(0, 0, -calendarDaysIntoWeek(date, weekStart))
-	data.View = "week"
-	data.PeriodKey = "week:" + start.Format("2006-01-02")
+	weekFirst := date.AddDate(0, 0, -calendarDaysIntoWeek(date, weekStart))
+	var dates []time.Time
+	switch view {
+	case "3day":
+		for index := 0; index < 3; index++ {
+			dates = append(dates, date.AddDate(0, 0, index))
+		}
+	case "workweek":
+		for index := 0; index < 7; index++ {
+			if day := weekFirst.AddDate(0, 0, index); day.Weekday() != time.Saturday && day.Weekday() != time.Sunday {
+				dates = append(dates, day)
+			}
+		}
+	default:
+		view = map[bool]string{true: "day", false: "week"}[view == "day"]
+		for index := 0; index < 7; index++ {
+			dates = append(dates, weekFirst.AddDate(0, 0, index))
+		}
+	}
+	data.View = view
+	data.PeriodKey = view + ":" + dates[0].Format("2006-01-02")
 	week := CalendarWeek{}
-	for index := 0; index < 7; index++ {
-		day := start.AddDate(0, 0, index)
+	today := time.Now().In(at.Location())
+	for _, day := range dates {
 		week.Days = append(week.Days, CalendarDay{
 			Date: day, DayNumber: day.Day(), ISODate: day.Format("2006-01-02"), InMonth: true,
-			IsToday:   sameCalendarDate(day, time.Now().In(at.Location())),
+			IsToday:   sameCalendarDate(day, today),
 			IsWeekend: day.Weekday() == time.Saturday || day.Weekday() == time.Sunday,
 		})
 	}
@@ -39,23 +99,34 @@ func NewCalendarWeekData(at time.Time, weekStart time.Weekday) CalendarMonthData
 }
 
 func calendarViewURL(view, date string) string {
-	if view != "week" {
+	if !calendarTimelineView(view) {
 		if len(date) >= 7 {
 			return calendarMonthURL(date[:7])
 		}
 		return "/calendar"
 	}
-	return "/calendar?" + url.Values{"view": {"week"}, "date": {date}}.Encode()
+	return "/calendar?" + url.Values{"view": {view}, "date": {date}}.Encode()
+}
+
+// calendarViewStep is how many days an arrow moves an hour-grid view.
+func calendarViewStep(view string) int {
+	switch view {
+	case "day":
+		return 1
+	case "3day":
+		return 3
+	}
+	return 7
 }
 
 func calendarNavigationURL(data CalendarMonthData, direction int) string {
-	if data.View == "week" {
+	if calendarTimelineView(data.View) {
 		date, err := time.ParseInLocation("2006-01-02", data.DateKey, data.Month.Location())
 		if err != nil {
 			date = data.Weeks[0].Days[0].Date
 		}
-		date = date.AddDate(0, 0, direction*7)
-		return calendarViewURL("week", date.Format("2006-01-02"))
+		date = date.AddDate(0, 0, direction*calendarViewStep(data.View))
+		return calendarViewURL(data.View, date.Format("2006-01-02"))
 	}
 	return calendarMonthURL(data.Month.AddDate(0, direction, 0).Format("2006-01"))
 }
@@ -63,26 +134,55 @@ func calendarNavigationURL(data CalendarMonthData, direction int) string {
 // calendarNavigationLabel names the previous or next arrow; direction is
 // "previous" or "next".
 func calendarNavigationLabel(ctx context.Context, data CalendarMonthData, direction string) string {
-	if data.View == "week" {
+	switch data.View {
+	case "day":
+		return i18n.T(ctx, "calendar.nav."+direction+"_day")
+	case "3day":
+		return i18n.T(ctx, "calendar.nav."+direction+"_3days")
+	case "week", "workweek":
 		return i18n.T(ctx, "calendar.nav."+direction+"_week")
 	}
 	return i18n.T(ctx, "calendar.nav."+direction+"_month")
 }
 
-func calendarViewSwitchClass(active bool) string {
-	classes := "relative z-10 inline-flex h-full min-h-0 min-w-0 items-center justify-center rounded-md px-2 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-	if active {
-		return classes + " text-foreground"
-	}
-	return classes + " text-muted-foreground hover:text-foreground"
+// calendarViewTriggerClass makes the view menu's trigger look like the Today
+// button and the arrows beside it, rather than a form field. It is only as
+// wide as the open view's name; its menu grows to fit every name.
+const calendarViewTriggerClass = "h-8 w-auto gap-1.5 border-border px-2.5 text-xs font-semibold text-foreground shadow-xs hover:bg-accent md:text-xs dark:border-input " + raisedButtonClass
+
+// calendarViewOnPhones reports whether the view menu offers view on phones.
+func calendarViewOnPhones(view string) bool {
+	return slices.Contains(calendarPhoneViews, view)
 }
 
-func calendarViewIndicatorStyle(view string) string {
-	transform := "translateX(0)"
-	if view == "week" {
-		transform = "translateX(calc(100% + 2px))"
+// calendarTimelineColumns is how many day columns the hour grid shows: one
+// in Day, which carries its week only for the strip.
+func calendarTimelineColumns(data CalendarMonthData) int {
+	if data.View == "day" {
+		return 1
 	}
-	return "width:calc((100% - 6px)/2);transform:" + transform
+	return len(data.Weeks[0].Days)
+}
+
+// calendarTimelineGridStyle gives the hour grid its column counts.
+func calendarTimelineGridStyle(data CalendarMonthData) string {
+	return fmt.Sprintf("--calendar-columns:%d;--calendar-days:%d", calendarTimelineColumns(data), len(data.Weeks[0].Days))
+}
+
+// calendarShownDay is the day Day view shows, and the one a phone shows
+// first in Week and Work week: the date asked for, else today, else the
+// first day.
+func calendarShownDay(data CalendarMonthData) string {
+	days := data.Weeks[0].Days
+	if data.View == "day" {
+		return data.DateKey
+	}
+	for _, day := range days {
+		if day.ISODate == data.TodayDateKey {
+			return day.ISODate
+		}
+	}
+	return days[0].ISODate
 }
 
 func calendarViewCurrent(active bool) string {

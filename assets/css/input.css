@@ -5409,6 +5409,11 @@ body.mail-list-column-resizing {
     transition: transform 0.15s ease-in, box-shadow 0.15s ease-in;
   }
 
+  /* A menu sized to its items still spans the screen as a sheet. */
+  .mobile-sheet[data-tui-selectbox-fit-items="true"]:popover-open {
+    width: 100% !important;
+  }
+
   .mobile-sheet[data-tui-popover-open="true"]:popover-open {
     transform: none;
     box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.35);
@@ -7802,12 +7807,63 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 }
 
+/* === CALENDAR: ONE DAY AT A TIME ===
+   Day view shows one day of its week at full width, with the week above as a strip
+   to pick the day. Small screens show Week and Work week the same way (see below).
+   The day shown carries data-calendar-shown-day; while it changes, the day leaving
+   carries data-calendar-shown-day-leaving and both share the one column. */
+
+@media (min-width: 1024px) {
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child {
+    grid-template-columns: repeat(var(--calendar-days), minmax(0, 1fr));
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
+    display: none;
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] [data-calendar-day][data-calendar-shown-day] > button {
+    background: color-mix(in oklab, var(--primary) 12%, transparent);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-all-day-row], [data-calendar-week-timeline]) {
+    grid-template-columns: 56px minmax(0, 1fr);
+    clip-path: inset(0);
+    overflow-x: hidden;
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-all-day-column], [data-calendar-timed-column]):not([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
+    display: none;
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-all-day-row]:not(:has([data-calendar-shown-day] [data-calendar-week-all-day]:not([hidden]))) {
+    display: none;
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-week-timeline], [data-calendar-all-day-row]) > :first-child {
+    position: relative;
+    z-index: 15;
+    background: var(--background);
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-all-day][data-calendar-continues-before] > .invisible {
+    visibility: visible;
+  }
+}
+
 /* === SMALL SCREENS: CALENDAR ===
    The top bar names the month or week, and the controls share one row below it.
    The month view is a compact grid that marks busy days with one dot per calendar,
-   with the selected day's events (or what is coming up) listed underneath. The week
-   view turns its day headers into a strip to pick a day, and shows that day's hours
-   at full width. */
+   with the selected day's events (or what is coming up) listed underneath. Day,
+   Week and Work week turn their day headers into a strip to pick a day, and show
+   that day's hours at full width; 3 days keeps its three columns. The view menu
+   offers Day, 3 days and Month, since Week and Work week would look like Day. */
 
 .calendar-day-dots {
   display: none;
@@ -7845,8 +7901,16 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     height: 2.25rem;
   }
 
-  #calendar-main [data-calendar-view-nav] > a {
+  #calendar-main [data-calendar-view-nav] .select-trigger {
+    width: 100%;
+    height: 100%;
     font-size: 0.8125rem;
+  }
+
+  /* Week and Work week would look like Day here; the menu lists them only
+     while one of them is open. The menu may sit outside the calendar. */
+  .select-item[data-calendar-view-phone="false"]:not([data-tui-selectbox-selected="true"]) {
+    display: none;
   }
 
   /* The legend is for the desktop chips; the sync status stays. */
@@ -7884,8 +7948,8 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     min-height: 0;
   }
 
-  /* The week view shows one day at a time and has no agenda. */
-  #main-content:has([data-calendar-view="week"]) > [data-calendar-agenda] {
+  /* The hour-grid views have no agenda. */
+  #main-content:has(#calendar-main:not([data-calendar-view="month"])) > [data-calendar-agenda] {
     display: none;
   }
 
@@ -7960,15 +8024,15 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     border-inline: 0;
   }
 
-  #calendar-main [data-calendar-week-header] > div:first-child {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child {
+    grid-template-columns: repeat(var(--calendar-days), minmax(0, 1fr));
   }
 
-  #calendar-main [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
     display: none;
   }
 
-  #calendar-main [data-calendar-week-header] [data-calendar-day] {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] [data-calendar-day] {
     border-right: 0;
   }
 
@@ -7977,22 +8041,28 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     padding: 0.5rem 0 0.375rem;
   }
 
-  #calendar-main [data-calendar-week-header] [data-calendar-day][data-calendar-phone-day] > button {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] [data-calendar-day][data-calendar-shown-day] > button {
     background: color-mix(in oklab, var(--primary) 12%, transparent);
     box-shadow: inset 0 -2px 0 var(--primary);
   }
 
-  #calendar-main [data-calendar-all-day-row],
-  #calendar-main [data-calendar-week-timeline] {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-row],
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-timeline] {
     grid-template-columns: 3rem minmax(0, 1fr);
   }
 
-  #calendar-main [data-calendar-all-day-column]:not([data-calendar-phone-day]),
-  #calendar-main [data-calendar-timed-column]:not([data-calendar-phone-day]) {
+  #calendar-main[data-calendar-view="3day"] [data-calendar-week-header] > div:first-child,
+  #calendar-main[data-calendar-view="3day"] [data-calendar-all-day-row],
+  #calendar-main[data-calendar-view="3day"] [data-calendar-week-timeline] {
+    grid-template-columns: 3rem repeat(var(--calendar-days), minmax(0, 1fr));
+  }
+
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-column]:not([data-calendar-shown-day]),
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-timed-column]:not([data-calendar-shown-day]) {
     display: none;
   }
 
-  #calendar-main [data-calendar-all-day-row]:not(:has([data-calendar-phone-day] [data-calendar-week-all-day]:not([hidden]))) {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-row]:not(:has([data-calendar-shown-day] [data-calendar-week-all-day]:not([hidden]))) {
     display: none;
   }
 
@@ -8003,7 +8073,7 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
 
   /* One day is shown at a time, so an all-day event that started on an earlier day
      still shows its title here rather than leaving it on that first day. */
-  #calendar-main [data-calendar-week-all-day][data-calendar-continues-before] > .invisible {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-all-day][data-calendar-continues-before] > .invisible {
     visibility: visible;
   }
 }
@@ -8108,13 +8178,13 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     overflow-x: hidden;
   }
 
-  #calendar-main :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-phone-day], [data-calendar-phone-day-leaving]) {
+  #calendar-main:not([data-calendar-view="3day"]) :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
     display: block;
     grid-row: 1;
     grid-column: 2;
   }
 
-  #calendar-main [data-calendar-all-day-column]:is([data-calendar-phone-day], [data-calendar-phone-day-leaving]) {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-column]:is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
     display: grid;
   }
 

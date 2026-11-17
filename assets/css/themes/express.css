@@ -1627,7 +1627,8 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 
 /* === CALENDAR === */
 
-/* Previous/next and the week zoom buttons are separate raised buttons. */
+/* Previous/next, the view menu and the week zoom buttons are separate raised
+   buttons. */
 [data-theme="express"] div:has(> [data-calendar-navigate]),
 [data-theme="express"] div:has(> [data-calendar-week-zoom]) {
   gap: 2px;
@@ -1638,7 +1639,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   box-shadow: none;
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]) {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger) {
   border: none;
   border-radius: 0;
   background: var(--xp-face);
@@ -1647,16 +1648,16 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   transition: none;
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):hover:not(:disabled) {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):hover:not(:disabled) {
   background: color-mix(in srgb, var(--xp-face) 92%, var(--xp-light));
   color: var(--foreground);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):active:not(:disabled) {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) {
   box-shadow: var(--xp-bevel-pressed);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):active:not(:disabled) > * {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) > * {
   translate: 1px 1px;
 }
 
@@ -1674,7 +1675,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   text-shadow: 1px 1px 0 var(--xp-light);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):focus-visible {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):focus-visible {
   --tw-ring-shadow: 0 0 #0000;
   outline: 1px dotted var(--foreground);
   outline-offset: -4px;
@@ -1796,42 +1797,6 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   outline-offset: -2px;
 }
 
-/* Month/Week works like the app switcher: flat toolbar toggle buttons, the
-   current one latched down. */
-[data-theme="express"] [data-calendar-view-nav] {
-  gap: 2px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-}
-
-[data-theme="express"] [data-calendar-view-indicator] {
-  display: none;
-}
-
-[data-theme="express"] [data-calendar-view-switch] {
-  border-radius: 0;
-  color: var(--foreground);
-  transition: none;
-}
-
-[data-theme="express"] [data-calendar-view-switch]:hover {
-  box-shadow: inset -1px -1px 0 var(--xp-mid), inset 1px 1px 0 var(--xp-light);
-}
-
-[data-theme="express"] [data-calendar-view-switch][aria-current="page"],
-[data-theme="express"] [data-calendar-view-switch]:active {
-  padding: 1px 0.4375rem 0 0.5625rem;
-  background: color-mix(in srgb, var(--xp-face), var(--xp-light));
-  box-shadow: inset 1px 1px 0 var(--xp-mid), inset -1px -1px 0 var(--xp-light);
-}
-
-[data-theme="express"] [data-calendar-view-switch]:focus-visible {
-  --tw-ring-shadow: 0 0 #0000;
-  outline: 1px dotted var(--foreground);
-  outline-offset: -3px;
-}
 
 /* === SIDEBAR SYNC AND FILTERS === */
 

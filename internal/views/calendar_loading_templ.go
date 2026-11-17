@@ -155,7 +155,7 @@ func CalendarLoadingTemplates(accounts []models.Account, uiSettings map[string]s
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, view := range []string{"month", "week"} {
+		for _, view := range CalendarViews() {
 			data := calendarLoadingData(view, uiSettings)
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<template id=\"")
 			if templ_7745c5c3_Err != nil {

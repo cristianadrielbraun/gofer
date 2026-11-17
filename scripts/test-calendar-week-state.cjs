@@ -71,28 +71,24 @@ for (const [property, variable] of [['goferCalendarSyncPeriod', '_calendarSyncRe
 }
 console.log('Calendar Week state: refresh parameters, scroll restoration, and stale-response guards passed.')
 
-const buttons = ['month', 'week'].map(view => ({
+const links = ['day', '3day', 'workweek', 'week', 'month'].map(view => ({
   dataset: {calendarViewSwitch: view},
   attributes: {},
-  classes: new Set(),
   setAttribute(name, value) { this.attributes[name] = value },
-  classList: {toggle(name, active) { this.owner.classes[active ? 'add' : 'delete'](name) }},
 }))
-buttons.forEach(button => { button.classList.owner = button })
-const indicator = {style: {}}
-context.document.querySelector = () => ({querySelectorAll() { return buttons }, querySelector() { return indicator }})
-context.window = {getComputedStyle(node) { return {transform: node.style.transform} }}
+const select = {value: 'month'}
+context.document.querySelector = () => ({querySelectorAll() { return links }, querySelector() { return select }})
 vm.runInContext('var _calendarViewSwitchRequest = null;\n' + helper('setCalendarViewSwitch') + '\n' + helper('handleCalendarViewSwitchResult'), context)
 context.setCalendarViewSwitch('week')
-assert.equal(indicator.style.transform, 'translateX(calc(100% + 2px))')
-assert.equal(buttons[1].attributes['aria-current'], 'page')
-assert.ok(buttons[0].classes.has('text-muted-foreground'))
+assert.equal(select.value, 'week', 'The menu must show the view being loaded')
+assert.equal(links[3].attributes['aria-current'], 'page')
+assert.equal(links[4].attributes['aria-current'], 'false')
 const switchXHR = {}
 context._calendarViewSwitchRequest = switchXHR
 context.handleCalendarViewSwitchResult({detail: {xhr: switchXHR, successful: true}})
-assert.equal(indicator.style.transform, 'translateX(calc(100% + 2px))', 'Fast response must not reverse the slide')
+assert.equal(select.value, 'week', 'A successful response must keep the new view')
 calendar.dataset.calendarView = 'month'
 context.handleCalendarViewSwitchResult({detail: {xhr: switchXHR, successful: false}})
-assert.equal(indicator.style.transform, 'translateX(0)', 'Failed requests must restore the actual view')
-assert.equal(buttons[0].attributes['aria-current'], 'page')
-console.log('Calendar view tabs: sliding indicator, active colors, and failure recovery passed.')
+assert.equal(select.value, 'month', 'Failed requests must restore the actual view')
+assert.equal(links[4].attributes['aria-current'], 'page')
+console.log('Calendar view menu: chosen view, current link, and failure recovery passed.')

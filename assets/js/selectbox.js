@@ -121,7 +121,8 @@
     if (!content) return;
 
     const width = trigger.getBoundingClientRect().width;
-    content.style.width = `${width}px`;
+    // A menu that fits its items is never narrower than its trigger.
+    content.style.width = content.getAttribute('data-tui-selectbox-fit-items') === 'true' ? 'max-content' : `${width}px`;
     content.style.minWidth = `${width}px`;
   }
 
