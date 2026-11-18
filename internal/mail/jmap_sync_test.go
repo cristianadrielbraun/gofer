@@ -71,6 +71,10 @@ type fakeJMAPServer struct {
 	mailboxLog       []fakeMailboxChange
 	fullMailboxGets  int
 	noMailboxChanges bool
+	// sharedAccount, when set, lists one more mail account in the session,
+	// shared with the login under this name (id "a2"). The fake answers
+	// every account with the same mailboxes and emails.
+	sharedAccount string
 }
 
 // emailIndex finds an email; the caller holds f.mu.
@@ -162,9 +166,13 @@ func newFakeJMAPServer(t *testing.T) *fakeJMAPServer {
 			if f.contactsAccount != "" {
 				contacts = fmt.Sprintf(`, "urn:ietf:params:jmap:contacts": %q`, f.contactsAccount)
 			}
+			shared := ""
+			if f.sharedAccount != "" {
+				shared = fmt.Sprintf(`, "a2": {"name": %q, "isPersonal": false, "accountCapabilities": {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:submission": {}}}`, f.sharedAccount)
+			}
 			f.mu.Unlock()
 			fmt.Fprintf(w, `{"capabilities": {"urn:ietf:params:jmap:core": {"maxCallsInRequest": 16, "maxObjectsInGet": %d}, "urn:ietf:params:jmap:mail": {}},
-				"accounts": {"a1": {"name": "robin@example.test"}}, "primaryAccounts": {"urn:ietf:params:jmap:mail": "a1"`+contacts+`},
+				"accounts": {"a1": {"name": "robin@example.test", "isPersonal": true, "accountCapabilities": {"urn:ietf:params:jmap:mail": {}}}`+shared+`}, "primaryAccounts": {"urn:ietf:params:jmap:mail": "a1"`+contacts+`},
 				"username": "robin@example.test", "apiUrl": "/jmap/", "state": "s1", %s
 				"downloadUrl": "/jmap/download/{accountId}/{blobId}/{name}?accept={type}"}`, max, events)
 		case "/jmap/events":

@@ -8813,9 +8813,9 @@ html.dark:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:no
 }
 
 /* === ACCOUNT IDENTITIES DIALOG ===
-   An account with many From addresses makes a list taller than the screen:
-   the list scrolls under the title. On a phone the whole page scrolls, as the
-   signatures dialog does. */
+   An account with many From addresses, such as one with many shared mailboxes,
+   makes a list taller than the screen: the list scrolls under the title. On a
+   phone the whole page scrolls, as the signatures dialog does. */
 
 .account-identities-dialog > [data-tui-dialog-panel] {
   max-height: calc(100dvh - 2rem);

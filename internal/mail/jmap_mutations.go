@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -31,14 +32,144 @@ type JMAPMutation struct {
 // email for good, as Gofer's delete does for Gmail and Outlook. It reports
 // gone when the server has none of the emails any more, which needs no retry.
 func ApplyJMAPMutation(ctx context.Context, cfg *models.AccountConfig, password string, m JMAPMutation) (gone bool, err error) {
+	gone, _, err = ApplyJMAPMutationMoving(ctx, cfg, password, m)
+	return gone, err
+}
+
+// ApplyJMAPMutationMoving is ApplyJMAPMutation that also gives the email's
+// new stored id when a move took it into another JMAP account, as between the
+// login's own mailbox and one shared with it, where the server makes a new
+// email; it is "" when the email kept its id.
+func ApplyJMAPMutationMoving(ctx context.Context, cfg *models.AccountConfig, password string, m JMAPMutation) (gone bool, movedID string, err error) {
 	if m.EmailID == "" {
-		return false, errors.New("JMAP email identity is unavailable")
+		return false, "", errors.New("JMAP email identity is unavailable")
 	}
-	client, session, account, err := openJMAPMail(ctx, cfg, password)
+	client, session, err := openJMAPSession(ctx, cfg, password)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	emailIDs := append([]string{m.EmailID}, m.FolderCopyIDs...)
+	account, emailIDs, err := jmapIDsIn(session, append([]string{m.EmailID}, m.FolderCopyIDs...))
+	if err != nil {
+		return false, "", err
+	}
+	if m.Kind == storage.MessageMutationMove {
+		if m.ToMailboxID == "" {
+			return false, "", errors.New("JMAP move destination has no mailbox identity")
+		}
+		toAccount, toMailbox, err := jmapAccountOf(session, m.ToMailboxID)
+		if err != nil {
+			return false, "", err
+		}
+		_, from, _ := jmapAccountOf(session, m.FromMailboxID)
+		if toAccount != account {
+			return moveJMAPEmailAcross(ctx, client, session, account, toAccount, emailIDs, from, toMailbox)
+		}
+		m.FromMailboxID, m.ToMailboxID = from, toMailbox
+	}
+	gone, err = applyJMAPMutationIn(ctx, client, session, account, emailIDs, m)
+	return gone, "", err
+}
+
+// moveJMAPEmailAcross moves an email out of fromMailbox into a mailbox of
+// another JMAP account: the server copies it there, keywords and all, and
+// then the original goes, or, when it is in other mailboxes of its account
+// too, only leaves fromMailbox. Further copies of the message in the mailbox
+// it leaves go with it. A move tried again, after one that copied the email
+// but could not remove the original, finds the copy it made and makes no
+// second one.
+func moveJMAPEmailAcross(ctx context.Context, client *jmap.Client, session *jmap.Session, fromAccount, toAccount string, emailIDs []string, fromMailbox, toMailbox string) (bool, string, error) {
+	current, err := client.GetEmails(ctx, session, fromAccount, emailIDs[:1], []string{"keywords", "mailboxIds", "messageId", "receivedAt"})
+	if err != nil {
+		return false, "", err
+	}
+	if len(current.List) == 0 {
+		return true, "", nil
+	}
+	original := current.List[0]
+	elsewhere := false
+	for mailbox, in := range original.MailboxIDs {
+		if in && mailbox != fromMailbox {
+			elsewhere = true
+		}
+	}
+	moved := ""
+	if len(original.MessageID) > 0 {
+		window := jmap.Window{From: original.ReceivedAt.Add(-time.Minute), To: original.ReceivedAt.Add(time.Minute)}
+		found, err := client.FindEmails(ctx, session, toAccount, toMailbox, original.MessageID[0], []jmap.Window{window})
+		if err != nil {
+			return false, "", fmt.Errorf("look for an earlier copy of the email: %w", err)
+		}
+		if len(found) > 0 {
+			moved = found[0]
+		}
+	}
+	if moved == "" {
+		moved, err = client.CopyEmail(ctx, session, fromAccount, toAccount, emailIDs[0], toMailbox, original.Keywords)
+		var exists *jmap.SetError
+		switch {
+		case errors.As(err, &exists) && exists.Type == "alreadyExists" && exists.ExistingID != "":
+			// The other account has this message already, as a shared
+			// mailbox has its own sent copy of a message sent to the login:
+			// it is put in the mailbox moved to, and the original goes.
+			moved = exists.ExistingID
+			result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: toAccount, Update: map[string]jmap.PatchObject{
+				moved: jmap.MovePatch("", toMailbox),
+			}})
+			if err == nil {
+				err = jmapSetFailure(result.NotUpdated, []string{moved}, false)
+			}
+			if err != nil {
+				return false, "", fmt.Errorf("put the email already there in the mailbox: %w", err)
+			}
+		case err != nil:
+			return false, "", err
+		}
+	}
+	ref := jmapRefIn(session, toAccount, moved)
+	if elsewhere {
+		// Kept for its other mailboxes, it only leaves this one, if known;
+		// it is never destroyed.
+		if fromMailbox != "" {
+			result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: fromAccount, Update: map[string]jmap.PatchObject{
+				emailIDs[0]: {"mailboxIds/" + fromMailbox: nil},
+			}})
+			if err == nil {
+				err = jmapSetFailure(result.NotUpdated, emailIDs[:1], false)
+			}
+			if err != nil {
+				return false, ref, fmt.Errorf("take the email out of the mailbox it left: %w", err)
+			}
+		}
+		emailIDs = emailIDs[1:]
+	}
+	if len(emailIDs) > 0 {
+		result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: fromAccount, Destroy: emailIDs})
+		if err == nil {
+			err = jmapSetFailure(result.NotDestroyed, emailIDs, true)
+		}
+		if err != nil {
+			return false, ref, fmt.Errorf("remove the original after the move: %w", err)
+		}
+	}
+	return false, ref, nil
+}
+
+// jmapSetFailure is the first of ids a set call did not change, as its
+// response's notUpdated or notDestroyed lists them. With goneIsDone, an email
+// already gone (notFound) counts as destroyed.
+func jmapSetFailure(failed map[string]jmap.SetError, ids []string, goneIsDone bool) error {
+	for _, id := range ids {
+		failure, ok := failed[id]
+		if !ok || (goneIsDone && failure.Type == "notFound") {
+			continue
+		}
+		return fmt.Errorf("email %s: %w", id, &failure)
+	}
+	return nil
+}
+
+// applyJMAPMutationIn sends one change to emails of one JMAP account.
+func applyJMAPMutationIn(ctx context.Context, client *jmap.Client, session *jmap.Session, account string, emailIDs []string, m JMAPMutation) (gone bool, err error) {
 	var patch jmap.PatchObject
 	switch m.Kind {
 	case storage.MessageMutationRead:
@@ -101,6 +232,49 @@ const jmapDefaultObjectsInSet = 500
 // nil when emails[i] changed or the server no longer has it, and gone[i]
 // tells the latter apart. err is set when no request could be sent at all.
 func ApplyJMAPBatch(ctx context.Context, cfg *models.AccountConfig, password, kind string, target bool, emails []JMAPBatchEmail) (failures []error, gone []bool, err error) {
+	client, session, err := openJMAPSession(ctx, cfg, password)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Each JMAP account, the login's own and every shared one, gets its own
+	// requests, with its own ids.
+	failures, gone = make([]error, len(emails)), make([]bool, len(emails))
+	groups := map[string][]int{}
+	var order []string
+	byAccount := map[string][]JMAPBatchEmail{}
+	for i, email := range emails {
+		account, ids, err := jmapIDsIn(session, append([]string{email.EmailID}, email.FolderCopyIDs...))
+		if err != nil {
+			failures[i] = err
+			continue
+		}
+		if _, ok := groups[account]; !ok {
+			order = append(order, account)
+		}
+		groups[account] = append(groups[account], i)
+		byAccount[account] = append(byAccount[account], JMAPBatchEmail{EmailID: ids[0], FolderCopyIDs: ids[1:]})
+	}
+	for _, account := range order {
+		groupFailures, groupGone, err := applyJMAPBatchIn(ctx, client, session, account, kind, target, byAccount[account])
+		if err != nil {
+			if len(order) == 1 {
+				return nil, nil, err
+			}
+			for _, i := range groups[account] {
+				failures[i] = err
+			}
+			continue
+		}
+		for n, i := range groups[account] {
+			failures[i], gone[i] = groupFailures[n], groupGone[n]
+		}
+	}
+	return failures, gone, nil
+}
+
+// applyJMAPBatchIn is ApplyJMAPBatch for emails of one JMAP account, by the
+// server's ids.
+func applyJMAPBatchIn(ctx context.Context, client *jmap.Client, session *jmap.Session, account, kind string, target bool, emails []JMAPBatchEmail) (failures []error, gone []bool, err error) {
 	var patch jmap.PatchObject
 	switch kind {
 	case storage.MessageMutationRead:
@@ -110,10 +284,6 @@ func ApplyJMAPBatch(ctx context.Context, cfg *models.AccountConfig, password, ki
 	case storage.MessageMutationDelete:
 	default:
 		return nil, nil, fmt.Errorf("unsupported JMAP batch mutation %q", kind)
-	}
-	client, session, account, err := openJMAPMail(ctx, cfg, password)
-	if err != nil {
-		return nil, nil, err
 	}
 	limit := session.Core.MaxObjectsInSet
 	if limit <= 0 {
@@ -210,7 +380,11 @@ func SetJMAPKeyword(ctx context.Context, cfg *models.AccountConfig, password str
 	if len(emailIDs) == 0 || emailIDs[0] == "" {
 		return false, errors.New("JMAP email identity is unavailable")
 	}
-	client, session, account, err := openJMAPMail(ctx, cfg, password)
+	client, session, err := openJMAPSession(ctx, cfg, password)
+	if err != nil {
+		return false, err
+	}
+	account, emailIDs, err := jmapIDsIn(session, emailIDs)
 	if err != nil {
 		return false, err
 	}
@@ -278,9 +452,12 @@ func (s *UserIMAP) applyJMAPMutation(ctx context.Context, scope *userIMAPScope, 
 			return err
 		}
 	}
-	gone, err := ApplyJMAPMutation(ctx, scope.config, scope.password, request)
+	gone, movedID, err := ApplyJMAPMutationMoving(ctx, scope.config, scope.password, request)
 	if err != nil {
 		return err
+	}
+	if movedID != "" {
+		request.EmailID = movedID
 	}
 	return scope.call(ctx, func(db *storage.DB) error {
 		switch {

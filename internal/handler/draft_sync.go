@@ -182,3 +182,32 @@ func (h *Handler) finishIMAPDraftOperation(operation storage.IMAPDraftOperation,
 	}
 	log.Printf("imap-draft: operation %s %s; retry at %s: %s", operation.ID, status, nextAttempt.Format(time.RFC3339), errText)
 }
+
+// moveDraftOutOfOldFolder finishes moving a draft saved to another Drafts
+// folder than it was in, as when its From changes between a shared mailbox
+// and the account's own address: the old folder no longer shows it, and its
+// copy on the server there is deleted. The deletion is queued under a key of
+// its own, since the draft's own key now follows its new folder. It reports
+// whether the draft moved.
+func (h *Handler) moveDraftOutOfOldFolder(ctx context.Context, account *models.Account, draftKey string, messageID int64, previous *storage.DraftProviderInfo, folderID string) bool {
+	if previous == nil || previous.FolderID == "" || previous.FolderID == folderID || !previous.InDraftsFolder {
+		return false
+	}
+	if err := h.db.RemoveDraftFromFolder(ctx, messageID, previous.FolderID); err != nil {
+		log.Printf("imap-draft: take draft %s out of folder %s: %v", draftKey, previous.FolderID, err)
+	}
+	h.publishMutation(account.ID, previous.FolderID)
+	if strings.TrimSpace(account.Provider) != providers.ProviderIMAP || previous.RemoteUID == 0 || previous.FolderRemoteName == "" {
+		return true
+	}
+	if _, err := h.db.QueueIMAPDraftDelete(ctx, storage.IMAPDraftState{
+		AccountID: account.ID, DraftKey: draftKey + " moved from " + previous.FolderID,
+		FolderID: previous.FolderID, FolderRemoteName: previous.FolderRemoteName,
+		RemoteUID: previous.RemoteUID, UIDValidity: previous.UIDValidity,
+	}); err != nil {
+		log.Printf("imap-draft: queue deletion of moved draft %s: %v", draftKey, err)
+		return true
+	}
+	h.signalOutgoingWorker()
+	return true
+}

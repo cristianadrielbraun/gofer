@@ -144,7 +144,9 @@ func TestUserStorageMigrationInventoryCoversActualRuntimeTablesColumnsAndForeign
 			}
 		}
 	}
-	if len(actualTables) != 118 || len(actualLinks) != 150 {
+	// MCP tokens add 1 table and 1 link (mcp_tokens.go), MCP OAuth 3 and 4
+	// (mcp_oauth.go).
+	if len(actualTables) != 120+1+3 || len(actualLinks) != 152+1+4 {
 		t.Fatal("runtime inventory changed", len(actualTables), len(actualLinks))
 	}
 }

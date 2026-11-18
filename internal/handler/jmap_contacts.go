@@ -68,11 +68,12 @@ func (p *userContactPull) jmap(ctx context.Context) (int, error) {
 		return 0, p.recordRetry(ctx, err)
 	}
 	results, next, err := p.h.userAccounts.PublishInboundJMAPContacts(ctx, p.snapshot, storage.InboundJMAPContactPage{
-		Contacts:         jmapInboundContacts(page, books),
-		DeletedRemoteIDs: page.Removed,
-		SeenRemoteIDs:    page.Seen,
-		Full:             page.Full,
-		SyncToken:        page.State,
+		Contacts:             jmapInboundContacts(page, books),
+		DeletedRemoteIDs:     page.Removed,
+		SeenRemoteIDs:        page.Seen,
+		Full:                 page.Full,
+		SyncToken:            page.State,
+		KeptRemoteIDPrefixes: page.Kept,
 	})
 	if err != nil {
 		return 0, err
@@ -146,7 +147,7 @@ func (h *Handler) syncJMAPContacts(ctx context.Context, userID string, account c
 			return imported, err
 		}
 		for _, source := range sources {
-			if remoteID := strings.TrimSpace(source.RemoteID); remoteID != "" && !seen[remoteID] {
+			if remoteID := strings.TrimSpace(source.RemoteID); remoteID != "" && !seen[remoteID] && !page.Keeps(remoteID) {
 				if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderJMAP, account.ID, remoteID); err != nil {
 					return imported, err
 				}

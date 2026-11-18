@@ -234,7 +234,23 @@ type Identity struct {
 	// HasSMTPPassword says a password for that server is stored; the
 	// password itself never leaves the account store.
 	HasSMTPPassword bool `json:"has_smtp_password,omitempty"`
+	// SharedMailbox is the address of the shared mailbox Gofer made this
+	// identity for, "" for any other identity. SharedState is "active",
+	// "inactive" while the mailbox is no longer shared with the account, or
+	// "disabled" while the user has it turned off; SenderCheck and
+	// SenderCheckMessage are what the server said when asked whether it
+	// accepts the address as a sender ("accepted", "rejected", "unknown"
+	// or "" before it was asked). They belong to this Gofer, so a profile
+	// export leaves them out.
+	SharedMailbox      string `json:"-"`
+	SharedState        string `json:"-"`
+	SenderCheck        string `json:"-"`
+	SenderCheckMessage string `json:"-"`
 }
+
+// Usable reports whether the identity is offered to send as: every identity
+// is, but one made for a shared mailbox only while that is active.
+func (i Identity) Usable() bool { return i.SharedState == "" || i.SharedState == "active" }
 
 // HasOwnSMTP reports whether the identity sends through its own server.
 func (i Identity) HasOwnSMTP() bool { return i.SMTPHost != "" }

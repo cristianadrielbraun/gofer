@@ -7,6 +7,7 @@ import (
 	"log"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,28 +41,139 @@ func (o *SyncOrchestrator) syncJMAPAccount(ctx context.Context, accountID string
 	if mailAccount == "" {
 		return fmt.Errorf("the JMAP server offers no mail account for this login")
 	}
-	mailboxes, err := o.syncJMAPMailboxes(ctx, accountID, client, session, mailAccount)
+	// The shared mailboxes are found first, from the session alone, so the
+	// account wizard lists them while the login's own mail still syncs.
+	o.discoverJMAPSharedMailboxes(ctx, accountID, client, session)
+	if err := o.syncJMAPTarget(ctx, accountID, client, session, jmapTarget{account: mailAccount}); err != nil {
+		return err
+	}
+	o.syncJMAPSharedMailboxes(ctx, accountID, client, session)
+	return nil
+}
+
+// discoverJMAPSharedMailboxes records the mailboxes shared with the login,
+// with the names the server gives them, and brings their identities in
+// line.
+func (o *SyncOrchestrator) discoverJMAPSharedMailboxes(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session) {
+	targets := jmapSharedAccounts(session)
+	seen := make([]string, 0, len(targets))
+	for _, target := range targets {
+		seen = append(seen, target.mailbox)
+	}
+	if names := jmapSharedMailboxNames(ctx, client, session, targets); len(names) > 0 {
+		if err := o.withSyncStore(ctx, func(db *storage.DB) error {
+			return db.SetSharedMailboxServerNames(ctx, accountID, names)
+		}); err != nil {
+			log.Printf("jmap sync %s: shared mailbox names: %v", accountID, err)
+		}
+	}
+	identities, ok := o.recordSharedMailboxes(ctx, accountID, seen, true)
+	if ok && len(identities.Unchecked) > 0 {
+		o.recordJMAPSharedSenders(ctx, session, targets, identities.Unchecked)
+	}
+}
+
+// syncJMAPTarget syncs one JMAP account of the login, its own or a shared
+// mailbox: its mailboxes, then its emails, each from its own cursors.
+func (o *SyncOrchestrator) syncJMAPTarget(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, target jmapTarget) error {
+	mailboxes, err := o.syncJMAPMailboxes(ctx, accountID, client, session, target)
 	if err != nil {
 		return err
 	}
 	repo := o.outlookRepository()
-	emailCursor, err := repo.GetLabelSyncState(ctx, accountID, storage.LabelProviderJMAP, jmapEmailScope)
+	emailCursor, err := repo.GetLabelSyncState(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapEmailScope))
 	if err != nil {
 		return err
 	}
 	if emailCursor.Cursor == "" {
-		return o.importJMAPEmails(ctx, accountID, client, session, mailAccount, mailboxes)
+		return o.importJMAPEmails(ctx, accountID, client, session, target, mailboxes)
 	}
-	err = o.syncJMAPEmailChanges(ctx, accountID, client, session, mailAccount, mailboxes, emailCursor.Cursor)
+	err = o.syncJMAPEmailChanges(ctx, accountID, client, session, target, mailboxes, emailCursor.Cursor)
 	if jmap.IsCannotCalculateChanges(err) {
 		// The server no longer knows the saved state: import everything again.
 		log.Printf("jmap sync %s: changes since %q are no longer available, importing again", accountID, emailCursor.Cursor)
-		return o.importJMAPEmails(ctx, accountID, client, session, mailAccount, mailboxes)
+		return o.importJMAPEmails(ctx, accountID, client, session, target, mailboxes)
 	}
 	if err != nil {
 		return err
 	}
-	return repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, jmapMailboxScope, mailboxes.state, false)
+	return repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapMailboxScope), mailboxes.state, false)
+}
+
+// syncJMAPSharedMailboxes syncs the mailboxes shared with the login, each a
+// JMAP account of its own, which discoverJMAPSharedMailboxes recorded. One
+// the user turned off keeps its folders, listed, and gets no
+// mail. A shared mailbox that fails is logged and does not stop the others,
+// nor fail the sync of the login's own mail.
+func (o *SyncOrchestrator) syncJMAPSharedMailboxes(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session) {
+	targets := jmapSharedAccounts(session)
+	off := o.disabledSharedMailboxes(ctx, accountID)
+	for _, target := range targets {
+		if ctx.Err() != nil {
+			return
+		}
+		var err error
+		if off[target.mailbox] {
+			_, err = o.syncJMAPMailboxes(ctx, accountID, client, session, target)
+		} else {
+			err = o.syncJMAPTarget(ctx, accountID, client, session, target)
+		}
+		if err != nil {
+			log.Printf("jmap sync %s: shared mailbox %s: %v", accountID, target.mailbox, err)
+		}
+	}
+	if err := o.forgetUnsharedJMAPAccounts(ctx, accountID, targets); err != nil {
+		log.Printf("jmap sync %s: shared mailboxes no longer shared: %v", accountID, err)
+	}
+}
+
+// recordJMAPSharedSenders records, for new shared mailbox identities, what
+// the session says of sending from them: a shared account the login may
+// submit from accepts its own address.
+func (o *SyncOrchestrator) recordJMAPSharedSenders(ctx context.Context, session *jmap.Session, targets []jmapTarget, unchecked []storage.SharedMailboxIdentity) {
+	for _, identity := range unchecked {
+		result, message := storage.SenderCheckUnknown, "The JMAP server does not let this login send from the mailbox."
+		for _, target := range targets {
+			if target.mailbox != strings.ToLower(identity.MailboxEmail) {
+				continue
+			}
+			if _, ok := session.Accounts[target.account].AccountCapabilities[jmap.CapabilitySubmission]; ok {
+				result, message = storage.SenderCheckAccepted, ""
+			}
+		}
+		if err := o.imapRepository().SetSharedIdentitySenderCheck(ctx, identity.IdentityID, result, message, time.Now().UTC()); err != nil {
+			log.Printf("shared mailbox sender %s: %v", identity.MailboxEmail, err)
+		}
+	}
+}
+
+// forgetUnsharedJMAPAccounts reconciles the folders of shared accounts the
+// session no longer lists, as folders the server no longer has.
+func (o *SyncOrchestrator) forgetUnsharedJMAPAccounts(ctx context.Context, accountID string, targets []jmapTarget) error {
+	current := map[string]bool{}
+	for _, target := range targets {
+		current[target.account] = true
+	}
+	var keep []string
+	gone := false
+	err := o.withSyncStore(ctx, func(db *storage.DB) error {
+		listed, err := db.ListListedProviderFolders(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		for _, folder := range listed {
+			if account, _ := jmapSplitRef(folder.ProviderRemoteID); account == "" || current[account] {
+				keep = append(keep, folder.ProviderRemoteID)
+			} else {
+				gone = true
+			}
+		}
+		return nil
+	})
+	if err != nil || !gone {
+		return err
+	}
+	return o.reconcileJMAPFolders(ctx, accountID, keep)
 }
 
 // replayJMAPLabelMutationQueue retries the account's queued label changes,
@@ -131,7 +243,8 @@ const jmapMaxChanges = 500
 // and updated emails are fetched as summaries, without bodies, and stored
 // like imported ones, which also moves them between folders; an email no
 // longer in any known mailbox, or gone, is removed from its folders.
-func (o *SyncOrchestrator) syncJMAPEmailChanges(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, mailAccount string, mailboxes jmapMailboxes, since string) error {
+func (o *SyncOrchestrator) syncJMAPEmailChanges(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, target jmapTarget, mailboxes jmapMailboxes, since string) error {
+	mailAccount := target.account
 	folders := mailboxes.folders
 	batch := jmapImportPage
 	if max := session.Core.MaxObjectsInGet; max > 0 && max < batch {
@@ -163,7 +276,7 @@ func (o *SyncOrchestrator) syncJMAPEmailChanges(ctx context.Context, accountID s
 			gone = append(gone, got.NotFound...)
 			var rows []storage.ProviderSyncMessage
 			for _, email := range got.List {
-				emailRows := jmapEmailToProviderSyncs(accountID, email, folders)
+				emailRows := jmapEmailToProviderSyncs(accountID, target, email, folders)
 				if len(emailRows) == 0 {
 					gone = append(gone, email.ID)
 					continue
@@ -187,7 +300,7 @@ func (o *SyncOrchestrator) syncJMAPEmailChanges(ctx context.Context, accountID s
 			}
 		}
 		for _, id := range gone {
-			folderIDs, err := repo.MarkProviderMessageDeleted(ctx, accountID, id)
+			folderIDs, err := repo.MarkProviderMessageDeleted(ctx, accountID, target.ref(id))
 			if err != nil {
 				return err
 			}
@@ -195,7 +308,7 @@ func (o *SyncOrchestrator) syncJMAPEmailChanges(ctx context.Context, accountID s
 				touched[folderID] = true
 			}
 		}
-		if err := repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, jmapEmailScope, changes.NewState, false); err != nil {
+		if err := repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapEmailScope), changes.NewState, false); err != nil {
 			return err
 		}
 		if !changes.HasMoreChanges || changes.NewState == since {
@@ -257,9 +370,10 @@ type jmapImportProgress struct {
 // is caught by the changes since it. An interrupted import continues from the
 // last page it stored, with the state it read first; storing an email twice
 // only updates it.
-func (o *SyncOrchestrator) importJMAPEmails(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, mailAccount string, mailboxes jmapMailboxes) error {
+func (o *SyncOrchestrator) importJMAPEmails(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, target jmapTarget, mailboxes jmapMailboxes) error {
+	mailAccount := target.account
 	repo := o.outlookRepository()
-	saved, err := repo.GetLabelSyncState(ctx, accountID, storage.LabelProviderJMAP, jmapImportScope)
+	saved, err := repo.GetLabelSyncState(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapImportScope))
 	if err != nil {
 		return err
 	}
@@ -300,7 +414,7 @@ func (o *SyncOrchestrator) importJMAPEmails(ctx context.Context, accountID strin
 			for _, email := range emails {
 				for mailboxID, in := range email.MailboxIDs {
 					if folderID, ok := folders[mailboxID]; ok && in {
-						see(folderID, email.ID)
+						see(folderID, target.ref(email.ID))
 					}
 				}
 			}
@@ -314,7 +428,7 @@ func (o *SyncOrchestrator) importJMAPEmails(ctx context.Context, accountID strin
 	err = pageJMAPEmails(ctx, client, session, mailAccount, limit, nil, progress.jmapPagePoint, jmap.EmailSummaryProperties, func(emails []jmap.Email, last jmapPagePoint) error {
 		var rows []storage.ProviderSyncMessage
 		for _, email := range emails {
-			for _, row := range jmapEmailToProviderSyncs(accountID, email, folders) {
+			for _, row := range jmapEmailToProviderSyncs(accountID, target, email, folders) {
 				rows = append(rows, row)
 				touched[row.FolderID] = true
 				see(row.FolderID, row.ProviderMessageID)
@@ -333,7 +447,7 @@ func (o *SyncOrchestrator) importJMAPEmails(ctx context.Context, accountID strin
 		if err != nil {
 			return err
 		}
-		return repo.SaveLabelSyncCursor(ctx, accountID, storage.LabelProviderJMAP, jmapImportScope, string(cursor))
+		return repo.SaveLabelSyncCursor(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapImportScope), string(cursor))
 	})
 	if err != nil {
 		return err
@@ -352,13 +466,13 @@ func (o *SyncOrchestrator) importJMAPEmails(ctx context.Context, accountID strin
 	}
 	// The progress goes first: left behind, it would be taken up by a later
 	// import that has nothing to do with this one.
-	if err := repo.SaveLabelSyncCursor(ctx, accountID, storage.LabelProviderJMAP, jmapImportScope, ""); err != nil {
+	if err := repo.SaveLabelSyncCursor(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapImportScope), ""); err != nil {
 		return err
 	}
-	if err := repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, jmapEmailScope, progress.State, true); err != nil {
+	if err := repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapEmailScope), progress.State, true); err != nil {
 		return err
 	}
-	if err := repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, jmapMailboxScope, mailboxes.state, true); err != nil {
+	if err := repo.MarkLabelSyncSuccess(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapMailboxScope), mailboxes.state, true); err != nil {
 		return err
 	}
 	for folderID := range touched {
@@ -428,7 +542,7 @@ func pageJMAPEmails(ctx context.Context, client *jmap.Client, session *jmap.Sess
 // jmapEmailToProviderSyncs gives one row per known mailbox the email is in,
 // which together set the folders the email shows in. Keywords carry the read,
 // flagged and draft states, and every other keyword is a label.
-func jmapEmailToProviderSyncs(accountID string, email jmap.Email, folders map[string]string) []storage.ProviderSyncMessage {
+func jmapEmailToProviderSyncs(accountID string, target jmapTarget, email jmap.Email, folders map[string]string) []storage.ProviderSyncMessage {
 	id := strings.TrimSpace(email.ID)
 	if id == "" {
 		return nil
@@ -444,9 +558,9 @@ func jmapEmailToProviderSyncs(accountID string, email jmap.Email, folders map[st
 	flagged := email.Keywords[jmap.KeywordFlagged]
 	base := storage.ProviderSyncMessage{
 		AccountID:         accountID,
-		ProviderMessageID: id,
+		ProviderMessageID: target.ref(id),
 		InternetMessageID: internetMessageID,
-		ProviderThreadID:  strings.TrimSpace(email.ThreadID),
+		ProviderThreadID:  target.ref(strings.TrimSpace(email.ThreadID)),
 		InReplyTo:         jmapMessageIDList(email.InReplyTo),
 		References:        jmapMessageIDList(email.References),
 		ListID:            message.CleanListID(email.ListID),
@@ -541,13 +655,14 @@ type jmapMailboxes struct {
 // state, as when mail arrives, it updates those counters and nothing else.
 // Any other change, or a state the server no longer knows, reads every
 // mailbox again.
-func (o *SyncOrchestrator) syncJMAPMailboxes(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, mailAccount string) (jmapMailboxes, error) {
-	saved, err := o.outlookRepository().GetLabelSyncState(ctx, accountID, storage.LabelProviderJMAP, jmapMailboxScope)
+func (o *SyncOrchestrator) syncJMAPMailboxes(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, target jmapTarget) (jmapMailboxes, error) {
+	mailAccount := target.account
+	saved, err := o.outlookRepository().GetLabelSyncState(ctx, accountID, storage.LabelProviderJMAP, target.scope(jmapMailboxScope))
 	if err != nil {
 		return jmapMailboxes{}, err
 	}
 	if saved.Cursor != "" {
-		mailboxes, ok, err := o.syncJMAPMailboxCounts(ctx, accountID, client, session, mailAccount, saved.Cursor)
+		mailboxes, ok, err := o.syncJMAPMailboxCounts(ctx, accountID, client, session, target, saved.Cursor)
 		switch {
 		case jmap.IsCannotCalculateChanges(err) || jmap.IsUnknownMethod(err):
 			log.Printf("jmap sync %s: mailbox changes since %q are unavailable (%v), reading every mailbox", accountID, saved.Cursor, err)
@@ -561,12 +676,12 @@ func (o *SyncOrchestrator) syncJMAPMailboxes(ctx context.Context, accountID stri
 	if err != nil {
 		return jmapMailboxes{}, err
 	}
-	if err := o.syncJMAPFolders(ctx, accountID, list.List); err != nil {
+	if err := o.syncJMAPFolders(ctx, accountID, target, list.List); err != nil {
 		return jmapMailboxes{}, err
 	}
 	mailboxes := jmapMailboxes{folders: map[string]string{}, names: map[string]string{}, state: list.State}
 	for _, mailbox := range list.List {
-		folderID := jmapLocalFolderID(accountID, mailbox.ID)
+		folderID := jmapLocalFolderID(accountID, target.ref(mailbox.ID))
 		mailboxes.folders[mailbox.ID] = folderID
 		mailboxes.names[folderID] = mailbox.Name
 	}
@@ -575,7 +690,8 @@ func (o *SyncOrchestrator) syncJMAPMailboxes(ctx context.Context, accountID stri
 
 // syncJMAPMailboxCounts follows the mailbox changes since a saved state. It
 // reports false, having changed nothing, when more than counters changed.
-func (o *SyncOrchestrator) syncJMAPMailboxCounts(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, mailAccount, since string) (jmapMailboxes, bool, error) {
+func (o *SyncOrchestrator) syncJMAPMailboxCounts(ctx context.Context, accountID string, client *jmap.Client, session *jmap.Session, target jmapTarget, since string) (jmapMailboxes, bool, error) {
+	mailAccount := target.account
 	updated := map[string]bool{}
 	for {
 		changes, err := client.GetMailboxChanges(ctx, session, mailAccount, since, 0)
@@ -601,8 +717,10 @@ func (o *SyncOrchestrator) syncJMAPMailboxCounts(ctx context.Context, accountID 
 			return err
 		}
 		for _, folder := range listed {
-			mailboxes.folders[folder.ProviderRemoteID] = folder.ID
-			mailboxes.names[folder.ID] = folder.Name
+			if id, ok := target.owns(folder.ProviderRemoteID); ok {
+				mailboxes.folders[id] = folder.ID
+				mailboxes.names[folder.ID] = folder.Name
+			}
 		}
 		return nil
 	})
@@ -670,7 +788,7 @@ func (o *SyncOrchestrator) withSyncStore(ctx context.Context, fn func(*storage.D
 // its folder through renames and moves, since folders are matched by mailbox
 // id; mailboxes the server no longer lists go through the usual folder
 // reconciliation.
-func (o *SyncOrchestrator) syncJMAPFolders(ctx context.Context, accountID string, mailboxes []jmap.Mailbox) error {
+func (o *SyncOrchestrator) syncJMAPFolders(ctx context.Context, accountID string, target jmapTarget, mailboxes []jmap.Mailbox) error {
 	byID := make(map[string]jmap.Mailbox, len(mailboxes))
 	for _, mailbox := range mailboxes {
 		if strings.TrimSpace(mailbox.ID) != "" {
@@ -698,15 +816,15 @@ func (o *SyncOrchestrator) syncJMAPFolders(ctx context.Context, accountID string
 		role := jmapFolderRole(mailbox)
 		parentID := ""
 		if _, ok := byID[mailbox.ParentID]; ok {
-			parentID = jmapLocalFolderID(accountID, mailbox.ParentID)
+			parentID = jmapLocalFolderID(accountID, target.ref(mailbox.ParentID))
 		}
 		path := jmapMailboxPath(mailbox, byID)
-		inputs = append(inputs, storage.UpsertFolderInput{
-			ID:               jmapLocalFolderID(accountID, mailbox.ID),
+		input := storage.UpsertFolderInput{
+			ID:               jmapLocalFolderID(accountID, target.ref(mailbox.ID)),
 			AccountID:        accountID,
 			ParentID:         parentID,
 			RemoteID:         path,
-			ProviderRemoteID: mailbox.ID,
+			ProviderRemoteID: target.ref(mailbox.ID),
 			Name:             jmapFolderName(mailbox, role),
 			Icon:             imap.RoleIcon(role),
 			Role:             role,
@@ -715,8 +833,22 @@ func (o *SyncOrchestrator) syncJMAPFolders(ctx context.Context, accountID string
 			CountsKnown:      true,
 			TotalCount:       mailbox.TotalEmails,
 			UnreadCount:      mailbox.UnreadEmails,
-		})
-		seen = append(seen, mailbox.ID)
+		}
+		if target.shared() {
+			// A shared mailbox's folders are custom folders of the account,
+			// grouped under the mailbox, as IMAP's shared folders are. Their
+			// role in the mailbox finds its Sent, Drafts and Trash.
+			input.RemoteID = target.mailbox + "/" + path
+			input.Role = "custom"
+			input.Name = strings.TrimSpace(mailbox.Name)
+			input.SharedMailbox = target.mailbox
+			if role != "custom" {
+				input.SharedRole = role
+			}
+			input.SortOrder = jmapSharedFolderSortBase + i
+		}
+		inputs = append(inputs, input)
+		seen = append(seen, target.ref(mailbox.ID))
 	}
 	repo := o.outlookRepository()
 	if len(inputs) > 0 {
@@ -724,7 +856,34 @@ func (o *SyncOrchestrator) syncJMAPFolders(ctx context.Context, accountID string
 			return err
 		}
 	}
-	if err := repo.MarkUnlistedProviderFoldersNonSelectable(ctx, accountID, providerRemoteIDsFromFolderInputs(inputs)); err != nil {
+	// The other JMAP accounts' folders are not this listing's to change.
+	err := o.withSyncStore(ctx, func(db *storage.DB) error {
+		listed, err := db.ListListedProviderFolders(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		for _, folder := range listed {
+			if _, ok := target.owns(folder.ProviderRemoteID); !ok {
+				seen = append(seen, folder.ProviderRemoteID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return o.reconcileJMAPFolders(ctx, accountID, seen)
+}
+
+// jmapSharedFolderSortBase puts shared mailboxes' folders after the
+// account's own, as IMAP does.
+const jmapSharedFolderSortBase = 10000
+
+// reconcileJMAPFolders puts aside the account's JMAP folders whose mailbox
+// is not among seen, the provider ids of every mailbox still listed.
+func (o *SyncOrchestrator) reconcileJMAPFolders(ctx context.Context, accountID string, seen []string) error {
+	repo := o.outlookRepository()
+	if err := repo.MarkUnlistedProviderFoldersNonSelectable(ctx, accountID, seen); err != nil {
 		return err
 	}
 	result, err := repo.ReconcileDiscoveredFolders(ctx, accountID, storage.FolderDiscoveryJMAP, seen, time.Now().UTC())
@@ -787,4 +946,47 @@ func jmapMailboxPath(mailbox jmap.Mailbox, byID map[string]jmap.Mailbox) string 
 
 func jmapFolderSortOrder(role string, fallback int) int {
 	return outlookGraphFolderSortOrder(role, fallback)
+}
+
+// jmapSharedMailboxNames asks, in one request, for each shared mailbox's
+// own sender identity, whose name is what the server calls the mailbox, as
+// Stalwart gives a group's description. A mailbox the login can't submit
+// from, or one the server names nothing, is left out.
+func jmapSharedMailboxNames(ctx context.Context, client *jmap.Client, session *jmap.Session, targets []jmapTarget) map[string]string {
+	var calls []jmap.Invocation
+	asked := map[string]jmapTarget{}
+	for i, target := range targets {
+		if _, ok := session.Accounts[target.account].AccountCapabilities[jmap.CapabilitySubmission]; !ok {
+			continue
+		}
+		callID := strconv.Itoa(i)
+		asked[callID] = target
+		calls = append(calls, jmap.Invocation{Name: "Identity/get", Args: map[string]any{"accountId": target.account, "ids": nil}, CallID: callID})
+	}
+	if len(calls) == 0 {
+		return nil
+	}
+	if most := session.Core.MaxCallsInRequest; most > 0 && len(calls) > most {
+		calls = calls[:most]
+	}
+	responses, err := client.Call(ctx, session, []string{jmap.CapabilityMail, jmap.CapabilitySubmission}, calls...)
+	if err != nil {
+		log.Printf("jmap shared mailbox names: %v", err)
+		return nil
+	}
+	names := map[string]string{}
+	for _, call := range calls {
+		var got jmap.GetResponse[jmap.Identity]
+		if responses.Get(call.CallID, &got) != nil {
+			continue
+		}
+		target := asked[call.CallID]
+		for _, identity := range got.List {
+			if strings.EqualFold(strings.TrimSpace(identity.Email), target.mailbox) && strings.TrimSpace(identity.Name) != "" {
+				names[target.mailbox] = strings.TrimSpace(identity.Name)
+				break
+			}
+		}
+	}
+	return names
 }

@@ -1956,6 +1956,14 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
+// Opens an account's shared mailboxes dialog once it has been loaded. Its
+// list swaps itself after each change, so the dialog stays open.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#shared-mailboxes-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("shared-mailboxes-dialog") }, 20)
+  }
+})
+
 // Opens an account's folders dialog once it has been loaded. Its list loads
 // again after each change made from it, or from the sidebar while it's open.
 document.addEventListener("htmx:afterSettle", function (e) {

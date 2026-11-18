@@ -142,6 +142,9 @@ type jmapCalendarsTestServer struct {
 	state    string
 	events   map[string]string
 	created  []string
+	// failingShared lists a mailbox shared with the login as account a2,
+	// whose every call fails.
+	failingShared bool
 }
 
 func (f *jmapCalendarsTestServer) set(state string, events map[string]string) {
@@ -157,8 +160,12 @@ func (f *jmapCalendarsTestServer) handler() http.Handler {
 			return
 		}
 		if r.URL.Path == "/.well-known/jmap" {
+			accounts := `"a1": {"name": "lena"}`
+			if f.failingShared {
+				accounts += `, "a2": {"name": "team@example.test", "accountCapabilities": {"urn:ietf:params:jmap:calendars": {}}}`
+			}
 			_, _ = w.Write([]byte(`{"capabilities": {"urn:ietf:params:jmap:core": {}, "urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:calendars": {}},
-			  "accounts": {"a1": {"name": "lena"}}, "primaryAccounts": {"urn:ietf:params:jmap:mail": "a1", "urn:ietf:params:jmap:calendars": "a1"},
+			  "accounts": {` + accounts + `}, "primaryAccounts": {"urn:ietf:params:jmap:mail": "a1", "urn:ietf:params:jmap:calendars": "a1"},
 			  "apiUrl": "http://` + r.Host + `/api/", "state": "s"}`))
 			return
 		}
@@ -168,12 +175,17 @@ func (f *jmapCalendarsTestServer) handler() http.Handler {
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		var name string
 		var args struct {
-			IDs    []string                  `json:"ids"`
-			Filter map[string]string         `json:"filter"`
-			Create map[string]map[string]any `json:"create"`
+			AccountID string                    `json:"accountId"`
+			IDs       []string                  `json:"ids"`
+			Filter    map[string]string         `json:"filter"`
+			Create    map[string]map[string]any `json:"create"`
 		}
 		_ = json.Unmarshal(request.MethodCalls[0][0], &name)
 		_ = json.Unmarshal(request.MethodCalls[0][1], &args)
+		if args.AccountID == "a2" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"methodResponses": []any{[]any{"error", map[string]any{"type": "serverFail"}, "0"}}, "sessionState": "s"})
+			return
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		var answer any
@@ -420,5 +432,27 @@ func TestJMAPCalendarCreateForTheSharedStore(t *testing.T) {
 		if source.IsSelected != want {
 			t.Fatalf("source %s selected = %v", source.Name, source.IsSelected)
 		}
+	}
+}
+
+// A shared account whose events can't be read leaves the login's own
+// calendar changes seen.
+func TestJMAPCalendarStateWhenASharedAccountFails(t *testing.T) {
+	fake := &jmapCalendarsTestServer{password: "secret", failingShared: true}
+	fake.set("s1", map[string]string{})
+	server := httptest.NewServer(fake.handler())
+	t.Cleanup(server.Close)
+	cfg := &models.AccountConfig{Provider: "jmap", JMAPSessionURL: server.URL + "/.well-known/jmap", Username: "lena@example.test", JMAPAllowPlaintext: true, JMAPAllowPrivate: true}
+
+	before, err := mail.JMAPCalendarState(t.Context(), cfg, "secret")
+	if err != nil {
+		t.Fatalf("JMAPCalendarState() error = %v", err)
+	}
+	if again, err := mail.JMAPCalendarState(t.Context(), cfg, "secret"); err != nil || again != before {
+		t.Fatalf("unchanged state = %q (was %q), %v", again, before, err)
+	}
+	fake.set("s2", map[string]string{})
+	if after, err := mail.JMAPCalendarState(t.Context(), cfg, "secret"); err != nil || after == before {
+		t.Fatalf("state after the login's own change = %q (was %q), %v", after, before, err)
 	}
 }

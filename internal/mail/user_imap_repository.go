@@ -31,6 +31,8 @@ type imapSyncRepository interface {
 	IMAPFolderIDs(ctx context.Context, accountID string) (map[string]string, error)
 	MessagesShownInFolder(ctx context.Context, accountID, folderID string, internetIDs []string) (map[string]bool, error)
 	ReconcileDiscoveredFolders(ctx context.Context, accountID, providerKind string, seenIdentities []string, completedAt time.Time) (storage.FolderDiscoveryResult, error)
+	ApplySharedMailboxDiscovery(ctx context.Context, accountID string, seen []string, complete bool, at time.Time) (storage.SharedMailboxChanges, storage.SharedIdentityChanges, error)
+	SetSharedIdentitySenderCheck(ctx context.Context, identityID, result, message string, at time.Time) error
 	GetFoldersForAccount(ctx context.Context, accountID string) ([]storage.FolderSyncInfo, error)
 	UpdateFolderSyncState(ctx context.Context, folderID string, highestUID uint32, uidValidity uint32, totalCount int) error
 	ListFolderUIDsMissingSize(ctx context.Context, folderID string, limit int) ([]uint32, error)
@@ -203,6 +205,21 @@ func (r *userIMAPScope) ReconcileDiscoveredFolders(ctx context.Context, accountI
 		return err
 	})
 	return result, err
+}
+func (r *userIMAPScope) ApplySharedMailboxDiscovery(ctx context.Context, accountID string, seen []string, complete bool, at time.Time) (storage.SharedMailboxChanges, storage.SharedIdentityChanges, error) {
+	var mailboxes storage.SharedMailboxChanges
+	var identities storage.SharedIdentityChanges
+	err := r.call(ctx, func(db *storage.DB) error {
+		var err error
+		mailboxes, identities, err = db.ApplySharedMailboxDiscovery(ctx, accountID, seen, complete, at)
+		return err
+	})
+	return mailboxes, identities, err
+}
+func (r *userIMAPScope) SetSharedIdentitySenderCheck(ctx context.Context, identityID, result, message string, at time.Time) error {
+	return r.call(ctx, func(db *storage.DB) error {
+		return db.SetSharedIdentitySenderCheck(ctx, identityID, result, message, at)
+	})
 }
 func (r *userIMAPScope) GetFoldersForAccount(ctx context.Context, accountID string) ([]storage.FolderSyncInfo, error) {
 	var result []storage.FolderSyncInfo

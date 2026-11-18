@@ -64,7 +64,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 150
+const CurrentSchemaVersion = 151
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -97,6 +97,10 @@ func New(dbPath string) (*DB, error) {
 	if err := db.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	if err := ensureMCPTokenSchema(db.write); err != nil {
+		db.Close()
+		return nil, err
 	}
 	if err := repairFolderThreadTriggers(db.write); err != nil {
 		db.Close()
@@ -1237,6 +1241,12 @@ func (db *DB) migrate() error {
 	if currentVersion <= 149 {
 		if err := migrateV149ToV150(db.write); err != nil {
 			return fmt.Errorf("migrate v149 to v150: %w", err)
+		}
+	}
+
+	if currentVersion <= 150 {
+		if err := migrateV150ToV151(db.write); err != nil {
+			return fmt.Errorf("migrate v150 to v151: %w", err)
 		}
 	}
 

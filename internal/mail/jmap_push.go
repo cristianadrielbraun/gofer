@@ -160,15 +160,29 @@ func (w *JMAPPushWatcher) watch(ctx context.Context, onOpen func()) error {
 	if contactsAccount != "" {
 		types = append(types, "ContactCard", "AddressBook")
 	}
+	// Mail in a shared mailbox, a JMAP account of its own, wakes the sync
+	// as the login's own mail does.
+	mailAccounts := map[string]bool{account: true}
+	contactAccounts := map[string]bool{contactsAccount: true}
+	for _, shared := range jmapSharedAccountsWith(session, jmap.CapabilityContacts) {
+		contactAccounts[shared] = true
+	}
+	for _, target := range jmapSharedAccounts(session) {
+		mailAccounts[target.account] = true
+	}
 	err = client.WatchEvents(ctx, session, types, jmapPushPing, onOpen, func(change jmap.StateChange) {
-		mail := change.Changed[account]
-		if mail["Email"] != "" || mail["Mailbox"] != "" {
-			w.onNotify()
+		for changed, states := range change.Changed {
+			if mailAccounts[changed] && (states["Email"] != "" || states["Mailbox"] != "") {
+				w.onNotify()
+				break
+			}
 		}
 		if contactsAccount != "" {
-			contacts := change.Changed[contactsAccount]
-			if contacts["ContactCard"] != "" || contacts["AddressBook"] != "" {
-				w.onContacts()
+			for changed, states := range change.Changed {
+				if contactAccounts[changed] && (states["ContactCard"] != "" || states["AddressBook"] != "") {
+					w.onContacts()
+					break
+				}
 			}
 		}
 	})

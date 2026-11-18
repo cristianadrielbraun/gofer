@@ -14,6 +14,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/sharedmailbox"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -947,5 +948,85 @@ func TestProfileWithLocalFolders(t *testing.T) {
 	}
 	if _, err := target.importProfile(t.Context(), "default", old, options); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A profile keeps an account's shared mailboxes as the user chose them, and
+// each shared mailbox identity linked to its mailbox, on or off.
+func TestProfileSharedMailboxesRoundTrip(t *testing.T) {
+	source := newProfileTestHandler(t)
+	imapID, _ := seedProfileSource(t, source)
+	ctx := t.Context()
+	if err := source.db.MergeUISettings(ctx, "default", map[string]string{sharedmailbox.KeyAutoIdentities: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := source.db.ApplySharedMailboxDiscovery(ctx, imapID, []string{"support@example.test", "orders@example.test"}, true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.db.SetSharedMailboxEnabled(ctx, imapID, "orders@example.test", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.db.SetSharedMailboxName(ctx, imapID, "support@example.test", "Help desk"); err != nil {
+		t.Fatal(err)
+	}
+	identities, err := source.db.ListAccountIdentitiesInternal(ctx, imapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range identities {
+		if identity.Email == "support@example.test" {
+			if err := source.db.SetSharedIdentityActive(ctx, "default", imapID, identity.ID, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	file, err := parseProfile(exportProfileForTest(t, source, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := newProfileTestHandler(t)
+	options := profileImportOptions{Accounts: map[string]bool{}}
+	for _, account := range file.Accounts {
+		options.Accounts[account.Ref] = true
+	}
+	if _, err := target.importProfile(ctx, "default", file, options); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := target.db.GetAccounts(ctx, "default")
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("GetAccounts() = %v, %v", accounts, err)
+	}
+	accountID := accounts[0].ID
+	mailboxes, err := target.db.ListSharedMailboxes(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, m := range mailboxes {
+		got[m.Email] = fmt.Sprintf("%v %s", m.Enabled, m.CustomName)
+	}
+	if got["support@example.test"] != "true Help desk" || got["orders@example.test"] != "false " {
+		t.Fatalf("imported shared mailboxes = %v", got)
+	}
+	states := map[string]string{}
+	imported, err := target.db.ListAccountIdentitiesInternal(ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range imported {
+		if identity.SharedMailbox != "" {
+			states[identity.Email] = identity.SharedState
+		}
+	}
+	if states["support@example.test"] != storage.SharedIdentityDisabled || states["orders@example.test"] != storage.SharedIdentityMailboxOff {
+		t.Fatalf("imported shared identities = %v", states)
+	}
+	// The first sync finds the same mailboxes and makes no second identity.
+	if err := target.db.MergeUISettings(ctx, "default", map[string]string{sharedmailbox.KeyAutoIdentities: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, changes, err := target.db.ApplySharedMailboxDiscovery(ctx, accountID, []string{"support@example.test", "orders@example.test"}, true, time.Now()); err != nil || len(changes.Created) != 0 {
+		t.Fatalf("first sync after import created %v, %v", changes.Created, err)
 	}
 }
