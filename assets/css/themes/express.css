@@ -1322,7 +1322,8 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 }
 
 [data-theme="express"] svg[data-lucide="inbox"],
-[data-theme="express"] svg[data-lucide="mail-open"] {
+[data-theme="express"] svg[data-lucide="mail-open"],
+[data-theme="express"] svg[data-lucide="mailbox"] {
   --xp-icon: image-set(url("/assets/icons/express/internet-mail-16.png") 1x, url("/assets/icons/express/internet-mail-32.png") 2x);
   --xp-icon-paths: hidden;
 }

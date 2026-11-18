@@ -424,7 +424,7 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	// Without a Sent folder the copy can't be kept; the page says so instead
 	// of only "Message sent".
 	if needsSentCopy {
-		if folderID, _, err := h.db.GetFolderIDByRole(parent, send.AccountID, "sent"); err == nil && folderID == "" {
+		if folderID, _, err := h.db.SentFolderFor(parent, send.AccountID, send.EnvelopeFrom); err == nil && folderID == "" {
 			extra["missing_folder"] = "sent"
 		}
 	}
@@ -461,7 +461,8 @@ func (h *Handler) runDueSentCopies(ctx context.Context) {
 }
 
 func (h *Handler) reconcileSentCopy(parent context.Context, send storage.OutgoingSend) {
-	folderID, remoteName, err := h.db.GetFolderIDByRole(parent, send.AccountID, "sent")
+	// A message sent as a shared mailbox is kept in that mailbox's Sent.
+	folderID, remoteName, err := h.db.SentFolderFor(parent, send.AccountID, send.EnvelopeFrom)
 	if err != nil {
 		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("load Sent folder: %w", err))
 		return
@@ -717,6 +718,7 @@ func (h *Handler) deliverSMTPOutgoing(ctx context.Context, cfg *models.AccountCo
 	timing.Total = time.Since(startedAt)
 	timing.QueueWait = queueWait
 	h.recordSMTPDelivery(result, timing)
+	h.recordSharedSenderResult(ctx, send, result, err)
 	if err != nil {
 		if result == models.SendAmbiguous {
 			return fmt.Errorf("%w: %v", errOutgoingSendAmbiguous, err)
@@ -1043,7 +1045,25 @@ func (h *Handler) saveSentMessageSnapshot(ctx context.Context, accountID string,
 	}
 	_ = h.db.ReplaceAttachmentsInternal(ctx, localID, attachments)
 	h.deleteComposeAttachmentPaths(outgoingAttachmentPaths(msg.Attachments))
-	if sentFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "sent"); err == nil && sentFolderID != "" {
+	if sentFolderID, _, err := h.db.SentFolderFor(ctx, accountID, msg.FromEmail); err == nil && sentFolderID != "" {
 		h.publishMutation(accountID, sentFolderID)
+	}
+}
+
+// recordSharedSenderResult notes on a shared mailbox's identity whether the
+// server took mail from its address: accepted once a message went out, or
+// refused when the server turned the sender down for good. Other failures
+// say nothing about the sender. The identity is kept either way.
+func (h *Handler) recordSharedSenderResult(ctx context.Context, send storage.OutgoingSend, result models.SendResult, err error) {
+	accepted := err == nil && result == models.SendSuccess
+	if !accepted && !smtpclient.IsSenderRefused(err) {
+		return
+	}
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	if dbErr := h.db.RecordSharedSenderResult(ctx, send.AccountID, send.EnvelopeFrom, accepted, message); dbErr != nil {
+		log.Printf("outgoing-send: record sender result %s: %v", send.ID, dbErr)
 	}
 }

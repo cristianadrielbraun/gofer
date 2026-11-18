@@ -121,7 +121,8 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 	if err != nil {
 		return fail(composeSenderError(err))
 	}
-	folder, remote, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
+	// A shared mailbox's draft goes in that mailbox's Drafts.
+	folder, remote, err := h.db.DraftsFolderFor(ctx, accountID, sender.Email)
 	if err == nil && (folder == "" || remote == "") {
 		return composeDraftSaveResult{}, noDraftsFolderError(accountID)
 	}
@@ -170,6 +171,7 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 			_ = candidate.DeleteMessage(accountID, stagedID)
 		}
 	}()
+	previousDraft, _ := h.db.GetDraftProviderInfoInternal(ctx, accountID, draftID)
 	draft := storage.DraftMessageInput{AccountID: accountID, FolderID: folder, InternetMessageID: draftID, InReplyTo: msg.InReplyTo, References: msg.References, Subject: msg.Subject, FromName: msg.FromName, FromEmail: msg.FromEmail, Snippet: sentSnippet(body, msg.Subject), ToRecipients: draftRecipients(to), CCRecipients: draftRecipients(cc), BCCRecipients: draftRecipients(bcc), Date: msg.Date}
 	id, err := h.db.PublishDraft(ctx, draft, func(id int64) (storage.DraftPublication, error) {
 		stagedID = id
@@ -256,6 +258,7 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 		return fail(500, "failed to save draft")
 	}
 	success = true
+	h.moveDraftOutOfOldFolder(ctx, account, draftID, id, previousDraft, folder)
 	h.publishMutation(accountID, folder)
 	return composeDraftSaveResult{AccountID: accountID, DraftID: draftID, MessageID: id, DraftFolderID: folder, Sender: &sender}, nil
 }

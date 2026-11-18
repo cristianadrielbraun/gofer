@@ -6,23 +6,23 @@ import (
 )
 
 type Account struct {
-	ID                  string
-	Provider            string
-	MailService         string // "icloud" for an IMAP account on iCloud Mail
+	ID          string
+	Provider    string
+	MailService string // "icloud" for an IMAP account on iCloud Mail
 	// Name labels the account in Gofer. It is also the name the account's
 	// own address sends under unless SenderName is set; see FromName.
-	Name                string
-	Email               string
+	Name  string
+	Email string
 	// SenderName is the name the account's own address sends under, when
 	// it should differ from Name.
 	SenderName string
 	// DefaultIdentityID is the identity new messages start from; empty
 	// starts them from the account's own address.
-	DefaultIdentityID   string
-	Color               string
-	Initials            string
-	IsActive            bool
-	IsDeleting          bool
+	DefaultIdentityID string
+	Color             string
+	Initials          string
+	IsActive          bool
+	IsDeleting        bool
 	// Hidden is set when the user hid the account, which so far only Local
 	// folders can be: it leaves the sidebar and the places mail can go.
 	Hidden              bool
@@ -57,8 +57,8 @@ type Account struct {
 	// MissingFolderRoles are the roles, such as "trash", no folder of an IMAP
 	// account has, once its folders have been listed.
 	MissingFolderRoles []string
-	Folders             []Folder
-	Labels              []Label
+	Folders            []Folder
+	Labels             []Label
 
 	// CalendarFullAccess is set for a Google account that allowed Gofer to
 	// manage all its calendars, not only the ones Gofer created.
@@ -84,7 +84,9 @@ func (a Account) DefaultIdentity() (Identity, bool) {
 	}
 	for _, identity := range a.Identities {
 		if identity.ID == a.DefaultIdentityID {
-			return identity, true
+			// A shared mailbox's identity put aside is not sent as by
+			// default; the account's own address is.
+			return identity, identity.Usable()
 		}
 	}
 	return Identity{}, false
@@ -136,35 +138,42 @@ type Folder struct {
 	IsTag        bool
 	IsUnifiedTag bool
 	Children     []Folder
+	// SharedMailbox is the address of the shared mailbox an IMAP folder is
+	// in, and SharedRole its role there; "" for the account's own folders.
+	SharedMailbox string
+	SharedRole    string
+	// SharedMailboxName is the shared mailbox's name as the user or the
+	// server gave it, "" when neither did.
+	SharedMailboxName string
 }
 
 type Email struct {
-	ID                string
-	AccountID         string
-	AccountColor      string
-	FolderID          string
-	FolderRole        string
+	ID           string
+	AccountID    string
+	AccountColor string
+	FolderID     string
+	FolderRole   string
 	// SearchLocation names the account and folder path on search results.
 	SearchLocation string
 	// SearchGroupStart marks a search result whose location differs from the
 	// result before it, so the location shows once above each run.
 	SearchGroupStart bool
-	From              Contact
-	To                []Contact
-	CC                []Contact
-	BCC               []Contact
-	Subject           string
-	Preview           string
-	Body              template.HTML
-	HTMLBody          string
-	OriginalHTMLBody  string
-	TextBody          string
-	Date              string
-	DateWithTime      string
-	DateFull          string
-	IsRead            bool
-	IsStarred         bool
-	HasAttachment     bool
+	From             Contact
+	To               []Contact
+	CC               []Contact
+	BCC              []Contact
+	Subject          string
+	Preview          string
+	Body             template.HTML
+	HTMLBody         string
+	OriginalHTMLBody string
+	TextBody         string
+	Date             string
+	DateWithTime     string
+	DateFull         string
+	IsRead           bool
+	IsStarred        bool
+	HasAttachment    bool
 	// AttachmentCount counts this message's attachments, not inline images.
 	AttachmentCount   int
 	Labels            []Label
@@ -201,8 +210,8 @@ type Contact struct {
 	IsDeleted bool
 	// TrashedAt is when the contact went to the Trash, and TrashPurgeAt when
 	// it is deleted for good from there, formatted for showing.
-	TrashedAt        string
-	TrashPurgeAt     string
+	TrashedAt    string
+	TrashPurgeAt string
 	// DeletedFrom are the places, "account:<id>" or "book:<id>", that
 	// deleted a contact with Gofer Sync on, while it waits to be resolved.
 	DeletedFrom      []string
@@ -457,25 +466,25 @@ type EmailFilters struct {
 }
 
 type ThreadItem struct {
-	ID                string
-	AccountID         string
-	AccountColor      string
-	From              Contact
-	To                []Contact
-	CC                []Contact
-	Subject           string
-	Preview           string
-	TextBody          string
-	Date              string
-	DateWithTime      string
-	DateFull          string
-	IsRead            bool
-	IsStarred         bool
-	IsDraft           bool
-	HasAttachment     bool
-	FolderName        string
-	FolderID          string
-	FolderRole        string
+	ID            string
+	AccountID     string
+	AccountColor  string
+	From          Contact
+	To            []Contact
+	CC            []Contact
+	Subject       string
+	Preview       string
+	TextBody      string
+	Date          string
+	DateWithTime  string
+	DateFull      string
+	IsRead        bool
+	IsStarred     bool
+	IsDraft       bool
+	HasAttachment bool
+	FolderName    string
+	FolderID      string
+	FolderRole    string
 	// ElsewhereFolder names the folder the message is filed in when an
 	// expanded conversation's list isn't that folder, like Sent in Inbox.
 	ElsewhereFolder   string

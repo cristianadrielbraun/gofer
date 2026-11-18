@@ -180,10 +180,17 @@ func (h *Handler) registerUserMessageMutations(private func(string, http.Handler
 
 func (h *Handler) queueUserSpamTargets(w http.ResponseWriter, r *http.Request, targets []ownedMessageTarget, disposition spamDisposition) {
 	updated, messages, failed, noSpam := 0, 0, 0, 0
+	var sharedMissing error
 	for _, target := range targets {
-		destination, _, err := h.spamDestinationFolder(r.Context(), target.Infos[0].AccountID, disposition)
-		if errors.Is(err, errNoSpamFolder) {
-			noteMissingFolder(w, target.Infos[0].AccountID, "junk")
+		destination, _, err := h.spamDestinationFolder(r.Context(), target.Infos[0].AccountID, target.Infos[0].FolderID, disposition)
+		var shared *storage.SharedFolderMissingError
+		if errors.Is(err, errNoSpamFolder) || errors.As(err, &shared) {
+			if shared != nil {
+				missingFolder(w, target.Infos[0].AccountID, "junk", "", err)
+				sharedMissing = err
+			} else {
+				noteMissingFolder(w, target.Infos[0].AccountID, "junk")
+			}
 			noSpam++
 			failed += len(target.Infos)
 			continue
@@ -219,6 +226,10 @@ func (h *Handler) queueUserSpamTargets(w http.ResponseWriter, r *http.Request, t
 		h.publishSpamMutation(target.Infos, destination)
 	}
 	if messages == 0 && noSpam > 0 && noSpam == len(targets) {
+		if sharedMissing != nil {
+			http.Error(w, missingFolderText(r.Context(), sharedMissing, ""), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, serverText(r.Context(), noSpamFolderMessage), http.StatusBadRequest)
 		return
 	}

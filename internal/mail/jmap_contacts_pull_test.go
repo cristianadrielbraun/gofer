@@ -25,6 +25,9 @@ type fakeContactsServer struct {
 	changes  map[string]any
 	contacts bool
 	queries  int
+	// failingShared lists a mailbox shared with the login as account a2,
+	// whose every call fails.
+	failingShared bool
 }
 
 func (f *fakeContactsServer) start(t *testing.T) *models.AccountConfig {
@@ -43,7 +46,11 @@ func (f *fakeContactsServer) start(t *testing.T) *models.AccountConfig {
 				capabilities += `, "urn:ietf:params:jmap:contacts": {}`
 				primary += `, "urn:ietf:params:jmap:contacts": "a1"`
 			}
-			_, _ = io.WriteString(w, `{"capabilities": {`+capabilities+`}, "accounts": {"a1": {"name": "nadia"}},
+			accounts := `"a1": {"name": "nadia"}`
+			if f.failingShared {
+				accounts += `, "a2": {"name": "team@example.test", "accountCapabilities": {"urn:ietf:params:jmap:contacts": {}}}`
+			}
+			_, _ = io.WriteString(w, `{"capabilities": {`+capabilities+`}, "accounts": {`+accounts+`},
 			  "primaryAccounts": {`+primary+`}, "apiUrl": "`+server.URL+`/api/",
 			  "downloadUrl": "`+server.URL+`/download/{accountId}/{blobId}/{name}?type={type}", "state": "s"}`)
 		case strings.HasPrefix(r.URL.Path, "/download/a1/photo-blob/"):
@@ -55,12 +62,17 @@ func (f *fakeContactsServer) start(t *testing.T) *models.AccountConfig {
 			_ = json.NewDecoder(r.Body).Decode(&request)
 			var name string
 			var args struct {
-				IDs      *[]string `json:"ids"`
-				Position int       `json:"position"`
-				Limit    int       `json:"limit"`
+				AccountID string    `json:"accountId"`
+				IDs       *[]string `json:"ids"`
+				Position  int       `json:"position"`
+				Limit     int       `json:"limit"`
 			}
 			_ = json.Unmarshal(request.MethodCalls[0][0], &name)
 			_ = json.Unmarshal(request.MethodCalls[0][1], &args)
+			if args.AccountID == "a2" {
+				_ = json.NewEncoder(w).Encode(map[string]any{"methodResponses": []any{[]any{"error", map[string]any{"type": "serverFail"}, "0"}}, "sessionState": "s"})
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"methodResponses": []any{f.answer(name, args.IDs, args.Position, args.Limit)}, "sessionState": "s"})
 		default:
 			http.NotFound(w, r)
@@ -104,6 +116,26 @@ func (f *fakeContactsServer) answer(name string, ids *[]string, position, limit 
 		}}, "0"}
 	}
 	return []any{"error", map[string]any{"type": "unknownMethod"}, "0"}
+}
+
+// A shared account whose contacts can't be read leaves the login's own to
+// sync, and a whole listing removes none of the shared account's cards.
+func TestPullJMAPContactsKeepsSyncingWhenASharedAccountFails(t *testing.T) {
+	f := &fakeContactsServer{cards: threeCards(), contacts: true, failingShared: true}
+	cfg := f.start(t)
+	page, err := PullJMAPContacts(context.Background(), cfg, "secret", "", []string{"book-home", "a2:book-team"})
+	if err != nil {
+		t.Fatalf("PullJMAPContacts() error = %v", err)
+	}
+	if !page.Full || len(page.Contacts) != 1 || page.Contacts[0].ID != "c1" || !slices.Equal(page.Kept, []string{"a2:"}) {
+		t.Fatalf("page = full %v, %d contacts, kept %v", page.Full, len(page.Contacts), page.Kept)
+	}
+	if !page.Keeps("a2:card-1") || page.Keeps("c1") {
+		t.Fatal("Keeps does not tell the shared account's cards from the login's")
+	}
+	if !strings.Contains(page.State, `"a1":"s9"`) {
+		t.Fatalf("state = %q, want the login's own", page.State)
+	}
 }
 
 func threeCards() map[string]string {

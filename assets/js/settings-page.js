@@ -1315,8 +1315,19 @@
 (function() {
   document.addEventListener('change', function(e) {
     var toggle = e.target.closest('[data-ui-setting-switch]');
-    if (!toggle || typeof GoferSettings === 'undefined') return;
-    GoferSettings.set(toggle.getAttribute('data-ui-setting-switch'), toggle.checked ? 'true' : 'false');
+    if (toggle && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set(toggle.getAttribute('data-ui-setting-switch'), toggle.checked ? 'true' : 'false');
+    }
+    // A select or text box saved under its key as it changes.
+    var input = e.target.closest('[data-ui-setting-input]');
+    if (input && typeof GoferSettings !== 'undefined') {
+      var key = input.getAttribute('data-ui-setting-input');
+      GoferSettings.set(key, input.value.trim());
+      // A field used only for one choice shows while it is chosen.
+      document.querySelectorAll('[data-shown-for-setting="' + key + '"]').forEach(function(field) {
+        field.hidden = field.getAttribute('data-shown-for-value') !== input.value;
+      });
+    }
   });
 })();
 

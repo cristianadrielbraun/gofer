@@ -29,7 +29,12 @@ func (h *Handler) applyJMAPMessageMutation(ctx context.Context, mutation storage
 			return fmt.Errorf("load JMAP destination mailbox: %w", err)
 		}
 	}
-	gone, err := mail.ApplyJMAPMutation(ctx, cfg, password, request)
+	gone, movedID, err := mail.ApplyJMAPMutationMoving(ctx, cfg, password, request)
+	if movedID != "" {
+		// Moved into another JMAP account, as between the login's own
+		// mailbox and a shared one: the email has a new id there.
+		request.EmailID = movedID
+	}
 	switch {
 	case err != nil:
 		return err

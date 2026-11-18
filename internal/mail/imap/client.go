@@ -30,6 +30,11 @@ type FolderInfo struct {
 	// Status comes with the folder list on servers with LIST-STATUS, so a
 	// poll learns which folders changed without a command per folder.
 	Status *FolderStatus
+	// SharedMailbox is the address of the shared mailbox the folder is in,
+	// and SharedRole the folder's role there (shared.go); both are "" for
+	// the account's own folders.
+	SharedMailbox string
+	SharedRole    string
 }
 
 type Client struct {
@@ -42,6 +47,9 @@ type Client struct {
 	pool        *Pool
 	poolKey     string
 	interrupted bool
+	// namespacesKnown says the last ListFolders had the server's NAMESPACE
+	// answer, so its shared mailboxes are all there are (shared.go).
+	namespacesKnown bool
 }
 
 func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) (*Client, error) {
@@ -260,7 +268,9 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 		return nil, fmt.Errorf("client is closed")
 	}
 
-	namespaces := c.personalNamespaces()
+	nsSet := c.namespaces()
+	namespaces := nsSet.Personal
+	c.namespacesKnown = false
 
 	cmd := c.client.List("", "%", listOptions(c, false))
 	defer cmd.Close()
@@ -333,24 +343,41 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 		})
 	}
 
-	return folders, subCmd.Close()
+	if err := subCmd.Close(); err != nil {
+		return folders, err
+	}
+	applySharedPlacement(folders, nsSet.Shared)
+	c.namespacesKnown = nsSet.Known
+	return folders, nil
+}
+
+// SharedMailboxesComplete reports whether the last ListFolders can be
+// trusted to show every shared mailbox the account can open: the server
+// answered NAMESPACE, and the listing finished. Without it a mailbox missing
+// from the listing is not taken for one no longer shared.
+func (c *Client) SharedMailboxesComplete() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.namespacesKnown
 }
 
 // personalNamespaces returns the prefixes of the user's own folders, or nil
 // when the server cannot say. The caller holds c.mu.
 func (c *Client) personalNamespaces() []string {
+	return c.namespaces().Personal
+}
+
+// namespaces returns the server's namespaces; Personal is nil when the
+// server cannot say. The caller holds c.mu.
+func (c *Client) namespaces() namespaceSet {
 	if !c.client.Caps().Has(imap.CapNamespace) {
-		return nil
+		return namespaceSet{}
 	}
 	data, err := c.client.Namespace().Wait()
 	if err != nil {
-		return nil
+		return namespaceSet{}
 	}
-	prefixes := make([]string, 0, len(data.Personal))
-	for _, ns := range data.Personal {
-		prefixes = append(prefixes, ns.Prefix)
-	}
-	return prefixes
+	return namespaceSetFromData(data)
 }
 
 func isSelectableMailbox(attrs []imap.MailboxAttr) bool {

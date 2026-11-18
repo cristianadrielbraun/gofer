@@ -576,6 +576,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/identities", h.handleSaveAccountIdentity)
 	mux.HandleFunc("DELETE /api/accounts/{id}/identities/{identity}", h.handleDeleteAccountIdentity)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/{identity}/move", h.handleMoveAccountIdentity)
+	mux.HandleFunc("POST /api/accounts/{id}/identities/{identity}/shared", h.handleSetSharedIdentityActive)
+	mux.HandleFunc("GET /api/accounts/{id}/shared-mailboxes", h.handleSharedMailboxesPanel)
+	mux.HandleFunc("GET /api/accounts/{id}/shared-mailboxes/manage", h.handleManageSharedMailboxes)
+	mux.HandleFunc("POST /api/accounts/{id}/shared-mailboxes/discover", h.handleDiscoverSharedMailboxes)
+	mux.HandleFunc("POST /api/accounts/{id}/shared-mailboxes/enabled", h.handleSetSharedMailboxEnabled)
+	mux.HandleFunc("POST /api/accounts/{id}/shared-mailboxes/name", h.handleSetSharedMailboxName)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/refresh", h.handleRefreshAccountIdentities)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/smtp-test", h.handleTestIdentitySMTP)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/sender-name", h.handleSaveAccountSenderName)
@@ -5627,7 +5633,9 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		return composeDraftSaveResult{}, &composeRequestError{status: status, message: text}
 	}
 
-	draftFolderID, draftFolderRemoteName, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
+	// A draft from a shared mailbox's address is kept in that mailbox's
+	// Drafts, where its other members see it.
+	draftFolderID, draftFolderRemoteName, err := h.db.DraftsFolderFor(ctx, accountID, sender.Email)
 	if err == nil && draftFolderID == "" {
 		return composeDraftSaveResult{}, noDraftsFolderError(accountID)
 	}
@@ -5660,6 +5668,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	toAddrs := message.ParseDraftAddressList(r.FormValue("to"))
 	ccAddrs := message.ParseDraftAddressList(r.FormValue("cc"))
 	bccAddrs := message.ParseDraftAddressList(r.FormValue("bcc"))
+	previousDraft, _ := h.db.GetDraftProviderInfoInternal(ctx, accountID, draftID)
 	msgID, err := h.db.SaveDraftMessage(ctx, storage.DraftMessageInput{
 		AccountID:         accountID,
 		FolderID:          draftFolderID,
@@ -5678,6 +5687,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	if err != nil {
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to save draft"}
 	}
+	draftMoved := h.moveDraftOutOfOldFolder(ctx, account, draftID, msgID, previousDraft, draftFolderID)
 
 	var textPath, htmlPath string
 	if body != "" {
@@ -5727,7 +5737,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	default:
 		draftInfo, _ := h.db.GetDraftProviderInfoInternal(ctx, accountID, draftID)
 		var remoteUID, uidValidity uint32
-		if draftInfo != nil {
+		if draftInfo != nil && !draftMoved {
 			remoteUID, uidValidity = draftInfo.RemoteUID, draftInfo.UIDValidity
 		}
 		if err := h.queueIMAPDraftUpsert(ctx, accountID, msgID, draftID, draftFolderID, draftFolderRemoteName, remoteUID, uidValidity, providerDraft); err != nil {
@@ -6034,7 +6044,8 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			identities = nil
 		}
-		if identity, ok := replyIdentity(account, identities, email); ok {
+		folderMailbox, _ := h.db.FolderSharedMailbox(r.Context(), email.FolderID)
+		if identity, ok := replyIdentity(account, identities, email, folderMailbox); ok {
 			identityID = identity.ID
 		}
 		ownEmails = ownAddresses(account, identities)
@@ -6436,7 +6447,7 @@ func (h *Handler) saveSentMessage(ctx context.Context, accountID string, msg *me
 }
 
 func (h *Handler) saveSentMessageRecord(ctx context.Context, accountID string, msg *message.OutgoingMessage) {
-	sentFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "sent")
+	sentFolderID, _, err := h.db.SentFolderFor(ctx, accountID, msg.FromEmail)
 	if err != nil || sentFolderID == "" {
 		return
 	}
@@ -6926,9 +6937,8 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		if currentInfo.FolderRole == "archive" || currentInfo.FolderRole == "trash" {
 			continue
 		}
-		archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "archive")
-		if err == nil && archiveFolderID == "" {
-			noteMissingFolder(w, currentInfo.AccountID, "archive")
+		archiveFolderID, _, err := h.db.FolderIDByRoleNear(ctx, currentInfo.AccountID, currentInfo.FolderID, "archive")
+		if missingFolder(w, currentInfo.AccountID, "archive", archiveFolderID, err) {
 			noArchive++
 			continue
 		}
@@ -6976,7 +6986,7 @@ func (h *Handler) handleUnarchiveMessages(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		accountID := archived[0].AccountID
-		inboxFolderID, _, err := h.db.GetFolderIDByRole(ctx, accountID, "inbox")
+		inboxFolderID, _, err := h.db.FolderIDByRoleNear(ctx, accountID, archived[0].FolderID, "inbox")
 		if err != nil || inboxFolderID == "" {
 			continue
 		}
@@ -7030,11 +7040,9 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
+			trashFolderID, _, err := h.db.FolderIDByRoleNear(ctx, currentInfo.AccountID, currentInfo.FolderID, "trash")
 			if err != nil || trashFolderID == "" {
-				if err == nil {
-					noteMissingFolder(w, currentInfo.AccountID, "trash")
-				}
+				missingFolder(w, currentInfo.AccountID, "trash", trashFolderID, err)
 				noTrash++
 				continue
 			}
@@ -7289,12 +7297,10 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "archive")
+	archiveFolderID, _, err := h.db.FolderIDByRoleNear(ctx, info.AccountID, info.FolderID, "archive")
 	if err != nil || archiveFolderID == "" {
-		if err == nil {
-			noteMissingFolder(w, info.AccountID, "archive")
-		}
-		http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_archive_folder"), http.StatusBadRequest)
+		missingFolder(w, info.AccountID, "archive", archiveFolderID, err)
+		http.Error(w, missingFolderText(r.Context(), err, "server.error.this_account_has_no_archive_folder"), http.StatusBadRequest)
 		return
 	}
 	if archiveFolderID == info.FolderID {
@@ -7333,12 +7339,10 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
+		trashFolderID, _, err := h.db.FolderIDByRoleNear(ctx, currentInfo.AccountID, currentInfo.FolderID, "trash")
 		if err != nil || trashFolderID == "" {
-			if err == nil {
-				noteMissingFolder(w, currentInfo.AccountID, "trash")
-			}
-			http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
+			missingFolder(w, currentInfo.AccountID, "trash", trashFolderID, err)
+			http.Error(w, missingFolderText(r.Context(), err, "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
 			return
 		}
 		if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
@@ -7373,12 +7377,10 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		h.signalMessageMutationWorker()
 	} else {
-		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
+		trashFolderID, _, err := h.db.FolderIDByRoleNear(ctx, info.AccountID, info.FolderID, "trash")
 		if err != nil || trashFolderID == "" {
-			if err == nil {
-				noteMissingFolder(w, info.AccountID, "trash")
-			}
-			http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
+			missingFolder(w, info.AccountID, "trash", trashFolderID, err)
+			http.Error(w, missingFolderText(r.Context(), err, "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
 			return
 		}
 

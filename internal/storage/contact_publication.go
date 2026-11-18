@@ -251,6 +251,19 @@ type InboundJMAPContactPage struct {
 	DeletedRemoteIDs, SeenRemoteIDs []string
 	Full                            bool
 	SyncToken                       string
+	// KeptRemoteIDPrefixes are those of the shared accounts the pull could
+	// not read: a full page removes none of their cards.
+	KeptRemoteIDPrefixes []string
+}
+
+// keptRemoteID reports whether remote starts with one of prefixes.
+func keptRemoteID(prefixes []string, remote string) bool {
+	for _, prefix := range prefixes {
+		if prefix != "" && strings.HasPrefix(remote, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // PublishInboundJMAPContacts commits a JMAP pull like PublishInboundContactBook
@@ -288,7 +301,7 @@ func (db *DB) PublishInboundJMAPContacts(ctx context.Context, owner, account str
 				rows.Close()
 				return err
 			}
-			if deleted[remote] || (page.Full && !seen[remote]) {
+			if deleted[remote] || (page.Full && !seen[remote] && !keptRemoteID(page.KeptRemoteIDPrefixes, remote)) {
 				remove = append(remove, id)
 				lost = append(lost, removedContactCard{profile: profile, account: account, book: book})
 			}

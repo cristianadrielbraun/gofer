@@ -193,6 +193,7 @@ templ accountIdentityRow(data models.AccountIdentitiesData, identity models.Iden
 				}
 			</div>
 			<p class="truncate text-xs text-muted-foreground">{ identityDetail(ctx, data.Signatures, identity) }</p>
+			@accountIdentitySharedStatus(data, identity)
 			if identity.HasOwnSMTP() {
 				<p class="truncate text-xs text-muted-foreground" data-account-identity-smtp>{ i18n.T(ctx, "identities.sends_through", "host", identity.SMTPHost) }</p>
 				if !identity.HasSMTPPassword {

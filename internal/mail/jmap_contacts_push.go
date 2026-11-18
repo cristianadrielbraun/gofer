@@ -17,10 +17,26 @@ func PushJMAPContact(ctx context.Context, cfg *models.AccountConfig, password, b
 	if book == "" {
 		return "", errors.New("no JMAP address book to save the contact in")
 	}
-	client, session, account, err := jmapContactsSession(ctx, cfg, password)
+	client, session, _, err := jmapContactsSession(ctx, cfg, password)
 	if err != nil {
 		return "", err
 	}
+	// A book of a mailbox shared with the login is in that mailbox's own
+	// account, and so are its cards.
+	account, book, err := jmapCapabilityAccountOf(session, jmap.CapabilityContacts, book)
+	if err != nil {
+		return "", err
+	}
+	if remoteID != "" {
+		in, id, err := jmapCapabilityAccountOf(session, jmap.CapabilityContacts, remoteID)
+		if err != nil || in != account {
+			// The card was in another account: a new one is made here.
+			remoteID = ""
+		} else {
+			remoteID = id
+		}
+	}
+	ref := func(id string) string { return jmapCapabilityRef(session, jmap.CapabilityContacts, account, id) }
 	pusher := jmapContactPusher{client: client, session: session, account: account}
 	var card *jmap.ContactCard
 	if remoteID != "" {
@@ -42,7 +58,7 @@ func PushJMAPContact(ctx context.Context, cfg *models.AccountConfig, password, b
 	if card != nil {
 		updated, err := pusher.update(ctx, *card, book, contact)
 		if err != nil || updated {
-			return card.ID, err
+			return ref(card.ID), err
 		}
 		// The card was destroyed after Gofer read it; make it again.
 	}
@@ -58,15 +74,22 @@ func PushJMAPContact(ctx context.Context, cfg *models.AccountConfig, password, b
 		if _, err := pusher.update(ctx, *existing, book, contact); err != nil {
 			return "", err
 		}
-		return existing.ID, nil
+		return ref(existing.ID), nil
 	}
-	return id, err
+	if err != nil {
+		return "", err
+	}
+	return ref(id), nil
 }
 
 // DeleteJMAPContact destroys a card. One that is already gone counts as
 // deleted.
 func DeleteJMAPContact(ctx context.Context, cfg *models.AccountConfig, password, remoteID string) error {
-	client, session, account, err := jmapContactsSession(ctx, cfg, password)
+	client, session, _, err := jmapContactsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	account, remoteID, err := jmapCapabilityAccountOf(session, jmap.CapabilityContacts, remoteID)
 	if err != nil {
 		return err
 	}

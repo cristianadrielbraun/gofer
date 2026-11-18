@@ -1321,9 +1321,22 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 				>
 					@mailListDate(email.Date, email.DateWithTime)
 				</span>
-				<span data-mail-card-field="account" class="mail-list-card-account inline-flex min-w-0 max-w-[42%] items-center gap-1 rounded-lg border border-border/70 bg-background/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+				{{ sharedMailbox, sharedMailboxName := mailListSharedMailbox(accounts, email) }}
+				<span
+					data-mail-card-field="account"
+					class="mail-list-card-account inline-flex min-w-0 max-w-[42%] items-center gap-1 rounded-lg border border-border/70 bg-background/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+					if sharedMailbox != "" {
+						title={ mailListAccountDisplay(accounts, email.AccountID) + " · " + sharedMailbox }
+						data-mail-card-shared-mailbox={ sharedMailbox }
+					}
+				>
 					<span class="mail-list-card-account-marker account-color-marker size-2 shrink-0" style={ accountColorStyle(email.AccountColor) }></span>
-					<span class="truncate">{ mailListAccountDisplay(accounts, email.AccountID) }</span>
+					if sharedMailbox != "" {
+						@icon.Users(icon.Props{Class: "size-3 shrink-0"})
+						<span class="truncate">{ sharedMailboxName }</span>
+					} else {
+						<span class="truncate">{ mailListAccountDisplay(accounts, email.AccountID) }</span>
+					}
 				</span>
 			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">

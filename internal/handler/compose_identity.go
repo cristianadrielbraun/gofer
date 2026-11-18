@@ -56,6 +56,11 @@ var errComposeFromNotAllowed = errors.New("This account can't send from that add
 // server when that identity is gone or no longer has its own server.
 var errComposeSendViaUnavailable = errors.New("That identity no longer sends through its own server. Choose another way to send it.")
 
+// errComposeSharedMailboxOff is a From of a shared mailbox the user turned
+// off, or that is no longer shared with the account, as in a draft written
+// before.
+var errComposeSharedMailboxOff = errors.New("That shared mailbox is turned off, so mail can't be sent from it. Turn it on, or choose another address.")
+
 // composeSenderError is the status and message a compose request refused for
 // err, an error of composeSenderFor, gets.
 func composeSenderError(err error) (int, string) {
@@ -63,7 +68,7 @@ func composeSenderError(err error) (int, string) {
 	switch {
 	case errors.Is(err, errComposeIdentityNotFound):
 		return http.StatusNotFound, "identity not found"
-	case errors.As(err, &invalid), errors.Is(err, errComposeFromNotAllowed), errors.Is(err, errComposeSendViaUnavailable):
+	case errors.As(err, &invalid), errors.Is(err, errComposeFromNotAllowed), errors.Is(err, errComposeSendViaUnavailable), errors.Is(err, errComposeSharedMailboxOff):
 		return http.StatusBadRequest, err.Error()
 	}
 	return http.StatusInternalServerError, "failed to load identity"
@@ -80,8 +85,24 @@ func (e composeFromAddressError) Error() string {
 // typed into it (from_name, from_email), the identity named by identity_id,
 // which must be one of the account's, or else the account. Only a message
 // being sent has its one-time From checked against the way it is sent: a
-// draft may keep an address that can't be sent yet.
+// draft may keep an address that can't be sent yet. Nothing is sent from a
+// shared mailbox that is turned off.
 func (h *Handler) composeSenderFor(ctx context.Context, account *models.Account, r *http.Request, sending bool) (composeSender, error) {
+	sender, err := h.chosenComposeSender(ctx, account, r, sending)
+	if err != nil || !sending {
+		return sender, err
+	}
+	off, err := h.db.SharedMailboxOff(ctx, account.ID, sender.Email)
+	if err != nil {
+		return composeSender{}, err
+	}
+	if off {
+		return composeSender{}, errComposeSharedMailboxOff
+	}
+	return sender, nil
+}
+
+func (h *Handler) chosenComposeSender(ctx context.Context, account *models.Account, r *http.Request, sending bool) (composeSender, error) {
 	if strings.TrimSpace(r.FormValue("from_email")) != "" {
 		return h.oneTimeComposeSender(ctx, account, r.FormValue("from_name"), r.FormValue("from_email"), r.FormValue("send_via"), sending)
 	}
@@ -154,8 +175,18 @@ func (h *Handler) providerListsAddress(ctx context.Context, account *models.Acco
 		return false, err
 	}
 	return slices.ContainsFunc(identities, func(identity models.Identity) bool {
-		return identity.Source == models.IdentitySourceProvider && strings.EqualFold(identity.Email, email)
+		if !strings.EqualFold(identity.Email, email) {
+			return false
+		}
+		return identity.Source == models.IdentitySourceProvider || sharedMailboxSendsAs(identity)
 	}), nil
+}
+
+// sharedMailboxSendsAs reports whether an identity is a shared mailbox's own
+// address, in use, which that mailbox sends from: over JMAP from its own
+// account, over SMTP as the server allows (its sender check says).
+func sharedMailboxSendsAs(identity models.Identity) bool {
+	return identity.SharedMailbox != "" && identity.Usable() && strings.EqualFold(identity.Email, identity.SharedMailbox)
 }
 
 // accountFromRule is the rule for the From addresses the account's own way of
@@ -221,12 +252,31 @@ func draftSender(account *models.Account, identities []models.Identity, name, em
 }
 
 // replyIdentity finds the identity a reply to email goes out as. A message
-// sent from one of the account's identities is answered as that identity;
-// otherwise the first of the account's addresses in To, then Cc, decides, and
-// the account's own address there means replying as the account.
-func replyIdentity(account *models.Account, identities []models.Identity, email *models.Email) (models.Identity, bool) {
-	if account == nil || email == nil || len(identities) == 0 {
+// in a shared mailbox's folder (folderMailbox) is answered as that mailbox,
+// by the identity made for it or one with its address. Otherwise a message
+// sent from one of the account's identities is answered as that identity,
+// or the first of the account's addresses in To, then Cc, decides, and the
+// account's own address there means replying as the account. Identities put
+// aside are never chosen.
+func replyIdentity(account *models.Account, identities []models.Identity, email *models.Email, folderMailbox string) (models.Identity, bool) {
+	if account == nil || email == nil {
 		return models.Identity{}, false
+	}
+	identities = slices.DeleteFunc(slices.Clone(identities), func(identity models.Identity) bool { return !identity.Usable() })
+	if len(identities) == 0 {
+		return models.Identity{}, false
+	}
+	if folderMailbox = strings.TrimSpace(folderMailbox); folderMailbox != "" {
+		for _, identity := range identities {
+			if strings.EqualFold(identity.SharedMailbox, folderMailbox) {
+				return identity, true
+			}
+		}
+		for _, identity := range identities {
+			if strings.EqualFold(identity.Email, folderMailbox) {
+				return identity, true
+			}
+		}
 	}
 	if identity, ok := matchSenderIdentity(account, identities, email.From.Name, email.From.Email); ok {
 		return identity, true

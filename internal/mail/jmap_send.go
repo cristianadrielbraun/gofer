@@ -52,18 +52,16 @@ func SendJMAPMessage(ctx context.Context, cfg *models.AccountConfig, password, f
 		rejected := errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden)
 		return "", notSent(fmt.Errorf("JMAP session: %w", err), !rejected)
 	}
-	account := session.PrimaryAccount(jmap.CapabilityMail)
-	if account == "" {
+	if session.PrimaryAccount(jmap.CapabilityMail) == "" {
 		return "", notSent(errors.New("the JMAP server offers no mail account for this login"), false)
 	}
 	if !jmapCanSend(session) {
 		return "", notSent(ErrJMAPCannotSend, false)
 	}
-	identities, err := client.GetIdentities(ctx, session, account)
+	account, identity, ok, err := jmapSendingIdentity(ctx, client, session, from)
 	if err != nil {
 		return "", notSent(err, true)
 	}
-	identity, ok := jmap.MatchIdentity(identities.List, from)
 	if !ok {
 		return "", notSent(fmt.Errorf("the JMAP server does not let this account send as %s", from), false)
 	}
@@ -89,7 +87,7 @@ func SendJMAPMessage(ctx context.Context, cfg *models.AccountConfig, password, f
 		case err != nil:
 			return "", notSent(fmt.Errorf("check whether an earlier attempt was sent: %w", err), true)
 		case state == jmapSent:
-			return emailID, nil
+			return jmapRefIn(session, account, emailID), nil
 		}
 	}
 	blob, err := client.UploadBlob(ctx, session, account, jmap.ContentTypeMessage, raw)
@@ -108,7 +106,7 @@ func SendJMAPMessage(ctx context.Context, cfg *models.AccountConfig, password, f
 	var httpErr *jmap.HTTPError
 	switch {
 	case err == nil:
-		return result.EmailID, nil
+		return jmapRefIn(session, account, result.EmailID), nil
 	case errors.As(err, &refused):
 		return "", notSent(err, retryableJMAPSubmissionErrors[refused.Type])
 	case errors.As(err, &httpErr) && httpErr.StatusCode < 500:
@@ -124,9 +122,32 @@ func SendJMAPMessage(ctx context.Context, cfg *models.AccountConfig, password, f
 		log.Printf("jmap send: could not tell whether the message was sent: %v", lookupErr)
 		return "", err
 	case state == jmapSent:
-		return emailID, nil
+		return jmapRefIn(session, account, emailID), nil
 	}
 	return "", notSent(err, true)
+}
+
+// jmapSendingIdentity finds the JMAP account and identity to send as from:
+// a shared mailbox's address sends from that mailbox's own account, so the
+// message is stored in its Sent, when the server gives the login an identity
+// there; otherwise, as for any other address, from the login's own account,
+// if it has an identity for the address.
+func jmapSendingIdentity(ctx context.Context, client *jmap.Client, session *jmap.Session, from string) (string, jmap.Identity, bool, error) {
+	own := session.PrimaryAccount(jmap.CapabilityMail)
+	accounts := []string{own}
+	if shared := jmapSenderAccount(session, from).account; shared != own {
+		accounts = []string{shared, own}
+	}
+	for _, account := range accounts {
+		identities, err := client.GetIdentities(ctx, session, account)
+		if err != nil {
+			return "", jmap.Identity{}, false, err
+		}
+		if identity, ok := jmap.MatchIdentity(identities.List, from); ok {
+			return account, identity, true, nil
+		}
+	}
+	return "", jmap.Identity{}, false, nil
 }
 
 type jmapSendState int

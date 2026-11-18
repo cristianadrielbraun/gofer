@@ -985,6 +985,7 @@ func weekStartLabel(ctx context.Context, day time.Weekday) string {
 
 templ SettingsAdvancedTab(uiSettings map[string]string) {
 	<div class="mt-6 space-y-6">
+		@SharedMailboxSettingsCard(uiSettings)
 		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.advanced.title") }</h3>
@@ -2458,6 +2459,21 @@ templ SettingsAccountActionsMenu(account models.Account) {
 						@icon.Folders(icon.Props{Class: "size-3.5"})
 						{ i18n.T(ctx, "settings.account.folders") }
 					}
+				}
+			}
+			if accountOpensSharedMailboxes(account) {
+				@dropdown.Item(dropdown.ItemProps{
+					Class: "justify-start gap-2",
+					Attributes: templ.Attributes{
+						"type":                        "button",
+						"hx-get":                      fmt.Sprintf("/api/accounts/%s/shared-mailboxes/manage", account.ID),
+						"hx-target":                   "#edit-account-container",
+						"hx-swap":                     "innerHTML",
+						"data-account-shared-mailboxes": account.ID,
+					},
+				}) {
+					@icon.Users(icon.Props{Class: "size-3.5"})
+					{ i18n.T(ctx, "settings.account.shared_mailboxes") }
 				}
 			}
 			if account.Provider == "imap" {

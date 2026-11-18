@@ -2447,6 +2447,8 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		}
 	}
 
+	o.applySharedMailboxDiscovery(ctx, accountID, cfg, password, folders, client.SharedMailboxesComplete())
+
 	folderInfos, err := o.imapRepository().GetFoldersForAccount(ctx, accountID)
 	if err != nil {
 		return err
@@ -2460,9 +2462,11 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	}
 	idleRemoteNames := idleRemoteNamesFromFolders(folderInfos, idleFolderIDs)
 
+	// Shared mailboxes the user turned off are not synced.
+	sharedOff := o.disabledSharedMailboxes(ctx, accountID)
 	var syncFolders []imap.FolderInfo
 	for _, f := range folders {
-		if f.Selectable {
+		if f.Selectable && !sharedOff[strings.ToLower(f.SharedMailbox)] {
 			syncFolders = append(syncFolders, f)
 		}
 	}
@@ -2746,6 +2750,30 @@ func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap
 // which was never created as a folder of its own. Without it the child has
 // nowhere to go and shows at the top under its full name. Each missing
 // parent comes just before its first child, as a folder that holds no mail.
+// synthesizedIMAPParent is the folder a listing left out above child. Above a
+// folder in a shared mailbox it is that mailbox's own folder, the folder that
+// holds the shared mailboxes, or a folder inside the mailbox.
+func synthesizedIMAPParent(child imap.FolderInfo, parent string) imap.FolderInfo {
+	folder := imap.FolderInfo{Name: parent, Delimiter: child.Delimiter, Role: "custom"}
+	if child.SharedMailbox == "" {
+		if child.SharedRole == imap.SharedRoleNamespace {
+			folder.SharedRole = imap.SharedRoleNamespace
+		}
+		return folder
+	}
+	lower := strings.ToLower(parent)
+	sep := string(child.Delimiter)
+	switch {
+	case strings.HasSuffix(lower, sep+child.SharedMailbox):
+		folder.SharedMailbox, folder.SharedRole = child.SharedMailbox, imap.SharedRoleRoot
+	case strings.Contains(lower, sep+child.SharedMailbox+sep):
+		folder.SharedMailbox, folder.SharedRole = child.SharedMailbox, "custom"
+	default:
+		folder.SharedRole = imap.SharedRoleNamespace
+	}
+	return folder
+}
+
 func imapFoldersWithParents(folders []imap.FolderInfo) []imap.FolderInfo {
 	known := make(map[string]bool, len(folders))
 	for _, f := range folders {
@@ -2766,7 +2794,7 @@ func imapFoldersWithParents(folders []imap.FolderInfo) []imap.FolderInfo {
 					break
 				}
 				known[parent] = true
-				missing = append(missing, imap.FolderInfo{Name: parent, Delimiter: f.Delimiter, Role: "custom"})
+				missing = append(missing, synthesizedIMAPParent(f, parent))
 			}
 			for i := len(missing) - 1; i >= 0; i-- {
 				out = append(out, missing[i])
@@ -2812,7 +2840,11 @@ func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices, exis
 			return nil, fmt.Errorf("IMAP folder has no stable remote identity (name=%q)", f.Name)
 		}
 		role := f.Role
-		if choice, ok := choices[f.Name]; ok {
+		if f.SharedRole != "" {
+			// A shared mailbox's folders never stand for the account's own
+			// Inbox, Sent or Trash (imap/shared.go), whatever was chosen.
+			role = "custom"
+		} else if choice, ok := choices[f.Name]; ok {
 			role = choice
 		} else if chosenRoles[role] {
 			role = "custom"
@@ -2821,7 +2853,20 @@ func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices, exis
 		if !ok {
 			order = 100 + i
 		}
+		if f.SharedRole != "" {
+			// After the account's own folders, each shared mailbox's special
+			// folders first.
+			if roleOrder, special := sortOrder[f.SharedRole]; special {
+				order = 10000 + roleOrder
+			} else {
+				order = 10100 + i
+			}
+		}
 
+		iconRole := role
+		if f.SharedRole != "" {
+			iconRole = f.SharedRole
+		}
 		parentID := ""
 		name := displayName(f.Name, role)
 		// Special folders stay at the top even when the server keeps them
@@ -2843,10 +2888,13 @@ func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices, exis
 			ParentID:   parentID,
 			RemoteID:   f.Name,
 			Name:       name,
-			Icon:       imap.RoleIcon(role),
+			Icon:       imap.RoleIcon(iconRole),
 			Role:       role,
 			Selectable: f.Selectable,
 			SortOrder:  order,
+
+			SharedMailbox: f.SharedMailbox,
+			SharedRole:    f.SharedRole,
 		})
 	}
 	return folderInputs, nil

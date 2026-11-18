@@ -122,12 +122,14 @@ func migrateV127ToV128(db *sql.DB) error {
 }
 
 const accountIdentityColumns = `i.id, i.account_id, i.name, i.email, i.reply_to, COALESCE(i.signature_id, ''), i.source, i.provider_identity_id, i.sort_order,
-	i.smtp_host, i.smtp_port, i.smtp_tls_mode, i.smtp_username, i.encrypted_smtp_password IS NOT NULL`
+	i.smtp_host, i.smtp_port, i.smtp_tls_mode, i.smtp_username, i.encrypted_smtp_password IS NOT NULL,
+	` + sharedIdentityColumns
 
 func scanAccountIdentity(scan func(...any) error) (models.Identity, error) {
 	var identity models.Identity
 	err := scan(&identity.ID, &identity.AccountID, &identity.Name, &identity.Email, &identity.ReplyTo, &identity.SignatureID, &identity.Source, &identity.ProviderIdentityID, &identity.SortOrder,
-		&identity.SMTPHost, &identity.SMTPPort, &identity.SMTPTLSMode, &identity.SMTPUsername, &identity.HasSMTPPassword)
+		&identity.SMTPHost, &identity.SMTPPort, &identity.SMTPTLSMode, &identity.SMTPUsername, &identity.HasSMTPPassword,
+		&identity.SharedMailbox, &identity.SharedState, &identity.SenderCheck, &identity.SenderCheckMessage)
 	return identity, err
 }
 

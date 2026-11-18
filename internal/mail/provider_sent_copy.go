@@ -1,10 +1,12 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
+	netmail "net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -67,10 +69,17 @@ func FileJMAPSentCopy(ctx context.Context, cfg *models.AccountConfig, password s
 	if id == "" {
 		return "", errors.New("the message has no Message-ID to file it by")
 	}
-	client, session, account, err := openJMAPMail(ctx, cfg, password)
+	client, session, _, err := openJMAPMail(ctx, cfg, password)
 	if err != nil {
 		return "", err
 	}
+	// A message from a shared mailbox's address is filed in that mailbox's
+	// own Sent.
+	from := ""
+	if header, err := netmail.ReadMessage(bytes.NewReader(raw)); err == nil {
+		from = header.Header.Get("From")
+	}
+	account := jmapSenderAccount(session, from).account
 	mailboxes, err := client.GetMailboxes(ctx, session, account, nil)
 	if err != nil {
 		return "", err
@@ -93,7 +102,7 @@ func FileJMAPSentCopy(ctx context.Context, cfg *models.AccountConfig, password s
 		return "", err
 	}
 	if len(found) > 0 {
-		return found[0], nil
+		return jmapRefIn(session, account, found[0]), nil
 	}
 	blob, err := client.UploadBlob(ctx, session, account, jmap.ContentTypeMessage, raw)
 	if err != nil {
@@ -103,7 +112,7 @@ func FileJMAPSentCopy(ctx context.Context, cfg *models.AccountConfig, password s
 	if err != nil {
 		return "", err
 	}
-	return imported.ID, nil
+	return jmapRefIn(session, account, imported.ID), nil
 }
 
 // FileGmailSentCopy files a message sent through another server in this

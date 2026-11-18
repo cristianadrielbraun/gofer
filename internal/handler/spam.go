@@ -64,10 +64,12 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 	for _, target := range targets {
 		infos := target.Infos
 
-		destFolderID, destRemoteID, err := h.spamDestinationFolder(ctx, infos[0].AccountID, disposition)
+		destFolderID, destRemoteID, err := h.spamDestinationFolder(ctx, infos[0].AccountID, infos[0].FolderID, disposition)
 		if err != nil {
 			if errors.Is(err, errNoSpamFolder) {
 				noteMissingFolder(w, infos[0].AccountID, "junk")
+			} else {
+				missingFolder(w, infos[0].AccountID, "junk", "", err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -139,6 +141,11 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 			http.Error(w, serverText(r.Context(), noSpamFolderMessage), http.StatusBadRequest)
 			return
 		}
+		var shared *storage.SharedFolderMissingError
+		if errors.As(firstErr, &shared) {
+			http.Error(w, missingFolderText(r.Context(), firstErr, ""), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, serverText(r.Context(), firstErr.Error()), http.StatusBadGateway)
 		return
 	}
@@ -173,9 +180,11 @@ func (h *Handler) queueJMAPSpamKeywords(ctx context.Context, infos []storage.Thr
 	}
 }
 
-func (h *Handler) spamDestinationFolder(ctx context.Context, accountID string, disposition spamDisposition) (string, string, error) {
+// The folder is that of the shared mailbox fromFolderID is in, when it is in
+// one that has it.
+func (h *Handler) spamDestinationFolder(ctx context.Context, accountID, fromFolderID string, disposition spamDisposition) (string, string, error) {
 	if disposition == spamDispositionNotSpam {
-		folderID, remoteID, err := h.db.GetFolderIDByRole(ctx, accountID, "inbox")
+		folderID, remoteID, err := h.db.FolderIDByRoleNear(ctx, accountID, fromFolderID, "inbox")
 		if err != nil {
 			return "", "", err
 		}
@@ -185,14 +194,23 @@ func (h *Handler) spamDestinationFolder(ctx context.Context, accountID string, d
 		return folderID, remoteID, nil
 	}
 
+	var sharedMissing error
 	for _, role := range []string{"junk", "spam"} {
-		folderID, remoteID, err := h.db.GetFolderIDByRole(ctx, accountID, role)
+		folderID, remoteID, err := h.db.FolderIDByRoleNear(ctx, accountID, fromFolderID, role)
+		var shared *storage.SharedFolderMissingError
+		if errors.As(err, &shared) {
+			sharedMissing = &storage.SharedFolderMissingError{Mailbox: shared.Mailbox, Role: "junk"}
+			continue
+		}
 		if err != nil {
 			return "", "", err
 		}
 		if folderID != "" {
 			return folderID, remoteID, nil
 		}
+	}
+	if sharedMissing != nil {
+		return "", "", sharedMissing
 	}
 	return "", "", errNoSpamFolder
 }

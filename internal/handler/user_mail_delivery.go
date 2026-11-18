@@ -170,6 +170,15 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 		work, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		result, err, _ = smtpclient.SendRawMessageWithTiming(work, s.cfg, s.smtpPassword, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
 		cancel()
+		if accepted := err == nil && result == models.SendSuccess; accepted || smtpclient.IsSenderRefused(err) {
+			message := ""
+			if err != nil {
+				message = err.Error()
+			}
+			_ = s.call(ctx, func(db *storage.DB) error {
+				return db.RecordSharedSenderResult(ctx, send.AccountID, send.EnvelopeFrom, accepted, message)
+			})
+		}
 	}
 	return s.finishSMTP(ctx, send, snapshot.MessageID, result, err, true)
 }
@@ -245,7 +254,7 @@ func (s *userMailDeliveryScope) finishSMTP(ctx context.Context, send storage.Out
 		var folder string
 		if s.call(ctx, func(db *storage.DB) error {
 			var err error
-			folder, _, err = db.GetFolderIDByRole(ctx, s.id, "sent")
+			folder, _, err = db.SentFolderFor(ctx, s.id, send.EnvelopeFrom)
 			return err
 		}) == nil && folder == "" {
 			payload["missing_folder"] = "sent"
@@ -312,7 +321,7 @@ func (s *userMailDeliveryScope) copySent(ctx context.Context, send storage.Outgo
 	var folder, remote string
 	if err := s.call(ctx, func(db *storage.DB) error {
 		var err error
-		folder, remote, err = db.GetFolderIDByRole(ctx, s.id, "sent")
+		folder, remote, err = db.SentFolderFor(ctx, s.id, send.EnvelopeFrom)
 		return err
 	}); err != nil {
 		return err

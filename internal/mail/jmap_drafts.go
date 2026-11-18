@@ -37,12 +37,27 @@ func NewJMAPDrafts(cfg *models.AccountConfig, password string) *JMAPDrafts {
 	return &JMAPDrafts{config: cfg, password: password}
 }
 
-// open loads the session, the mail account and its Drafts mailbox.
-func (d *JMAPDrafts) open(ctx context.Context) (*jmap.Client, *jmap.Session, string, string, error) {
-	client, session, account, err := openJMAPMail(ctx, d.config, d.password)
+// open loads the session, the JMAP account a draft from the address is kept
+// in (a shared mailbox's own, for its address) and that account's Drafts
+// mailbox.
+func (d *JMAPDrafts) open(ctx context.Context, from string) (*jmap.Client, *jmap.Session, string, string, error) {
+	// From is a header, "Name <address>"; the account goes by the address.
+	if parsed, err := mail.ParseAddress(from); err == nil {
+		from = parsed.Address
+	}
+	client, session, err := openJMAPSession(ctx, d.config, d.password)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
+	if session.PrimaryAccount(jmap.CapabilityMail) == "" {
+		return nil, nil, "", "", errors.New("the JMAP server offers no mail account for this login")
+	}
+	account := jmapSenderAccount(session, from).account
+	return d.openIn(ctx, client, session, account)
+}
+
+// openIn finds the Drafts mailbox of one JMAP account.
+func (d *JMAPDrafts) openIn(ctx context.Context, client *jmap.Client, session *jmap.Session, account string) (*jmap.Client, *jmap.Session, string, string, error) {
 	mailboxes, err := client.GetMailboxes(ctx, session, account, nil)
 	if err != nil {
 		return nil, nil, "", "", err
@@ -59,7 +74,12 @@ func (d *JMAPDrafts) GetDraft(ctx context.Context, id string) (UserProviderDraft
 	if strings.TrimSpace(id) == "" {
 		return UserProviderDraft{}, errors.New("provider draft identity is required")
 	}
-	client, session, account, err := openJMAPMail(ctx, d.config, d.password)
+	client, session, err := openJMAPSession(ctx, d.config, d.password)
+	if err != nil {
+		return UserProviderDraft{}, err
+	}
+	stored := id
+	account, id, err := jmapAccountOf(session, stored)
 	if err != nil {
 		return UserProviderDraft{}, err
 	}
@@ -89,7 +109,7 @@ func (d *JMAPDrafts) GetDraft(ctx context.Context, id string) (UserProviderDraft
 	if !email.Keywords[jmap.KeywordDraft] {
 		return UserProviderDraft{}, errors.New("provider message is no longer a draft")
 	}
-	draft := UserProviderDraft{ID: id, MessageID: id, InternetMessageID: "<" + strings.Trim(email.MessageID[0], "<>") + ">"}
+	draft := UserProviderDraft{ID: stored, MessageID: stored, InternetMessageID: "<" + strings.Trim(email.MessageID[0], "<>") + ">"}
 	if email.Revision != nil {
 		draft.RevisionToken = strings.TrimSpace(*email.Revision)
 	}
@@ -100,17 +120,39 @@ func (d *JMAPDrafts) FindDrafts(ctx context.Context, internetID string) ([]UserP
 	if strings.TrimSpace(internetID) == "" || strings.ContainsAny(internetID, "\r\n") {
 		return nil, errors.New("draft Internet identity is required")
 	}
-	client, session, account, drafts, err := d.open(ctx)
+	client, session, err := openJMAPSession(ctx, d.config, d.password)
 	if err != nil {
 		return nil, err
 	}
-	found, err := client.FindDrafts(ctx, session, account, drafts, internetID)
-	if err != nil {
-		return nil, err
+	own := session.PrimaryAccount(jmap.CapabilityMail)
+	if own == "" {
+		return nil, errors.New("the JMAP server offers no mail account for this login")
 	}
-	out := make([]UserProviderDraft, 0, len(found))
-	for _, draft := range found {
-		out = append(out, UserProviderDraft{ID: draft.ID, MessageID: draft.ID, InternetMessageID: draft.MessageID, RevisionToken: draft.Revision})
+	// A draft may be in the login's own Drafts or a shared mailbox's.
+	accounts := []string{own}
+	for _, target := range jmapSharedAccounts(session) {
+		accounts = append(accounts, target.account)
+	}
+	var out []UserProviderDraft
+	for i, account := range accounts {
+		_, _, _, drafts, err := d.openIn(ctx, client, session, account)
+		if err != nil {
+			if i == 0 {
+				return nil, err
+			}
+			continue
+		}
+		found, err := client.FindDrafts(ctx, session, account, drafts, internetID)
+		if err != nil {
+			if i == 0 {
+				return nil, err
+			}
+			continue
+		}
+		for _, draft := range found {
+			ref := jmapRefIn(session, account, draft.ID)
+			out = append(out, UserProviderDraft{ID: ref, MessageID: ref, InternetMessageID: draft.MessageID, RevisionToken: draft.Revision})
+		}
 	}
 	return out, nil
 }
@@ -131,7 +173,7 @@ func (d *JMAPDrafts) SaveDraft(ctx context.Context, id string, mime []byte) (Use
 	if internetID == "" || revision == "" {
 		return UserProviderDraft{}, errors.New("draft MIME identity and revision are required")
 	}
-	client, session, account, drafts, err := d.open(ctx)
+	client, session, account, drafts, err := d.open(ctx, msg.Header.Get("From"))
 	if err != nil {
 		return UserProviderDraft{}, err
 	}
@@ -149,7 +191,8 @@ func (d *JMAPDrafts) SaveDraft(ctx context.Context, id string, mime []byte) (Use
 	case err != nil:
 		return UserProviderDraft{}, fmt.Errorf("%w: %v", ErrUserProviderDraftUncertain, err)
 	}
-	return UserProviderDraft{ID: saved, MessageID: saved, InternetMessageID: internetID, RevisionToken: revision}, nil
+	ref := jmapRefIn(session, account, saved)
+	return UserProviderDraft{ID: ref, MessageID: ref, InternetMessageID: internetID, RevisionToken: revision}, nil
 }
 
 // ReplaceDraft stores mime as the draft's new version and removes the
@@ -158,7 +201,11 @@ func (d *JMAPDrafts) SaveDraft(ctx context.Context, id string, mime []byte) (Use
 // the new version was stored but the previous one could not be removed, it
 // returns the id and an error too.
 func (d *JMAPDrafts) ReplaceDraft(ctx context.Context, previousID string, mime []byte) (string, error) {
-	client, session, account, drafts, err := d.open(ctx)
+	from := ""
+	if msg, err := mail.ReadMessage(bytes.NewReader(mime)); err == nil {
+		from = msg.Header.Get("From")
+	}
+	client, session, account, drafts, err := d.open(ctx, from)
 	if err != nil {
 		return "", err
 	}
@@ -167,10 +214,29 @@ func (d *JMAPDrafts) ReplaceDraft(ctx context.Context, previousID string, mime [
 		return "", err
 	}
 	var replace []string
+	var removeElsewhere string
 	if previousID != "" {
-		replace = []string{previousID}
+		// The previous version goes in the same request when it is in the
+		// same account; one in another, when the From changed between a
+		// shared mailbox and the login's own, is removed after.
+		if in, id, err := jmapAccountOf(session, previousID); err == nil && in == account {
+			replace = []string{id}
+		} else if err == nil {
+			removeElsewhere = previousID
+		}
 	}
-	return client.SaveDraft(ctx, session, account, blob, drafts, replace)
+	saved, err := client.SaveDraft(ctx, session, account, blob, drafts, replace)
+	if err != nil {
+		return "", err
+	}
+	ref := jmapRefIn(session, account, saved)
+	if removeElsewhere != "" {
+		in, id, _ := jmapAccountOf(session, removeElsewhere)
+		if _, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: in, Destroy: []string{id}}); err != nil {
+			return ref, fmt.Errorf("remove the previous draft: %w", err)
+		}
+	}
+	return ref, nil
 }
 
 // DeleteDraft removes a draft if it is still the version recorded for it; one
@@ -186,15 +252,19 @@ func (d *JMAPDrafts) DeleteDraft(ctx context.Context, draft UserProviderDraft) e
 	if draft.InternetMessageID == "" || current.InternetMessageID != draft.InternetMessageID || (draft.RevisionToken != "" && current.RevisionToken != draft.RevisionToken) {
 		return errors.New("provider draft changed before deletion")
 	}
-	client, session, account, err := openJMAPMail(ctx, d.config, d.password)
+	client, session, err := openJMAPSession(ctx, d.config, d.password)
 	if err != nil {
 		return err
 	}
-	result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: account, Destroy: []string{draft.ID}})
+	account, id, err := jmapAccountOf(session, draft.ID)
 	if err != nil {
 		return err
 	}
-	if failure, failed := result.NotDestroyed[draft.ID]; failed && failure.Type != "notFound" {
+	result, err := client.SetEmails(ctx, session, jmap.EmailSet{AccountID: account, Destroy: []string{id}})
+	if err != nil {
+		return err
+	}
+	if failure, failed := result.NotDestroyed[id]; failed && failure.Type != "notFound" {
 		return &failure
 	}
 	return nil

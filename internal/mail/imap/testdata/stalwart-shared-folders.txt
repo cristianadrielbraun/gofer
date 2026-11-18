@@ -1,0 +1,29 @@
+# What Stalwart 0.16 answers a member of three groups (shared mailboxes),
+# taken from a real server with only the domain changed. Lines starting with
+# "#" are comments.
+CAPABILITY IMAP4rev2 IMAP4rev1 ENABLE SASL-IR LITERAL+ ID UTF8=ACCEPT AUTH=PLAIN AUTH=OAUTHBEARER AUTH=XOAUTH2
+* NAMESPACE (("" "/")) (("Shared Folders" "/")) NIL
+* LIST (\Trash) "/" "Deleted Items"
+* LIST (\Drafts) "/" "Drafts"
+* LIST () "/" "INBOX"
+* LIST (\Junk) "/" "Junk Mail"
+* LIST (\Sent) "/" "Sent Items"
+* LIST (\NoSelect) "/" "Shared Folders"
+* LIST (\NoSelect) "/" "Shared Folders/sales-test@example.com"
+* LIST (\Trash) "/" "Shared Folders/sales-test@example.com/Deleted Items"
+* LIST (\Drafts) "/" "Shared Folders/sales-test@example.com/Drafts"
+* LIST () "/" "Shared Folders/sales-test@example.com/INBOX"
+* LIST (\Junk) "/" "Shared Folders/sales-test@example.com/Junk Mail"
+* LIST (\Sent) "/" "Shared Folders/sales-test@example.com/Sent Items"
+* LIST (\NoSelect) "/" "Shared Folders/marketing-test@example.com"
+* LIST (\Trash) "/" "Shared Folders/marketing-test@example.com/Deleted Items"
+* LIST (\Drafts) "/" "Shared Folders/marketing-test@example.com/Drafts"
+* LIST () "/" "Shared Folders/marketing-test@example.com/INBOX"
+* LIST (\Junk) "/" "Shared Folders/marketing-test@example.com/Junk Mail"
+* LIST (\Sent) "/" "Shared Folders/marketing-test@example.com/Sent Items"
+* LIST (\NoSelect) "/" "Shared Folders/support-test@example.com"
+* LIST (\Trash) "/" "Shared Folders/support-test@example.com/Deleted Items"
+* LIST (\Drafts) "/" "Shared Folders/support-test@example.com/Drafts"
+* LIST () "/" "Shared Folders/support-test@example.com/INBOX"
+* LIST (\Junk) "/" "Shared Folders/support-test@example.com/Junk Mail"
+* LIST (\Sent) "/" "Shared Folders/support-test@example.com/Sent Items"
