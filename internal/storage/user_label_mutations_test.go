@@ -40,6 +40,18 @@ func labelEntry(t *testing.T, db *DB, provider string) LabelMutationQueueEntry {
 	}
 	return entries[0]
 }
+
+func TestUserLabelsRejectRFC9979StatusWithoutQueuing(t *testing.T) {
+	db, info := seedUserLabelTest(t, "imap")
+	if err := db.QueueUserLabels(t.Context(), "alice", []ThreadMessageMutationInfo{info}, "$MailFlagBit0", LabelMutationAdd); err == nil {
+		t.Fatal("queued a reserved status keyword as a label")
+	}
+	var mutations, labels int
+	if err := db.Read().QueryRow(`SELECT (SELECT count(*) FROM label_mutation_queue), (SELECT count(*) FROM message_labels)`).Scan(&mutations, &labels); err != nil || mutations != 0 || labels != 0 {
+		t.Fatalf("reserved status created %d queued changes and %d labels, err=%v", mutations, labels, err)
+	}
+}
+
 func TestUserLabelsTransactionCoalescesIntentAndRejectsStaleCompletion(t *testing.T) {
 	db, info := seedUserLabelTest(t, "gmail")
 	if err := db.QueueUserLabels(t.Context(), "alice", []ThreadMessageMutationInfo{info}, "Projects", LabelMutationAdd); err != nil {

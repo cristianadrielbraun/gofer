@@ -345,12 +345,13 @@ func moveMessagesAndQueueTx(ctx context.Context, tx *sql.Tx, messageIDs []int64,
 				(SELECT NULLIF(source.remote_message_id, '') FROM message_folder_state source WHERE source.message_id = ? AND source.folder_id = ?))
 			ON CONFLICT(message_id, folder_id) DO UPDATE SET
 				remote_uid = CASE WHEN ? THEN message_folder_state.remote_uid ELSE NULL END,
+				remote_keywords = CASE WHEN ? THEN message_folder_state.remote_keywords END,
 				is_read = excluded.is_read,
 				is_starred = excluded.is_starred,
 				is_deleted = 0,
 				synced_at = CURRENT_TIMESTAMP,
 				remote_message_id = COALESCE(excluded.remote_message_id, message_folder_state.remote_message_id)`,
-			messageID, destinationFolderID, isRead, isStarred, messageID, sourceFolderID, boolInt(preserveRemoteUID)); err != nil {
+			messageID, destinationFolderID, isRead, isStarred, messageID, sourceFolderID, boolInt(preserveRemoteUID), boolInt(preserveRemoteUID)); err != nil {
 			return nil, fmt.Errorf("show destination folder for message %d: %w", messageID, err)
 		}
 		// The move takes the source's further copies along.
@@ -873,7 +874,11 @@ func advanceMessageMoveMutationTx(ctx context.Context, tx *sql.Tx, id, destinati
 		if _, err := tx.ExecContext(ctx, `DELETE FROM message_folder_state WHERE folder_id = ? AND remote_uid = ? AND message_id != ?`, destinationFolderID, destinationUID, messageID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE message_folder_state SET remote_uid = ?, synced_at = CURRENT_TIMESTAMP WHERE message_id = ? AND folder_id = ?`, destinationUID, messageID, destinationFolderID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE message_folder_state
+			SET remote_keywords = CASE WHEN remote_uid = ? THEN remote_keywords ELSE
+				(SELECT source.remote_keywords FROM message_folder_state source WHERE source.message_id = ? AND source.folder_id = ?) END,
+				remote_uid = ?, synced_at = CURRENT_TIMESTAMP WHERE message_id = ? AND folder_id = ?`,
+			destinationUID, messageID, previousFolderID, destinationUID, messageID, destinationFolderID); err != nil {
 			return err
 		}
 	}

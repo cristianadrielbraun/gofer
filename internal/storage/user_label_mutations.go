@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 )
 
 func userLabelProvider(provider string) (string, error) {
@@ -67,6 +69,9 @@ func (db *DB) QueueUserLabels(ctx context.Context, owner string, infos []ThreadM
 		provider, folder, err := ownedLabelTargetTx(ctx, tx, owner, info)
 		if err != nil {
 			return err
+		}
+		if provider == LabelProviderKeyword && keywords.IsRFC9979(name) {
+			return fmt.Errorf("label %q is a status keyword", name)
 		}
 		if err := queueUserLabelTx(ctx, tx, info.AccountID, info.MessageID, folder, provider, operation, name); err != nil {
 			return err

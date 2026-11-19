@@ -9,8 +9,42 @@ import (
 	"testing"
 	"time"
 
+	goimap "github.com/emersion/go-imap/v2"
+
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
+
+func TestIncrementalIMAPSyncKeepsKeywordsAfterFlagChange(t *testing.T) {
+	ctx := t.Context()
+	cfg, uids, _ := startInboxProxy(t, 1, func(string, string) (string, bool) { return "", false }, nil)
+	client, err := NewClient(ctx, cfg, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	validity := inboxUIDValidity(t, client)
+	raw := []byte("From: a@example.test\r\nMessage-ID: <metadata@example.test>\r\nSubject: Sample mail\r\n\r\nBody")
+	appended, err := client.AppendMessage(ctx, "INBOX", raw, []goimap.Flag{goimap.FlagFlagged, "$MailFlagBit2", "$VendorMarker"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.StoreFlags(ctx, "INBOX", appended.UID, goimap.StoreFlagsAdd, []goimap.Flag{goimap.FlagSeen}); err != nil {
+		t.Fatal(err)
+	}
+	var messages []storage.SyncMessage
+	_, err = client.SyncFolderIncremental(ctx, "inbox", "INBOX", uids[0], validity, func(batch []storage.SyncMessage) error {
+		messages = append(messages, batch...)
+		return nil
+	})
+	if err != nil || len(messages) != 1 || !messages[0].IsRead || !messages[0].IsStarred {
+		t.Fatalf("messages = %#v, %v", messages, err)
+	}
+	for _, want := range []string{"$MailFlagBit2", "$VendorMarker"} {
+		if !slices.ContainsFunc(messages[0].KeywordSnapshot, func(value string) bool { return strings.EqualFold(value, want) }) {
+			t.Errorf("keywords after STORE = %#v, want %s", messages[0].KeywordSnapshot, want)
+		}
+	}
+}
 
 // imap.139.com and imap.163.com leave UIDNEXT out of the SELECT reply. New
 // mail must still reach an incremental sync there, and nothing already seen

@@ -77,6 +77,8 @@ func serveCondStoreScript(conn net.Conn, script *condStoreServerScript) {
 		switch {
 		case strings.Contains(upper, " CAPABILITY"):
 			fmt.Fprintf(writer, "* CAPABILITY %s\r\n%s OK capability\r\n", caps, tag)
+		case strings.Contains(upper, " LIST "):
+			fmt.Fprintf(writer, "* LIST (Memos) \"/\" Annotations\r\n%s OK list\r\n", tag)
 		case strings.Contains(upper, " SELECT "):
 			condStore := strings.Contains(upper, "CONDSTORE")
 			if condStore && script.dropOnSelect {
@@ -98,7 +100,7 @@ func serveCondStoreScript(conn net.Conn, script *condStoreServerScript) {
 				break
 			}
 			if changedSince {
-				fmt.Fprintf(writer, "* 2 FETCH (UID 2 FLAGS (\\Seen Work) MODSEQ (%d))\r\n", script.highestModSeq)
+				fmt.Fprintf(writer, "* 2 FETCH (UID 2 FLAGS (\\Seen Work $MailFlagBit1 $VendorMarker) MODSEQ (%d))\r\n", script.highestModSeq)
 			} else {
 				fmt.Fprint(writer, "* 1 FETCH (UID 1 FLAGS ())\r\n* 2 FETCH (UID 2 FLAGS (\\Seen Work))\r\n")
 			}
@@ -116,6 +118,18 @@ func serveCondStoreScript(conn net.Conn, script *condStoreServerScript) {
 	}
 }
 
+func TestListFoldersReadsRFC9979Attribute(t *testing.T) {
+	client := newCondStoreTestClient(t, &condStoreServerScript{})
+	folders, err := client.ListFolders(t.Context())
+	if err != nil || len(folders) != 1 {
+		t.Fatalf("ListFolders() = %#v, %v", folders, err)
+	}
+	folder := folders[0]
+	if len(folder.Attributes) != 1 || folder.Attributes[0] != "Memos" || folder.Role != "custom" || !folder.Selectable {
+		t.Fatalf("memo folder = %+v, want an accessible custom folder with its bare attribute", folder)
+	}
+}
+
 func TestFetchFlagChangesUsesCondStoreCheckpoint(t *testing.T) {
 	script := &condStoreServerScript{advertise: true, highestModSeq: 20}
 	client := newCondStoreTestClient(t, script)
@@ -127,8 +141,11 @@ func TestFetchFlagChangesUsesCondStoreCheckpoint(t *testing.T) {
 	if !result.CheckpointValid || !result.UsedCondStore || result.HighestModSeq != 20 || result.UIDValidity != 100 {
 		t.Fatalf("FetchFlagChanges() result = %#v", result)
 	}
-	if len(result.Updates) != 1 || result.Updates[0].UID != 2 || !result.Updates[0].IsRead || len(result.Updates[0].Labels) != 1 || result.Updates[0].Labels[0].Name != "Work" {
+	if len(result.Updates) != 1 || result.Updates[0].UID != 2 || !result.Updates[0].IsRead || len(result.Updates[0].Labels) != 2 || result.Updates[0].Labels[0].Name != "Work" {
 		t.Fatalf("FetchFlagChanges() updates = %#v", result.Updates)
+	}
+	if got := strings.Join(result.Updates[0].KeywordSnapshot, " "); got != `\Seen Work $MailFlagBit1 $VendorMarker` {
+		t.Fatalf("raw FLAGS = %q", got)
 	}
 	commands := strings.ToUpper(script.commandLog())
 	if !strings.Contains(commands, "SELECT INBOX (CONDSTORE)") || !strings.Contains(commands, "CHANGEDSINCE 10") {
@@ -146,6 +163,9 @@ func TestFetchFlagChangesBootstrapsCondStoreWithFullFlags(t *testing.T) {
 	}
 	if !result.CheckpointValid || result.UsedCondStore || result.HighestModSeq != 20 || len(result.Updates) != 2 {
 		t.Fatalf("FetchFlagChanges() bootstrap result = %#v", result)
+	}
+	if got := result.Updates[0].KeywordSnapshot; got == nil || len(got) != 0 {
+		t.Fatalf("empty FLAGS = %#v, want a known empty snapshot", got)
 	}
 	commands := strings.ToUpper(script.commandLog())
 	if !strings.Contains(commands, "SELECT INBOX (CONDSTORE)") || strings.Contains(commands, "CHANGEDSINCE") {
