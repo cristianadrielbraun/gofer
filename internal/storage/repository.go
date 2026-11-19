@@ -2689,27 +2689,32 @@ func (db *DB) ResolveLabelAliasProviderID(ctx context.Context, accountID, provid
 	}
 	defer tx.Rollback()
 
+	providerID, found, err := db.resolveLabelAliasProviderIDTx(ctx, tx, accountID, providerType, displayName)
+	if err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	return providerID, found, nil
+}
+
+func (db *DB) resolveLabelAliasProviderIDTx(ctx context.Context, tx *sql.Tx, accountID, providerType, displayName string) (string, bool, error) {
 	if err := db.ensureDefaultLabelAliasesTx(ctx, tx, accountID, providerType); err != nil {
 		return "", false, err
 	}
 
 	var providerID string
-	err = tx.QueryRowContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		SELECT provider_id
 		FROM label_aliases
 		WHERE account_id = ? AND provider_type = ? AND lower(display_name) = lower(?)
 		ORDER BY CASE source WHEN 'user' THEN 0 WHEN 'default' THEN 1 ELSE 2 END, provider_id
 		LIMIT 1`, accountID, providerType, displayName).Scan(&providerID)
 	if err == sql.ErrNoRows {
-		if err := tx.Commit(); err != nil {
-			return "", false, err
-		}
 		return "", false, nil
 	}
 	if err != nil {
-		return "", false, err
-	}
-	if err := tx.Commit(); err != nil {
 		return "", false, err
 	}
 	return providerID, true, nil

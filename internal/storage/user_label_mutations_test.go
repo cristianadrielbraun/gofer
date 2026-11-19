@@ -52,6 +52,23 @@ func TestUserLabelsRejectRFC9979StatusWithoutQueuing(t *testing.T) {
 	}
 }
 
+func TestUserLabelsAllowOrdinaryKeywordWithStatusDisplayName(t *testing.T) {
+	db, info := seedUserLabelTest(t, "imap")
+	if _, err := db.Write().Exec(`INSERT INTO label_aliases(account_id, provider_type, provider_id, display_name, source)
+		VALUES ('acc', ?, 'Project', '$Memo', 'user')`, LabelProviderKeyword); err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []string{LabelMutationAdd, LabelMutationRemove} {
+		if err := db.QueueUserLabels(t.Context(), "alice", []ThreadMessageMutationInfo{info}, "$Memo", operation); err != nil {
+			t.Fatal(err)
+		}
+		entry := labelEntry(t, db, LabelProviderKeyword)
+		if entry.LabelName != "$Memo" || entry.Operation != operation {
+			t.Fatalf("queued entry = %+v", entry)
+		}
+	}
+}
+
 func TestUserLabelsTransactionCoalescesIntentAndRejectsStaleCompletion(t *testing.T) {
 	db, info := seedUserLabelTest(t, "gmail")
 	if err := db.QueueUserLabels(t.Context(), "alice", []ThreadMessageMutationInfo{info}, "Projects", LabelMutationAdd); err != nil {
