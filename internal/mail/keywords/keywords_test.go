@@ -30,9 +30,32 @@ func TestIsStatusCoversJMAPSpellings(t *testing.T) {
 			t.Errorf("IsStatus(%q) = false", status)
 		}
 	}
-	for _, label := range []string{"$label1", "Client", "$VendorFlag", "$Important", "$MailFlagBit0"} {
+	for _, label := range []string{"$label1", "Client", "$VendorFlag", "$Important", "$MailFlagBit3"} {
 		if IsStatus(label) {
 			t.Errorf("IsStatus(%q) = true", label)
+		}
+	}
+}
+
+func TestRFC9979Names(t *testing.T) {
+	for _, keyword := range []string{
+		"$AutoSent", "$CanUnsubscribe", "$Followed", "$HasAttachment", "$HasMemo", "$HasNoAttachment",
+		"$Imported", "$IsTrusted", "$MailFlagBit0", "$MailFlagBit1", "$MailFlagBit2", "$MaskedEmail",
+		"$Memo", "$Muted", "$New", "$Notify", "$Unsubscribed",
+	} {
+		if !IsRFC9979(keyword) || !IsStatus(keyword) {
+			t.Errorf("%q did not classify as RFC 9979 status", keyword)
+		}
+		if _, err := Validate(keyword); err == nil {
+			t.Errorf("Validate(%q) accepted a reserved status", keyword)
+		}
+	}
+	for value, want := range map[string]MailboxAttribute{
+		"Snoozed": MailboxSnoozed, "SCHEDULED": MailboxScheduled, "memos": MailboxMemos,
+		"\\Memos": "", "drafts": "", "": "",
+	} {
+		if got := RFC9979MailboxAttribute(value); got != want {
+			t.Errorf("RFC9979MailboxAttribute(%q) = %q, want %q", value, got, want)
 		}
 	}
 }

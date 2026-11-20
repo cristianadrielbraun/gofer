@@ -226,10 +226,11 @@ func jmapNewMail(email jmap.Email) storage.SyncMessage {
 }
 
 const (
-	jmapEmailScope   = "email"
-	jmapMailboxScope = "mailbox"
+	// The earlier cursors skipped a metadata baseline that this version needs.
+	jmapEmailScope   = "email-keywords"
+	jmapMailboxScope = "mailbox-attributes"
 	// jmapImportScope holds the progress of an import that hasn't finished.
-	jmapImportScope = "email-import"
+	jmapImportScope = "email-keywords-import"
 	// jmapImportPage is how many emails one import request fetches, within the
 	// server's own limit.
 	jmapImportPage = 100
@@ -466,8 +467,9 @@ func jmapEmailToProviderSyncs(accountID string, email jmap.Email, folders map[st
 		CCRecipients:      jmapRecipients(email.CC),
 		BCCRecipients:     jmapRecipients(email.BCC),
 		Labels:            jmapKeywordLabels(email.Keywords),
-		LabelsKnown:       true,
+		LabelsKnown:       email.Keywords != nil,
 		LabelProvider:     storage.LabelProviderKeyword,
+		KeywordSnapshot:   jmapKeywordSnapshot(email.Keywords),
 	}
 	var rows []storage.ProviderSyncMessage
 	for mailboxID, in := range email.MailboxIDs {
@@ -481,6 +483,19 @@ func jmapEmailToProviderSyncs(accountID string, email jmap.Email, folders map[st
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].FolderID < rows[j].FolderID })
 	return rows
+}
+
+func jmapKeywordSnapshot(set map[string]bool) []string {
+	if set == nil {
+		return nil
+	}
+	names := make([]string, 0, len(set))
+	for name, on := range set {
+		if on {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // jmapKeywordLabels gives the email's keywords that are labels rather than
@@ -701,20 +716,25 @@ func (o *SyncOrchestrator) syncJMAPFolders(ctx context.Context, accountID string
 			parentID = jmapLocalFolderID(accountID, mailbox.ParentID)
 		}
 		path := jmapMailboxPath(mailbox, byID)
+		attributes := []keywords.MailboxAttribute{}
+		if attr := keywords.RFC9979MailboxAttribute(mailbox.Role); attr != "" {
+			attributes = append(attributes, attr)
+		}
 		inputs = append(inputs, storage.UpsertFolderInput{
-			ID:               jmapLocalFolderID(accountID, mailbox.ID),
-			AccountID:        accountID,
-			ParentID:         parentID,
-			RemoteID:         path,
-			ProviderRemoteID: mailbox.ID,
-			Name:             jmapFolderName(mailbox, role),
-			Icon:             imap.RoleIcon(role),
-			Role:             role,
-			Selectable:       mailbox.MyRights.MayReadItems,
-			SortOrder:        jmapFolderSortOrder(role, i),
-			CountsKnown:      true,
-			TotalCount:       mailbox.TotalEmails,
-			UnreadCount:      mailbox.UnreadEmails,
+			ID:                jmapLocalFolderID(accountID, mailbox.ID),
+			AccountID:         accountID,
+			ParentID:          parentID,
+			RemoteID:          path,
+			ProviderRemoteID:  mailbox.ID,
+			Name:              jmapFolderName(mailbox, role),
+			Icon:              imap.RoleIcon(role),
+			Role:              role,
+			Selectable:        mailbox.MyRights.MayReadItems,
+			SortOrder:         jmapFolderSortOrder(role, i),
+			CountsKnown:       true,
+			TotalCount:        mailbox.TotalEmails,
+			UnreadCount:       mailbox.UnreadEmails,
+			MailboxAttributes: attributes,
 		})
 		seen = append(seen, mailbox.ID)
 	}

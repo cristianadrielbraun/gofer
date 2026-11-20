@@ -208,6 +208,10 @@ func (db *DB) MarkProviderMessageDeleted(ctx context.Context, accountID, provide
 		WHERE remote_message_id = ? AND message_id IN (SELECT m.id FROM messages m WHERE m.account_id = ?)`, providerMessageID, accountID); err != nil {
 		return nil, err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_provider_keywords WHERE remote_message_id = ?
+		AND message_id IN (SELECT id FROM messages WHERE account_id = ?)`, providerMessageID, accountID); err != nil {
+		return nil, fmt.Errorf("delete provider keyword snapshot: %w", err)
+	}
 	deleted := providerCopyIDSQL("message_folder_state") + ` = ?
 		  AND message_id IN (
 			SELECT m.id FROM messages m WHERE m.account_id = ?
