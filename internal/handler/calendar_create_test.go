@@ -14,6 +14,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -45,7 +46,7 @@ func calendarCreatedRemote(draft calendar.EventDraft) calendar.RemoteEvent {
 
 func TestCalendarCreateValidationAndAllDayDateSemantics(t *testing.T) {
 	for _, tc := range []struct{ name, key, value string }{
-		{"missing title", "summary", " "}, {"invalid request", "request_id", "invalid"}, {"unknown timezone", "timezone", "Not/AZone"},
+		{"oversized title", "summary", strings.Repeat("a", 256)}, {"invalid request", "request_id", "invalid"}, {"unknown timezone", "timezone", "Not/AZone"},
 		{"invalid date", "start_date", "2026-02-30"}, {"end before start", "end_time", "08:00"},
 		{"missing time", "start_time", ""}, {"oversized location", "location", strings.Repeat("a", 1025)},
 	} {
@@ -76,6 +77,22 @@ func TestCalendarCreateValidationAndAllDayDateSemantics(t *testing.T) {
 	draft, err := parseCalendarEventDraft(calendarCreateHTTPRequest(values, "one"))
 	if err != nil || !draft.AllDay || draft.StartDate != "2026-10-25" || draft.EndDate != "2026-10-26" || draft.StartAt != nil {
 		t.Fatalf("all-day draft=%#v, error=%v", draft, err)
+	}
+}
+
+func TestCalendarCreateAcceptsEventWithoutTitle(t *testing.T) {
+	values := calendarCreateForm()
+	values.Set("summary", "  ")
+	draft, err := parseCalendarEventDraft(calendarCreateHTTPRequest(values, "one"))
+	if err != nil || draft.Summary != "" {
+		t.Fatalf("untitled draft=%#v, error=%v", draft, err)
+	}
+	ctx := i18n.WithLocale(context.Background(), i18n.English)
+	if got := i18n.T(ctx, "mail.outgoing.calendar.invitation", "summary", calendarMailSummary(ctx, draft.Summary)); got != "Invitation: Meeting" {
+		t.Fatalf("untitled invitation subject = %q", got)
+	}
+	if got := calendarMailSummary(ctx, "Lunch\r\non Friday"); got != "Lunch  on Friday" {
+		t.Fatalf("titled summary = %q", got)
 	}
 }
 

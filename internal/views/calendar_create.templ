@@ -54,7 +54,7 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 					@label.Label(label.Props{For: "calendar-create-summary", Class: "sr-only"}) {
 						{ i18n.T(ctx, "calendar.create.title_label") }
 					}
-					@input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Value: data.Summary, Placeholder: i18n.T(ctx, "calendar.create.add_title"), Required: true, Class: "h-11 text-base font-medium md:text-base", Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}})
+					@input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Value: data.Summary, Placeholder: i18n.T(ctx, "calendar.create.add_title"), Class: "h-11 text-base font-medium md:text-base", Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}})
 				</div>
 				<div class="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-calendar-create-viewport>
 					<div class="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 pt-1 pb-5 sm:px-6" data-calendar-create-body>

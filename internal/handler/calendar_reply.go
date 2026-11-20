@@ -118,7 +118,7 @@ func (h *Handler) queueCalDAVResponse(ctx context.Context, source storage.Calend
 	organizer := calendarReplyAddress(target.CalDAV.Selected.Props.Get("ORGANIZER").Value)
 	textCtx := i18n.ForUser(ctx, source.UserID)
 	msg := &message.OutgoingMessage{FromName: account.FromName(), FromEmail: account.Email, To: []*mail.Address{{Address: organizer}},
-		Subject: i18n.T(textCtx, "mail.outgoing.calendar."+response, "summary", strings.NewReplacer("\r", " ", "\n", " ").Replace(target.Event.Summary)), TextBody: i18n.T(textCtx, "mail.outgoing.calendar.response."+response),
+		Subject: i18n.T(textCtx, "mail.outgoing.calendar."+response, "summary", calendarMailSummary(textCtx, target.Event.Summary)), TextBody: i18n.T(textCtx, "mail.outgoing.calendar.response."+response),
 		CalendarReply: reply, MessageID: message.NewMessageID(), Date: time.Now().UTC()}
 	raw, err := buildOutgoingMIME(transport, msg)
 	if err != nil {
