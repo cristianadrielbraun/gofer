@@ -19532,6 +19532,30 @@ function applyDefaultComposeSignatureWhenReady(form, refresh) {
   })
 }
 
+// The compose window's small menus (the signature picker and an attachment's
+// actions) open as popovers inside the compose window: the compose dialog is
+// modal, so a menu outside it would sit under it and take no clicks. Only a
+// press outside the menu closes it, so the press that starts picking one of
+// its items doesn't remove it before the click; a menu that is already gone
+// leaves a newer one alone.
+function _openComposeMenu(menu, anchor, close) {
+  var host = (anchor && anchor.closest && anchor.closest("dialog")) || document.body
+  menu.popover = "manual"
+  host.appendChild(menu)
+  if (menu.showPopover) {
+    try { menu.showPopover() } catch (_) {}
+  }
+  var rect = anchor.getBoundingClientRect()
+  menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
+  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
+  function outside(event) {
+    if (menu.isConnected && event.target && menu.contains(event.target)) return
+    document.removeEventListener("mousedown", outside)
+    if (menu.isConnected) close()
+  }
+  setTimeout(function () { document.addEventListener("mousedown", outside) }, 0)
+}
+
 function closeComposeSignatureMenu() {
   if (_composeSignatureMenu) _composeSignatureMenu.remove()
   _composeSignatureMenu = null
@@ -19563,15 +19587,11 @@ function showComposeSignaturePicker(el) {
         menu.appendChild(btn)
       })(signatures[i])
     }
-    document.body.appendChild(menu)
     _composeSignatureMenu = menu
     // From the ⋯ menu, which closes, the picker opens by the ⋯ button.
     var overflow = el.closest && el.closest("[data-compose-overflow-menu]")
     var anchor = (overflow && overflow.querySelector("[data-compose-overflow-trigger]")) || el
-    var rect = anchor.getBoundingClientRect()
-    menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
-    menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
-    setTimeout(function () { document.addEventListener("mousedown", closeComposeSignatureMenu, { once: true }) }, 0)
+    _openComposeMenu(menu, anchor, closeComposeSignatureMenu)
   })
 }
 
@@ -22666,12 +22686,8 @@ function showComposeAttachmentActions(item) {
     convertComposeAttachmentToInline(item)
   }
   menu.appendChild(convert)
-  document.body.appendChild(menu)
   _composeAttachmentMenu = menu
-  var rect = item.getBoundingClientRect()
-  menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
-  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
-  setTimeout(function () { document.addEventListener("mousedown", closeComposeAttachmentActions, { once: true }) }, 0)
+  _openComposeMenu(menu, item, closeComposeAttachmentActions)
 }
 
 function convertComposeAttachmentToInline(item) {

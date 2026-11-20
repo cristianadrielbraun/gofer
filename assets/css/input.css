@@ -600,6 +600,9 @@
 
 .compose-attachment-menu {
   position: fixed;
+  /* It opens as a popover: undo the browser's centring of one. */
+  inset: auto;
+  margin: 0;
   z-index: 90;
   padding: 0.25rem;
   border: 1px solid var(--border);
