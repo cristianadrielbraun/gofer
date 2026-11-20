@@ -1289,8 +1289,9 @@ function sanitizeSignatureHTML(raw) {
       }
     }
     if (tag === "A") {
-      var href = node.getAttribute("href") || ""
-      if (!/^(https?:|mailto:|#)/i.test(href)) node.removeAttribute("href")
+      var href = _safeLinkHref(node.getAttribute("href"))
+      if (href) node.setAttribute("href", href)
+      else node.removeAttribute("href")
       node.setAttribute("rel", "noopener noreferrer")
       if (href && href.charAt(0) !== "#") node.setAttribute("target", "_blank")
     } else if (tag === "IMG") {

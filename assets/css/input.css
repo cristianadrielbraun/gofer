@@ -1163,7 +1163,10 @@
   overflow-wrap: anywhere;
 }
 
-.compose-rich-editor a {
+/* A link in the signature editor looks like one too, so a kept link isn't
+   taken for plain text. */
+.compose-rich-editor a,
+[data-signature-editor] a {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;

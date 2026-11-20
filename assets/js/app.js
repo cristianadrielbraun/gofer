@@ -16182,6 +16182,18 @@ function promptForLink() {
   }).then(_normalizeLinkAddress)
 }
 
+// _safeLinkHref answers the link to keep for a link written in a signature or
+// in compose, or "" for one to drop. It keeps the same links the server keeps
+// (safeLinkURL in sanitize.go): web, mail and phone links and places in the
+// message. Like browsers and mail apps, it ignores spaces around the address
+// and line breaks inside it, which some signature generators leave there.
+function _safeLinkHref(value) {
+  value = String(value || "").replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "")
+  if (value.charAt(0) === "#") return value
+  if (value.indexOf("//") === 0) return "https:" + value
+  return /^(https?:\/\/|mailto:|tel:)/i.test(value) ? value : ""
+}
+
 // _normalizeLinkAddress turns what was typed as an address into a web or
 // mail link, or nothing.
 function _normalizeLinkAddress(value) {
@@ -20317,8 +20329,9 @@ function _sanitizeComposeHTML(html, allowDataImages) {
       }
     }
     if (tag === "A") {
-      var href = node.getAttribute("href") || ""
-      if (!/^(https?:|mailto:|#)/i.test(href)) node.removeAttribute("href")
+      var href = _safeLinkHref(node.getAttribute("href"))
+      if (href) node.setAttribute("href", href)
+      else node.removeAttribute("href")
       node.setAttribute("rel", "noopener noreferrer")
       if (href && href.charAt(0) !== "#") node.setAttribute("target", "_blank")
     } else if (tag === "IMG") {
