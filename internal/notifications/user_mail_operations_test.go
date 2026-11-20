@@ -187,3 +187,59 @@ func TestUserMailOperationsHTTPUndoesOnlyOwnParkedWork(t *testing.T) {
 		}
 	}
 }
+
+func TestUserMailOperationsHTTPRetryAllGoesOnPastARefusingAccount(t *testing.T) {
+	f := newUserStorageFixtureMode(t, true)
+	seedUserMailOperation(t, f, "alice", "alice-failed")
+	seedUserMailOperation(t, f, "bob", "bob-only")
+	leaving, err := f.accountStore.CreateAccount(t.Context(), "alice", &models.CreateAccountRequest{
+		Provider: "imap", EmailAddress: "alex@example.com", DisplayName: "Alex",
+		IMAPHost: "imap.example.com", SMTPHost: "smtp.example.com", Username: "alex", Password: "synthetic-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		if _, err := db.Write().Exec(`INSERT INTO messages(id,account_id,internet_message_id,subject) VALUES(5,?,'<leaving@test.invalid>','Lunch on Friday?')`, leaving.ID); err != nil {
+			return err
+		}
+		if _, err := db.Write().Exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at) VALUES('leaving-failed',?,5,'','imap','read',1,'failed',1,'server busy',?)`, leaving.ID, time.Now().Add(time.Hour)); err != nil {
+			return err
+		}
+		// Being removed: its guard refuses any change.
+		_, err := db.Write().Exec(`UPDATE accounts SET is_deleting=1 WHERE id=?`, leaving.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	page := f.request("alice", "GET", "/settings/operations/content", "")
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "data-mail-operations-retry-all") {
+		t.Fatal("Retry all not offered", page.Code)
+	}
+	response := f.request("alice", "POST", "/api/mail-operations/retry-failed", "")
+	var result struct{ Retried, Skipped int }
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil {
+		t.Fatal("retry all", response.Code, response.Body.String())
+	}
+	if result.Retried != 1 || result.Skipped != 1 {
+		t.Fatalf("retry all = %+v, want 1 retried and the leaving account's change skipped", result)
+	}
+	status := func(owner, id string) string {
+		var s string
+		if err := f.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			return db.Read().QueryRow(`SELECT status FROM message_mutations WHERE id=?`, id).Scan(&s)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	if got := status("alice", "alice-failed"); got == "failed" {
+		t.Fatalf("alice's change not retried: %s", got)
+	}
+	if got := status("alice", "leaving-failed"); got != "failed" {
+		t.Fatalf("change of an account being removed was retried: %s", got)
+	}
+	if got := status("bob", "bob-only"); got != "failed" {
+		t.Fatalf("bob's change was retried by alice: %s", got)
+	}
+}

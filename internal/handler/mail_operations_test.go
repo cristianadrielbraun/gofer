@@ -166,3 +166,33 @@ func TestMailOperationsAdminStatusIncludesRetentionDiagnostics(t *testing.T) {
 		t.Fatalf("SMTP profile = %#v, want one successful sample", status.Health.SMTPProfile)
 	}
 }
+
+func TestRetryAllFailedMailOperationsIsUserScoped(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	seedHandlerMailOperation(t, h, db)
+
+	retryAll := func(userID string) (int, int) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/mail-operations/retry-failed", nil)
+		rec := httptest.NewRecorder()
+		h.handleRetryFailedMailOperations(rec, mailOperationsRequest(req, userID, false))
+		var result struct{ Retried, Skipped int }
+		if rec.Code != http.StatusOK || json.NewDecoder(rec.Body).Decode(&result) != nil {
+			t.Fatalf("%s retry all status = %d body = %q", userID, rec.Code, rec.Body.String())
+		}
+		return result.Retried, result.Skipped
+	}
+	if retried, skipped := retryAll("attacker"); retried != 0 || skipped != 0 {
+		t.Fatalf("attacker retried %d, skipped %d; want nothing", retried, skipped)
+	}
+	if retried, _ := retryAll("owner"); retried != 1 {
+		t.Fatalf("owner retried %d, want 1", retried)
+	}
+	var status string
+	if err := db.Read().QueryRow(`SELECT status FROM message_mutations WHERE id = 'handler-mut'`).Scan(&status); err != nil || status != storage.MessageMutationPending {
+		t.Fatalf("status after retry all = %q, %v", status, err)
+	}
+	if retried, _ := retryAll("owner"); retried != 0 {
+		t.Fatalf("second retry all retried %d, want 0", retried)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -276,6 +277,32 @@ LIMIT 200`,
 	return operations, rows.Err()
 }
 
+// ListRetryableMailOperationsForUser lists every operation of the user that
+// has its own Retry: work that failed and can still succeed. Unlike the list
+// in Settings it has no limit. Parked work and work waiting to be reconciled
+// are left out.
+func (db *DB) ListRetryableMailOperationsForUser(ctx context.Context, userID string) ([]models.MailOperationSummary, error) {
+	rows, err := db.Read().QueryContext(ctx, db.mailOperationProjection()+`
+WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND can_retry = 1`,
+		models.MailOperationMessageMutation, models.MailOperationLabelMutation,
+		models.MailOperationIMAPDraft, models.MailOperationSentCopy, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	operations := make([]models.MailOperationSummary, 0)
+	for rows.Next() {
+		operation, err := scanMailOperation(rows)
+		if err != nil {
+			return nil, err
+		}
+		if operation.CanRetry {
+			operations = append(operations, operation)
+		}
+	}
+	return operations, rows.Err()
+}
+
 // mailOperationForUserTx reads one of the user's operations inside tx. An
 // unknown operation, or another user's, is sql.ErrNoRows.
 func (db *DB) mailOperationForUserTx(ctx context.Context, tx *sql.Tx, userID, operationID string) (models.MailOperationSummary, error) {
@@ -413,10 +440,6 @@ func (db *DB) RetryMailOperationForUser(ctx context.Context, userID, operationID
 // The routed guard runs after waiting for the writer and before committing;
 // reconciliation identifiers and attempt counts are never reset by a retry.
 func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, operationID string, guard func(*sql.Tx) error) (models.MailOperationSummary, error) {
-	kind, rawID, ok := strings.Cut(strings.TrimSpace(operationID), ":")
-	if !ok || strings.TrimSpace(rawID) == "" {
-		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
-	}
 	userID = strings.TrimSpace(userID)
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -428,6 +451,69 @@ func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, oper
 			return models.MailOperationSummary{}, err
 		}
 	}
+	operation, err := db.retryMailOperationTx(ctx, tx, userID, operationID)
+	if err != nil {
+		return models.MailOperationSummary{}, err
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return models.MailOperationSummary{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return models.MailOperationSummary{}, err
+	}
+	return operation, nil
+}
+
+// RetryMailOperationsForUserGuarded retries several of the user's operations
+// in one transaction, as RetryMailOperationForUserGuarded does one. Those
+// that are gone or can't be retried any more are skipped and counted, not
+// refused. guard runs before anything changes and again before committing.
+func (db *DB) RetryMailOperationsForUserGuarded(ctx context.Context, userID string, operationIDs []string, guard func(*sql.Tx) error) (retried, skipped int, err error) {
+	userID = strings.TrimSpace(userID)
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return 0, 0, err
+		}
+	}
+	for _, operationID := range operationIDs {
+		_, err := db.retryMailOperationTx(ctx, tx, userID, operationID)
+		switch {
+		case err == nil:
+			retried++
+		case errors.Is(err, ErrMailOperationNotRetryable) || errors.Is(err, sql.ErrNoRows):
+			skipped++
+		default:
+			return 0, 0, fmt.Errorf("retry %s: %w", operationID, err)
+		}
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return 0, 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+	return retried, skipped, nil
+}
+
+// retryMailOperationTx schedules one operation to be tried again now, inside
+// tx, and returns it as it is afterwards. Parked work, and work in a state
+// that can't be retried, is ErrMailOperationNotRetryable; an unknown
+// operation, or another user's, is sql.ErrNoRows.
+func (db *DB) retryMailOperationTx(ctx context.Context, tx *sql.Tx, userID, operationID string) (models.MailOperationSummary, error) {
+	kind, rawID, ok := strings.Cut(strings.TrimSpace(operationID), ":")
+	if !ok || strings.TrimSpace(rawID) == "" {
+		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
+	}
+	var err error
 	lookup := func() (models.MailOperationSummary, error) {
 		return db.mailOperationForUserTx(ctx, tx, userID, operationID)
 	}
@@ -496,17 +582,5 @@ func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, oper
 		}
 		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
 	}
-	operation, err := lookup()
-	if err != nil {
-		return models.MailOperationSummary{}, err
-	}
-	if guard != nil {
-		if err := guard(tx); err != nil {
-			return models.MailOperationSummary{}, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return models.MailOperationSummary{}, err
-	}
-	return operation, nil
+	return lookup()
 }

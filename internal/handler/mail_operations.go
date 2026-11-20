@@ -48,6 +48,7 @@ type mailOperationsResponse struct {
 	Operations     []mailOperationResponse `json:"operations"`
 	Total          int                     `json:"total"`
 	ActionRequired int                     `json:"action_required"`
+	Retryable      int                     `json:"retryable"`
 }
 
 func mailOperationTime(t time.Time) string {
@@ -93,6 +94,7 @@ func mailOperationsResponseFrom(status models.MailOperationsStatus) mailOperatio
 		Operations:     make([]mailOperationResponse, 0, len(status.Operations)),
 		Total:          status.Total,
 		ActionRequired: status.ActionRequired,
+		Retryable:      status.Retryable,
 	}
 	for _, operation := range status.Operations {
 		response.Operations = append(response.Operations, mailOperationResponseFrom(operation))
@@ -130,16 +132,19 @@ func (h *Handler) handleSettingsMailOperationsContent(w http.ResponseWriter, r *
 }
 
 func (h *Handler) mailOperationsStatus(ctx context.Context) (models.MailOperationsStatus, error) {
-	var operations []models.MailOperationSummary
+	var operations, retryable []models.MailOperationSummary
 	err := h.withUserDB(ctx, h.userID(ctx), func(db *storage.DB) error {
 		var err error
-		operations, err = db.ListMailOperationsForUser(ctx, h.userID(ctx))
+		if operations, err = db.ListMailOperationsForUser(ctx, h.userID(ctx)); err != nil {
+			return err
+		}
+		retryable, err = db.ListRetryableMailOperationsForUser(ctx, h.userID(ctx))
 		return err
 	})
 	if err != nil {
 		return models.MailOperationsStatus{}, err
 	}
-	status := models.MailOperationsStatus{Operations: operations, Total: len(operations)}
+	status := models.MailOperationsStatus{Operations: operations, Total: len(operations), Retryable: len(retryable)}
 	for _, operation := range operations {
 		if operation.NeedsAttention() {
 			status.ActionRequired++
@@ -169,6 +174,55 @@ func (h *Handler) handleRetryMailOperation(w http.ResponseWriter, r *http.Reques
 	}
 	h.signalMailOperation(operation)
 	writeMailOperationsJSON(w, http.StatusOK, mailOperationResponseFrom(operation))
+}
+
+// retryFailedMailOperationsResponse says how many operations Retry all
+// failed scheduled again, and how many it couldn't.
+type retryFailedMailOperationsResponse struct {
+	Retried int `json:"retried"`
+	Skipped int `json:"skipped"`
+}
+
+// groupMailOperationsByAccount returns the operations' IDs by account, and
+// the accounts in the order they first appear.
+func groupMailOperationsByAccount(operations []models.MailOperationSummary) ([]string, map[string][]string) {
+	var accounts []string
+	byAccount := map[string][]string{}
+	for _, operation := range operations {
+		if _, ok := byAccount[operation.AccountID]; !ok {
+			accounts = append(accounts, operation.AccountID)
+		}
+		byAccount[operation.AccountID] = append(byAccount[operation.AccountID], operation.ID)
+	}
+	return accounts, byAccount
+}
+
+func (h *Handler) handleRetryFailedMailOperations(w http.ResponseWriter, r *http.Request) {
+	userID := h.userID(r.Context())
+	operations, err := h.db.ListRetryableMailOperationsForUser(r.Context(), userID)
+	if err != nil {
+		writeMailOperationsJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(r.Context(), "server.msg.failed_to_retry_mail_operation")})
+		return
+	}
+	ids := make([]string, 0, len(operations))
+	for _, operation := range operations {
+		ids = append(ids, operation.ID)
+	}
+	retried, skipped, err := h.db.RetryMailOperationsForUserGuarded(r.Context(), userID, ids, nil)
+	if err != nil {
+		writeMailOperationsJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(r.Context(), "server.msg.failed_to_retry_mail_operation")})
+		return
+	}
+	// Wake each kind of queue once per account rather than once per change.
+	woken := map[[2]string]bool{}
+	for _, operation := range operations {
+		key := [2]string{operation.Type, operation.AccountID}
+		if !woken[key] {
+			woken[key] = true
+			h.signalMailOperation(operation)
+		}
+	}
+	writeMailOperationsJSON(w, http.StatusOK, retryFailedMailOperationsResponse{Retried: retried, Skipped: skipped})
 }
 
 func (h *Handler) handleUndoMailOperation(w http.ResponseWriter, r *http.Request) {

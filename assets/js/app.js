@@ -12345,6 +12345,42 @@ function setupMailOperationActions() {
       button.disabled = false
     })
   })
+  // Retry all failed needs no confirmation: retrying loses nothing. The toast
+  // says how many went, and how many couldn't.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-mail-operations-retry-all]") : null
+    if (!button) return
+    event.preventDefault()
+    button.disabled = true
+    fetch("/api/mail-operations/retry-failed", {
+      method: "POST",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || goferT("js.operations.retry_failed"))
+        return data
+      })
+    }).then(function (data) {
+      if (window.htmx && typeof window.htmx.ajax === "function") {
+        window.htmx.ajax("GET", "/settings/operations/content", { target: "#mail-operations-content", swap: "outerHTML" })
+      } else {
+        window.location.reload()
+      }
+      var retried = data.retried || 0
+      var skipped = data.skipped || 0
+      var title = retried > 0 ? goferTn("js.operations.retry_all.retrying", retried) : goferT("js.operations.retry_all.none")
+      var description = retried > 0 ? goferT("js.operations.retry_all.help") : ""
+      if (skipped > 0) description = (description ? description + " " : "") + goferTn("js.operations.retry_all.skipped", skipped)
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: title, description: description, variant: skipped > 0 ? "warning" : "success", icon: skipped > 0 ? "warning" : "success", position: "bottom-right", duration: 5000, dismissible: true })
+      }
+    }).catch(function (error) {
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.retry_failed_title"), description: error && error.message ? error.message : goferT("js.operations.unchanged"), variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+      }
+      button.disabled = false
+    })
+  })
   // Undo asks first. The dialog lives outside the list, which reloads itself,
   // and remembers which operation it was opened for.
   document.addEventListener("click", function (event) {

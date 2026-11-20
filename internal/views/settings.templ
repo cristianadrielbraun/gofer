@@ -6779,39 +6779,59 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 		class="settings-card rounded-lg border bg-card p-6 space-y-4"
 		data-mail-operations-refresh={ strconv.Itoa(mailOperationsRefreshSeconds) }
 	>
-		<div class="flex flex-wrap items-start justify-between gap-3">
-			<div>
+		// Row one is always the title and Refresh; the countdown sits in the
+		// subtitle so Refresh fits beside the title on any screen. Row two
+		// appears only when something needs attention.
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
 				<h3 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.operations.background") }</h3>
-				<p class="mt-1 text-xs text-muted-foreground">{ i18n.N(ctx, "settings.operations.total", status.Total) }</p>
-			</div>
-			<div class="flex flex-wrap items-center justify-end gap-2">
-				if status.ActionRequired > 0 {
-					<span class="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-						@icon.TriangleAlert(icon.Props{Class: "size-3.5"})
-						{ i18n.N(ctx, "settings.operations.attention", status.ActionRequired) }
+				<p class="mt-1 text-xs text-muted-foreground">
+					{ i18n.N(ctx, "settings.operations.total", status.Total) }
+					<span aria-hidden="true">·</span>
+					<span class="tabular-nums" aria-live="off" data-mail-operations-countdown>
+						{ i18n.T(ctx, "settings.operations.countdown", "seconds", mailOperationsRefreshSeconds) }
 					</span>
-				}
-				<span class="text-[11px] tabular-nums text-muted-foreground" aria-live="off" data-mail-operations-countdown>
-					{ i18n.T(ctx, "settings.operations.countdown", "seconds", mailOperationsRefreshSeconds) }
-				</span>
-				@button.Button(button.Props{
-					Variant: button.VariantOutline,
-					Size:    button.SizeSm,
-					Class:   "h-7 gap-1.5 px-2.5 text-xs",
-					Attributes: templ.Attributes{
-						"type":                "button",
-						"hx-get":              "/settings/operations/content",
-						"hx-target":           "#mail-operations-content",
-						"hx-swap":             "outerHTML",
-						"hx-disabled-elt":     "this",
-						"data-mail-operations-refresh-now": "",
-					},
-				}) {
-					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "settings.operations.refresh") }
+				</p>
+			</div>
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Size:    button.SizeSm,
+				Class:   "h-7 shrink-0 gap-1.5 px-2.5 text-xs",
+				Attributes: templ.Attributes{
+					"type":                             "button",
+					"hx-get":                           "/settings/operations/content",
+					"hx-target":                        "#mail-operations-content",
+					"hx-swap":                          "outerHTML",
+					"hx-disabled-elt":                  "this",
+					"data-mail-operations-refresh-now": "",
+				},
+			}) {
+				@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "settings.operations.refresh") }
+			}
+		</div>
+		if status.ActionRequired > 0 || status.Retryable > 0 {
+			<div class="flex flex-col gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between" data-mail-operations-attention>
+				<p class="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200">
+					@icon.TriangleAlert(icon.Props{Class: "size-3.5 shrink-0"})
+					{ i18n.N(ctx, "settings.operations.attention", status.ActionRequired) }
+				</p>
+				if status.Retryable > 0 {
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Size:    button.SizeSm,
+						Class:   "h-7 w-full shrink-0 gap-1.5 bg-card px-2.5 text-xs sm:w-auto",
+						Attributes: templ.Attributes{
+							"type":                           "button",
+							"data-mail-operations-retry-all": "",
+						},
+					}) {
+						@icon.RotateCcw(icon.Props{Class: "size-3.5"})
+						{ i18n.N(ctx, "settings.operations.retry_all", status.Retryable) }
+					}
 				}
 			</div>
-		</div>
+		}
 		if len(status.Operations) == 0 {
 			<div class="rounded-md border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "settings.operations.empty") }</div>
 		} else {

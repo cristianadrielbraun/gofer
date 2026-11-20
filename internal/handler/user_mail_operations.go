@@ -117,3 +117,49 @@ func (h *Handler) handleUserUndoMailOperation(w http.ResponseWriter, r *http.Req
 	}
 	h.writeMailOperationUndoResult(w, r, operation, err)
 }
+
+// handleUserRetryFailedMailOperations retries all of the user's failed work,
+// account by account, each inside its account's guard. An account that
+// refuses, such as one being removed, is counted as skipped and the others
+// still go ahead. Each account's queues are woken once.
+func (h *Handler) handleUserRetryFailedMailOperations(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	stop := context.AfterFunc(h.userStorageContext, cancel)
+	defer stop()
+	owner := h.userID(ctx)
+	var operations []models.MailOperationSummary
+	if err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
+		var err error
+		operations, err = db.ListRetryableMailOperationsForUser(ctx, owner)
+		return err
+	}); err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	accounts, byAccount := groupMailOperationsByAccount(operations)
+	result := retryFailedMailOperationsResponse{}
+	for _, account := range accounts {
+		ids := byAccount[account]
+		var retried, skipped int
+		err := h.userAccounts.WithAccountForUser(ctx, owner, account, func(_ *config.AccountStore, db *storage.DB) error {
+			var err error
+			retried, skipped, err = db.RetryMailOperationsForUserGuarded(ctx, owner, ids, h.mailOperationAccountGuard(ctx, owner, account))
+			return err
+		})
+		if err != nil {
+			log.Printf("retry failed mail operations: account %s: %v", account, err)
+			result.Skipped += len(ids)
+			continue
+		}
+		result.Retried += retried
+		result.Skipped += skipped
+		if retried > 0 {
+			if err := h.userIMAP.WakeMutations(ctx, owner, account); err != nil {
+				log.Printf("mail operations retry saved; owned wake failed: %v", err)
+				w.Header().Set("X-Gofer-Mail-Delivery", "delayed")
+			}
+		}
+	}
+	writeMailOperationsJSON(w, http.StatusOK, result)
+}

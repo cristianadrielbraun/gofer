@@ -1,5 +1,6 @@
-// Undo on the Mail operations list: the button opens the confirm dialog for
-// its operation, and confirming posts the undo and reloads the list.
+// Undo and Retry all failed on the Mail operations list: Undo opens the
+// confirm dialog for its operation, and confirming posts the undo and reloads
+// the list; Retry all posts at once and says how many went.
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -50,6 +51,7 @@ function setup(response) {
       return Promise.resolve({ ok: response.ok, json: () => Promise.resolve(response.body) })
     },
     goferT: key => key,
+    goferTn: (key, count) => key + ':' + count,
     showGoferToast: toast => calls.toasts.push(toast),
   })
   vm.runInContext(source.slice(start, end), context)
@@ -101,5 +103,35 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
     assert.equal(page.confirm.disabled, false)
   }
 
-  console.log('mail operation undo: ok')
+  // Retry all reports how many went and how many couldn't.
+  {
+    const page = setup({ ok: true, body: { retried: 10, skipped: 2 } })
+    const retryAll = element({ 'data-mail-operations-retry-all': '' })
+    page.click(retryAll)
+    assert.equal(retryAll.disabled, true)
+    await flush()
+    assert.deepEqual(page.calls.fetched, [['/api/mail-operations/retry-failed', 'POST']])
+    assert.deepEqual(page.calls.reloads, [['GET', '/settings/operations/content', '#mail-operations-content']])
+    assert.equal(page.calls.toasts[0].title, 'js.operations.retry_all.retrying:10')
+    assert.equal(page.calls.toasts[0].description, 'js.operations.retry_all.help js.operations.retry_all.skipped:2')
+    assert.equal(page.calls.toasts[0].variant, 'warning')
+  }
+  {
+    const page = setup({ ok: true, body: { retried: 0, skipped: 0 } })
+    page.click(element({ 'data-mail-operations-retry-all': '' }))
+    await flush()
+    assert.equal(page.calls.toasts[0].title, 'js.operations.retry_all.none')
+    assert.equal(page.calls.toasts[0].variant, 'success')
+  }
+  {
+    const page = setup({ ok: false, body: { error: 'Failed to retry mail operation' } })
+    const retryAll = element({ 'data-mail-operations-retry-all': '' })
+    page.click(retryAll)
+    await flush()
+    await flush()
+    assert.equal(page.calls.toasts[0].title, 'js.operations.retry_failed_title')
+    assert.equal(retryAll.disabled, false, 'A refused Retry all can be pressed again')
+  }
+
+  console.log('mail operation actions: ok')
 })().catch(error => { console.error(error); process.exit(1) })

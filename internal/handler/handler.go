@@ -675,6 +675,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/mail-operations", h.handleMailOperations)
 	mux.HandleFunc("POST /api/mail-operations/{id}/retry", h.handleRetryMailOperation)
 	mux.HandleFunc("POST /api/mail-operations/{id}/undo", h.handleUndoMailOperation)
+	mux.HandleFunc("POST /api/mail-operations/retry-failed", h.handleRetryFailedMailOperations)
 	mux.HandleFunc("GET /api/sidebar/mail", h.handleMailSidebar)
 	mux.HandleFunc("GET /api/sidebar/accounts/{id}", h.handleSidebarAccount)
 	mux.HandleFunc("POST /api/mail/sync", h.handleSyncMail)

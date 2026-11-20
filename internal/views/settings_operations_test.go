@@ -69,3 +69,22 @@ func operationRowHTML(t *testing.T, html, id string) string {
 	}
 	return html[start : start+1+end]
 }
+
+func TestRetryAllFailedShowsOnlyWithFailedWork(t *testing.T) {
+	for _, tt := range []struct {
+		retryable int
+		want      string
+	}{{0, ""}, {1, "Retry 1 failed"}, {12, "Retry all 12 failed"}} {
+		var out bytes.Buffer
+		if err := SettingsOperationsContent(models.MailOperationsStatus{Retryable: tt.retryable}).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		html := out.String()
+		if has := strings.Contains(html, "data-mail-operations-retry-all"); has != (tt.want != "") {
+			t.Fatalf("retryable %d: button shown = %v", tt.retryable, has)
+		}
+		if tt.want != "" && !strings.Contains(html, tt.want) {
+			t.Fatalf("retryable %d: button lacks %q", tt.retryable, tt.want)
+		}
+	}
+}

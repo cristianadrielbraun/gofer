@@ -63,6 +63,9 @@ type MailOperationsStatus struct {
 	Operations     []MailOperationSummary `json:"operations"`
 	Total          int                    `json:"total"`
 	ActionRequired int                    `json:"action_required"`
+	// Retryable counts all failed work that Retry all failed would retry,
+	// also beyond the operations listed.
+	Retryable int `json:"retryable"`
 }
 
 type MailOperationAdminTypeCount struct {
