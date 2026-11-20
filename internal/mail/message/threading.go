@@ -144,13 +144,8 @@ func BaseSubject(subject string) string {
 			s = strings.TrimSpace(s[end+1:])
 			lower = strings.ToLower(s)
 		}
-		if strings.HasPrefix(lower, "re:") {
-			s = strings.TrimSpace(s[3:])
-		} else if strings.HasPrefix(lower, "fw:") || strings.HasPrefix(lower, "rv:") {
-			// "RV:" is how Outlook in Spanish marks a forward.
-			s = strings.TrimSpace(s[3:])
-		} else if strings.HasPrefix(lower, "fwd:") {
-			s = strings.TrimSpace(s[4:])
+		if n := replySubjectPrefixLen(lower); n > 0 {
+			s = strings.TrimSpace(s[n:])
 		} else if rest, ok := cutChineseSubjectPrefix(s); ok {
 			s = strings.TrimSpace(rest)
 		} else {
@@ -169,7 +164,25 @@ func BaseSubject(subject string) string {
 func IsReplyOrForwardSubject(subject string) bool {
 	s := strings.ToLower(strings.TrimSpace(subject))
 	_, chinese := cutChineseSubjectPrefix(s)
-	return strings.HasPrefix(s, "re:") || strings.HasPrefix(s, "fw:") || strings.HasPrefix(s, "rv:") || strings.HasPrefix(s, "fwd:") || strings.HasSuffix(s, "(fwd)") || strings.HasPrefix(s, "[fwd:") || strings.HasPrefix(s, "re[") || strings.HasPrefix(s, "fw[") || chinese
+	return replySubjectPrefixLen(s) > 0 || strings.HasSuffix(s, "(fwd)") || strings.HasPrefix(s, "[fwd:") || strings.HasPrefix(s, "re[") || strings.HasPrefix(s, "fw[") || chinese
+}
+
+// Mail programs mark replies and forwards with words in the writer's
+// language: "AW:" and "WG:" in German, "SV:" and "VS:" in the Nordic
+// languages, "Antw:" and "Doorst:" in Dutch, "RES:" and "ENC:" in
+// Portuguese, "RV:" (a forward) in Spanish, "TR:" in French, "Odp:" in
+// Polish and "Rif:" in Italian.
+var replySubjectPrefixes = []string{"re:", "fw:", "fwd:", "aw:", "wg:", "sv:", "vs:", "antw:", "doorst:", "res:", "enc:", "rv:", "tr:", "odp:", "rif:"}
+
+// replySubjectPrefixLen is the length of the reply or forward prefix that
+// lower, a lowercase subject, starts with, or 0 when it has none.
+func replySubjectPrefixLen(lower string) int {
+	for _, prefix := range replySubjectPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return len(prefix)
+		}
+	}
+	return 0
 }
 
 // Chinese mail programs mark a reply with 回复 or 答复 and a forward with
