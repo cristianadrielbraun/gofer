@@ -991,7 +991,7 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 		</button>
 		<div class="sidebar-account-folders" data-sidebar-account-folders={ account.ID }>
 			<div class="sidebar-account-folders-inner space-y-px mt-0.5">
-				for _, folder := range account.Folders {
+				for _, folder := range sidebarFoldersForAccount(account) {
 					@SidebarFolderItem(folder, activeFolder, account.ID, uiSettings)
 				}
 				@SidebarTagGroup(account.Labels, activeFolder, filters, account.ID, uiSettings)

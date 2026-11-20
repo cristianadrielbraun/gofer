@@ -4572,7 +4572,104 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // The account settings' folders dialog runs these too.
+    // Local feedback for the folder visibility action.
+    // The server remains authoritative; no optimistic persistence.
+    function folderVisibilityIcon(visible) {
+      var start = '<svg xmlns="http://www.w3.org/2000/svg" ' +
+        'viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+        'class="size-3.5" aria-hidden="true">'
+
+      if (visible) {
+        return start +
+          '<path d="M2.062 12.348a1 1 0 0 1 0-.696 ' +
+          '10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 ' +
+          '10.75 10.75 0 0 1-19.876 0"/>' +
+          '<circle cx="12" cy="12" r="3"/></svg>'
+      }
+
+      return start +
+        '<path d="M10.733 5.076a10.744 10.744 0 0 1 ' +
+        '11.205 6.575 1 1 0 0 1 0 .696 10.75 10.75 ' +
+        '0 0 1-4.362 5.13"/>' +
+        '<path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/>' +
+        '<path d="M17.479 17.499a10.75 10.75 0 0 1 ' +
+        '-15.417-5.151 1 1 0 0 1 0-.696 ' +
+        '10.75 10.75 0 0 1 4.446-5.142"/>' +
+        '<path d="m2 2 20 20"/></svg>'
+    }
+
+    function setFolderVisibility(target, visible) {
+      if (!target || !target.accountID || !target.folderID || folderChangeBusy) return
+
+      var button = target.element || null
+      var oldHTML = button ? button.innerHTML : ""
+      var saved = false
+
+      if (button) {
+        button.disabled = true
+        button.setAttribute("aria-busy", "true")
+        button.classList.add("cursor-wait", "opacity-60")
+        button.innerHTML =
+          '<svg xmlns="http://www.w3.org/2000/svg" ' +
+          'viewBox="0 0 24 24" fill="none" ' +
+          'stroke="currentColor" stroke-width="2" ' +
+          'stroke-linecap="round" class="size-3.5 animate-spin" ' +
+          'aria-hidden="true">' +
+          '<path d="M12 2a10 10 0 1 0 10 10"/></svg>'
+      }
+
+      return runFolderChange(
+        "mail-folder-visibility",
+        goferT("js.folders.visibility_update_failed"),
+        function () {
+          return postFolderChange(
+            "/api/folders/" + encodeURIComponent(target.folderID) + "/visibility",
+            { visible: visible ? "true" : "false" }
+          ).then(function () {
+            saved = true
+
+            if (button && button.isConnected) {
+              button.innerHTML = folderVisibilityIcon(visible)
+              button.setAttribute(
+                "data-folder-action",
+                visible ? "visibility-hide-folder" : "visibility-show-folder"
+              )
+
+              var label = goferT(
+                visible
+                  ? "settings.folders.hide_in_sidebar"
+                  : "settings.folders.show_in_sidebar",
+                { name: target.name }
+              )
+              button.title = label
+              button.setAttribute("aria-label", label)
+            }
+
+            folderChangeDone(
+              "mail-folder-visibility",
+              visible
+                ? goferT("js.folders.visibility_shown")
+                : goferT("js.folders.visibility_hidden"),
+              target.accountID,
+              false
+            )
+          })
+        }
+      ).finally(function () {
+        if (!button || !button.isConnected) return
+
+        button.disabled = false
+        button.removeAttribute("aria-busy")
+        button.classList.remove("cursor-wait", "opacity-60")
+
+        if (!saved) button.innerHTML = oldHTML
+      })
+    }
+
     window.goferFolderActions = {
+      "visibility-hide-folder": function (t) { return setFolderVisibility(t, false) },
+      "visibility-show-folder": function (t) { return setFolderVisibility(t, true) },
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
       "new-subfolder": function (t) { createMailFolder(t.accountID, t.folderID, t.name) },
       "folder-appearance": function (t) { window.goferOpenFolderAppearance(t) },
@@ -25472,6 +25569,7 @@ function manageFolderAction(button) {
     folderID: id,
     labelID: id,
     name: button.getAttribute("data-folder-name") || "",
+    element: button,
     virtual: button.hasAttribute("data-folder-appearance-virtual"),
     tag: button.hasAttribute("data-tag-appearance"),
     unifiedTag: button.hasAttribute("data-tag-appearance-unified"),

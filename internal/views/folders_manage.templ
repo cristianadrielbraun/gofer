@@ -92,7 +92,7 @@ templ FoldersPanel(data models.FoldersData) {
 				}
 				</div>
 			} else {
-				@foldersOrderList(data.Account, data.Folders, 0, false)
+				@foldersOrderList(data.Account, data.Folders, 0, false, false)
 			}
 		</div>
 	</div>
@@ -107,13 +107,13 @@ func newFolderAction(provider string) string {
 
 // foldersOrderList holds folders next to each other, each with the folders
 // inside it, so each can be put in order among them.
-templ foldersOrderList(account models.Account, folders []models.Folder, depth int, inTrash bool) {
+templ foldersOrderList(account models.Account, folders []models.Folder, depth int, inTrash bool, ancestorHidden bool) {
 	<div data-folder-order-list data-account-id={ account.ID }>
 		for _, folder := range folders {
 			<div class="transition-transform duration-200 ease-out" data-folder-order-item data-folder-id={ folder.ID }>
-				@foldersPanelRow(account, folder, depth, inTrash)
+				@foldersPanelRow(account, folder, depth, inTrash, ancestorHidden)
 				if len(folder.Children) > 0 {
-					@foldersOrderList(account, folder.Children, depth+1, inTrash || folder.Role == "trash")
+					@foldersOrderList(account, folder.Children, depth+1, inTrash || folder.Role == "trash", ancestorHidden || (account.Provider == "imap" && folder.Role == "custom" && folder.Hidden))
 				}
 			</div>
 		}
@@ -123,7 +123,7 @@ templ foldersOrderList(account models.Account, folders []models.Folder, depth in
 // foldersPanelRow is one folder. Only folders without a role can be renamed
 // or deleted; one inside Trash can be moved back out. Local folders' own can
 // move anywhere in the account.
-templ foldersPanelRow(account models.Account, folder models.Folder, depth int, inTrash bool) {
+templ foldersPanelRow(account models.Account, folder models.Folder, depth int, inTrash bool, ancestorHidden bool) {
 	{{ accountID := account.ID }}
 	{{ custom := folder.Role == "custom" }}
 	<div class="flex items-center gap-2 rounded-md bg-background/60 py-1.5 pr-1 hover:bg-accent" style={ mailMoveIndent(depth) } data-folder-order-row>
@@ -148,6 +148,27 @@ templ foldersPanelRow(account models.Account, folder models.Folder, depth int, i
 		if custom && account.Provider == "local" {
 			@folderRowButton("move-folder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.move_label", "name", folder.Name), false) {
 				@icon.FolderInput(icon.Props{Class: "size-3.5"})
+			}
+		}
+		if custom && account.Provider == "imap" {
+			if ancestorHidden {
+				<span
+					class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40"
+					title={ i18n.T(ctx, "settings.folders.hidden_by_parent", "name", folder.Name) }
+					role="img"
+					aria-label={ i18n.T(ctx, "settings.folders.hidden_by_parent", "name", folder.Name) }
+					data-folder-visibility-inherited
+				>
+					@icon.EyeOff(icon.Props{Class: "size-3.5"})
+				</span>
+			} else if folder.Hidden {
+				@folderRowButton("visibility-show-folder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.show_in_sidebar", "name", folder.Name), false) {
+					@icon.EyeOff(icon.Props{Class: "size-3.5"})
+				}
+			} else {
+				@folderRowButton("visibility-hide-folder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.hide_in_sidebar", "name", folder.Name), false) {
+					@icon.Eye(icon.Props{Class: "size-3.5"})
+				}
 			}
 		}
 		if custom {

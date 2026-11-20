@@ -4293,7 +4293,7 @@ func SidebarAccountSection(account models.Account, activeFolder string, uiSettin
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, folder := range account.Folders {
+		for _, folder := range sidebarFoldersForAccount(account) {
 			templ_7745c5c3_Err = SidebarFolderItem(folder, activeFolder, account.ID, uiSettings).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

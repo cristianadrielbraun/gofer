@@ -132,6 +132,7 @@ type Folder struct {
 	Role         string
 	Unread       int
 	IsSystem     bool
+	Hidden       bool
 	IsVirtual    bool
 	IsTag        bool
 	IsUnifiedTag bool
