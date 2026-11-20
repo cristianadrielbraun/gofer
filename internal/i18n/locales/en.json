@@ -6387,6 +6387,8 @@
   "settings.list.sender.name": "Only name",
   "settings.list.sender.title": "Sender display",
   "settings.list.subject_threading.description": "Put mail that has no reply headers in a conversation with the same subject, as Gmail does: a reply (Re:, Fwd:) when it shares someone with that conversation, other mail when it comes from the same sender, such as a bank's repeated notices. Reply headers always win.",
+  "settings.list.subject_threading.late_replies_description": "A reply (Re:, Fwd:) joins the conversation it answers however long ago that was. Other mail keeps to the time window.",
+  "settings.list.subject_threading.late_replies_title": "Group replies at any time",
   "settings.list.subject_threading.max_description": "A conversation grouped this way takes no more messages once it has this many; the next one starts a new conversation. 0 means no limit.",
   "settings.list.subject_threading.max_title": "Conversation size limit",
   "settings.list.subject_threading.max_unit": "messages",

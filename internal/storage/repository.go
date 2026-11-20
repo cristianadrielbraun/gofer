@@ -8682,6 +8682,7 @@ func defaultUISettings() map[string]string {
 		"subject_threading":                 "false",
 		"subject_threading_window_days":     "7",
 		"subject_threading_max_messages":    "100",
+		"subject_threading_late_replies":    "true",
 		"thread_order":                      "newest",
 		"email_body_style":                  "theme",
 		"translation_button_enabled":        "true",

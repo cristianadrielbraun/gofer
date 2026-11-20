@@ -367,6 +367,23 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 			</div>
 			<div data-setting-depends-on="subject-threading" class={ "settings-row flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-opacity", templ.KV("opacity-50", !SubjectThreadingEnabled(uiSettings)) }>
 				<div class="min-w-0">
+					<span id="subject-threading-late-replies-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.subject_threading.late_replies_title") }</span>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.subject_threading.late_replies_description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
+						@switchcomp.Switch(switchcomp.Props{
+							ID:         "subject-threading-late-replies",
+							Name:       "subject_threading_late_replies",
+							Checked:    SubjectThreadingLateReplies(uiSettings),
+							Disabled:   !SubjectThreadingEnabled(uiSettings),
+							Attributes: templ.Attributes{"aria-labelledby": "subject-threading-late-replies-label", "data-subject-threading-late-replies-setting": ""},
+						})
+					}
+				</div>
+			</div>
+			<div data-setting-depends-on="subject-threading" class={ "settings-row flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-opacity", templ.KV("opacity-50", !SubjectThreadingEnabled(uiSettings)) }>
+				<div class="min-w-0">
 					<label for="subject-threading-max-messages" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.subject_threading.max_title") }</label>
 					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.subject_threading.max_description") }</p>
 				</div>

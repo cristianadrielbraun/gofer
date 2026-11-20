@@ -1348,6 +1348,35 @@ func TestSettingsMailOffersConversationGrouping(t *testing.T) {
 	}
 }
 
+// Group replies at any time is on until turned off, and can only be changed
+// while grouping by subject is on.
+func TestSettingsMailOffersLateReplies(t *testing.T) {
+	for _, tt := range []struct {
+		subject, late     string
+		checked, disabled bool
+	}{
+		{"true", "", true, false},
+		{"true", "false", false, false},
+		{"false", "true", true, true},
+	} {
+		var out bytes.Buffer
+		settings := map[string]string{"subject_threading": tt.subject, "subject_threading_late_replies": tt.late}
+		if err := SettingsComposeDisplayTab(settings, nil).Render(context.Background(), &out); err != nil {
+			t.Fatalf("SettingsComposeDisplayTab.Render() error = %v", err)
+		}
+		html := out.String()
+		start := strings.Index(html, `id="subject-threading-late-replies"`)
+		if start < 0 {
+			t.Fatalf("%v: no group replies at any time switch", settings)
+		}
+		toggle := html[strings.LastIndex(html[:start], "<input"):]
+		toggle = toggle[:strings.Index(toggle, ">")]
+		if strings.Contains(toggle, " checked") != tt.checked || strings.Contains(toggle, " disabled") != tt.disabled {
+			t.Fatalf("%v: switch %s, want checked %v disabled %v", settings, toggle, tt.checked, tt.disabled)
+		}
+	}
+}
+
 func TestSyncFolderShortName(t *testing.T) {
 	for _, test := range []struct{ remote, name, want string }{
 		{"INBOX", "INBOX", "INBOX"},

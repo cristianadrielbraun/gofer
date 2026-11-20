@@ -6387,6 +6387,8 @@
   "settings.list.sender.name": "仅姓名",
   "settings.list.sender.title": "发件人显示",
   "settings.list.subject_threading.description": "像 Gmail 一样，把没有回复标头的邮件归入主题相同的会话：回复（Re:、Fwd:）需与该会话有共同的联系人，其他邮件需来自同一发件人，例如银行反复发送的通知。回复标头始终优先。",
+  "settings.list.subject_threading.late_replies_description": "回复（Re:、Fwd:）会加入它所回复的会话，无论那是多久以前。其他邮件仍按时间范围分组。",
+  "settings.list.subject_threading.late_replies_title": "随时归组回复",
   "settings.list.subject_threading.max_description": "以这种方式分组的会话达到此数量后不再加入新邮件，下一封将开始新的会话。0 表示不限制。",
   "settings.list.subject_threading.max_title": "会话大小上限",
   "settings.list.subject_threading.max_unit": "封邮件",

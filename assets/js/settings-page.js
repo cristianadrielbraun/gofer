@@ -103,6 +103,10 @@
     if (subjectThreading && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('subject_threading', subjectThreading.checked ? 'true' : 'false');
     }
+    var subjectThreadingLateReplies = e.target.closest('[data-subject-threading-late-replies-setting]');
+    if (subjectThreadingLateReplies && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('subject_threading_late_replies', subjectThreadingLateReplies.checked ? 'true' : 'false');
+    }
     var subjectThreadingNumber = e.target.closest('[data-subject-threading-number]');
     if (subjectThreadingNumber && typeof GoferSettings !== 'undefined') {
       // The same bounds as the server keeps: a window of 1 to 365 days, a
