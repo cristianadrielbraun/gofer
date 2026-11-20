@@ -8,12 +8,22 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
 var ErrMailOperationNotRetryable = errors.New("mail operation is not retryable in its current state")
+
+// ErrMailOperationNotUndoable is returned when an operation can still finish,
+// or is of a kind Gofer can't undo on its own.
+var ErrMailOperationNotUndoable = errors.New("mail operation can't be undone in its current state")
+
+// parkedRetryAt is the next attempt of work that can never finish, such as a
+// change in a folder that was deleted on the server. No worker reaches it, and
+// the Mail operations list shows such work as parked.
+var parkedRetryAt = time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC)
 
 var (
 	mailOperationSecretPattern = regexp.MustCompile(`(?i)(access[_ -]?token|refresh[_ -]?token|authorization|password|client[_ -]?secret|secret)\s*[:=]\s*["']?[^,\s"'}]+`)
@@ -78,7 +88,7 @@ FROM (
         lm.next_attempt_at,
         lm.created_at,
         lm.updated_at,
-        1 AS can_retry,
+        CASE WHEN lm.attempts > 0 OR COALESCE(lm.last_error, '') != '' THEN 1 ELSE 0 END AS can_retry,
         0 AS can_reconcile,
         0 AS can_cancel,
         0 AS ambiguous
@@ -222,6 +232,14 @@ func scanMailOperation(row mailOperationRowScanner) (models.MailOperationSummary
 	if nextRetry.Valid {
 		operation.NextRetryAt = nextRetry.Time
 	}
+	if operation.NextRetryAt.Equal(parkedRetryAt) {
+		// Retrying can't help: what the operation needs is gone.
+		operation.Parked = true
+		operation.ParkedReason = models.MailOperationParkedFolderRemoved
+		operation.CanRetry = false
+		operation.CanReconcile = false
+		operation.CanUndo = operation.Type == models.MailOperationMessageMutation || operation.Type == models.MailOperationLabelMutation
+	}
 	if createdAt.Valid {
 		operation.CreatedAt = createdAt.Time
 	}
@@ -251,6 +269,15 @@ LIMIT 200`,
 		operations = append(operations, operation)
 	}
 	return operations, rows.Err()
+}
+
+// mailOperationForUserTx reads one of the user's operations inside tx. An
+// unknown operation, or another user's, is sql.ErrNoRows.
+func (db *DB) mailOperationForUserTx(ctx context.Context, tx *sql.Tx, userID, operationID string) (models.MailOperationSummary, error) {
+	return scanMailOperation(tx.QueryRowContext(ctx, db.mailOperationProjection()+`
+WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND operation_id = ?`,
+		models.MailOperationMessageMutation, models.MailOperationLabelMutation,
+		models.MailOperationIMAPDraft, models.MailOperationSentCopy, strings.TrimSpace(userID), strings.TrimSpace(operationID)))
 }
 
 func (db *DB) GetMailOperationForUser(ctx context.Context, userID, operationID string) (models.MailOperationSummary, error) {
@@ -299,7 +326,7 @@ ORDER BY updated_at DESC`, args...)
 			return models.MailOperationsAdminStatus{}, err
 		}
 		status.Total++
-		actionRequired := operation.CanRetry || operation.CanReconcile || operation.CanCancel || operation.State == "blocked"
+		actionRequired := operation.NeedsAttention()
 		if actionRequired {
 			status.ActionRequired++
 		}
@@ -396,6 +423,12 @@ func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, oper
 			return models.MailOperationSummary{}, err
 		}
 	}
+	lookup := func() (models.MailOperationSummary, error) {
+		return db.mailOperationForUserTx(ctx, tx, userID, operationID)
+	}
+	if current, err := lookup(); err == nil && current.Parked {
+		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
+	}
 	var result sql.Result
 	switch kind {
 	case models.MailOperationMessageMutation:
@@ -451,12 +484,6 @@ func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, oper
 	changed, err := result.RowsAffected()
 	if err != nil {
 		return models.MailOperationSummary{}, err
-	}
-	lookup := func() (models.MailOperationSummary, error) {
-		return scanMailOperation(tx.QueryRowContext(ctx, db.mailOperationProjection()+`
-WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND operation_id = ?`,
-			models.MailOperationMessageMutation, models.MailOperationLabelMutation,
-			models.MailOperationIMAPDraft, models.MailOperationSentCopy, userID, strings.TrimSpace(operationID)))
 	}
 	if changed != 1 {
 		if _, lookupErr := lookup(); lookupErr != nil {

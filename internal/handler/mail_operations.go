@@ -39,6 +39,9 @@ type mailOperationResponse struct {
 	CanReconcile          bool   `json:"can_reconcile"`
 	CanCancel             bool   `json:"can_cancel"`
 	Ambiguous             bool   `json:"ambiguous"`
+	Parked                bool   `json:"parked"`
+	ParkedReason          string `json:"parked_reason,omitempty"`
+	CanUndo               bool   `json:"can_undo"`
 }
 
 type mailOperationsResponse struct {
@@ -79,6 +82,9 @@ func mailOperationResponseFrom(operation models.MailOperationSummary) mailOperat
 		CanReconcile:          operation.CanReconcile,
 		CanCancel:             operation.CanCancel,
 		Ambiguous:             operation.Ambiguous,
+		Parked:                operation.Parked,
+		ParkedReason:          operation.ParkedReason,
+		CanUndo:               operation.CanUndo,
 	}
 }
 
@@ -135,7 +141,7 @@ func (h *Handler) mailOperationsStatus(ctx context.Context) (models.MailOperatio
 	}
 	status := models.MailOperationsStatus{Operations: operations, Total: len(operations)}
 	for _, operation := range operations {
-		if operation.CanRetry || operation.CanReconcile || operation.CanCancel || operation.State == "blocked" {
+		if operation.NeedsAttention() {
 			status.ActionRequired++
 		}
 	}
@@ -162,6 +168,34 @@ func (h *Handler) handleRetryMailOperation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	h.signalMailOperation(operation)
+	writeMailOperationsJSON(w, http.StatusOK, mailOperationResponseFrom(operation))
+}
+
+func (h *Handler) handleUndoMailOperation(w http.ResponseWriter, r *http.Request) {
+	operationID := strings.TrimSpace(r.PathValue("id"))
+	if operationID == "" {
+		writeMailOperationsJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(r.Context(), "server.msg.operation_id_is_required")})
+		return
+	}
+	operation, err := h.db.UndoMailOperationForUser(r.Context(), h.userID(r.Context()), operationID, nil)
+	h.writeMailOperationUndoResult(w, r, operation, err)
+}
+
+// writeMailOperationUndoResult answers an undo request with the operation as
+// it was before the undo, or an error people can read.
+func (h *Handler) writeMailOperationUndoResult(w http.ResponseWriter, r *http.Request, operation models.MailOperationSummary, err error) {
+	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, storage.ErrAccountRoute) {
+		http.NotFound(w, r)
+		return
+	}
+	if errors.Is(err, storage.ErrMailOperationNotUndoable) {
+		writeMailOperationsJSON(w, http.StatusConflict, map[string]string{"error": i18n.T(r.Context(), "server.msg.mail_operation_cannot_be_undone")})
+		return
+	}
+	if err != nil {
+		writeMailOperationsJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(r.Context(), "server.msg.failed_to_undo_mail_operation")})
+		return
+	}
 	writeMailOperationsJSON(w, http.StatusOK, mailOperationResponseFrom(operation))
 }
 

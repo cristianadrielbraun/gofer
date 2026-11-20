@@ -135,3 +135,55 @@ func TestUserMailOperationsHTTPWriterWaitRejectsDisabledOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUserMailOperationsHTTPUndoesOnlyOwnParkedWork(t *testing.T) {
+	f := newUserStorageFixtureMode(t, true)
+	seedUserMailOperation(t, f, "alice", "still-retryable")
+	seedUserMailOperation(t, f, "bob", "bob-only")
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		_, err := db.Write().Exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at) VALUES('alice-parked',?,1,'','imap','starred',1,'failed',1,'',CURRENT_TIMESTAMP)`, f.accounts["alice"].ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Park the way folder cleanup does when a folder is deleted on the server.
+	for owner, id := range map[string]string{"alice": "alice-parked", "bob": "bob-only"} {
+		if err := f.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			_, err := db.Write().Exec(`UPDATE message_mutations SET next_attempt_at=?, last_error='folder removed remotely (imap discovery)' WHERE id=?`, time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC), id)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page := f.request("alice", "GET", "/settings/operations/content", "")
+	if page.Code != 200 || !strings.Contains(page.Body.String(), `data-mail-operation-undo`) || !strings.Contains(page.Body.String(), "Can&#39;t be completed") {
+		t.Fatal("parked operation not offered for undo", page.Code)
+	}
+	if response := f.request("alice", "POST", "/api/mail-operations/message_mutation:bob-only/undo", ""); response.Code != 404 {
+		t.Fatal("foreign operation undone", response.Code)
+	}
+	if response := f.request("alice", "POST", "/api/mail-operations/message_mutation:still-retryable/undo", ""); response.Code != 409 {
+		t.Fatal("retryable operation undone", response.Code)
+	}
+	if response := f.request("alice", "POST", "/api/mail-operations/message_mutation:alice-parked/retry", ""); response.Code != 409 {
+		t.Fatal("parked operation retried", response.Code)
+	}
+	if response := f.request("alice", "POST", "/api/mail-operations/message_mutation:alice-parked/undo", ""); response.Code != 200 {
+		t.Fatal("own parked operation not undone", response.Code, response.Body.String())
+	}
+	for owner, want := range map[string]int{"alice": 1, "bob": 1} {
+		if err := f.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			var n int
+			if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations`).Scan(&n); err != nil {
+				return err
+			}
+			if n != want {
+				t.Errorf("%s has %d queued changes, want %d", owner, n, want)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

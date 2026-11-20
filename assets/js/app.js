@@ -12345,6 +12345,54 @@ function setupMailOperationActions() {
       button.disabled = false
     })
   })
+  // Undo asks first. The dialog lives outside the list, which reloads itself,
+  // and remembers which operation it was opened for.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-mail-operation-undo]") : null
+    if (!button) return
+    event.preventDefault()
+    var dialog = document.getElementById("mail-operation-undo-dialog")
+    if (!dialog || !window.tui || !window.tui.dialog) return
+    dialog.setAttribute("data-mail-operation-id", button.getAttribute("data-mail-operation-id") || "")
+    var text = dialog.querySelector("[data-mail-operation-undo-text]")
+    if (text) text.textContent = button.getAttribute("data-mail-operation-undo-text") || ""
+    var confirm = dialog.querySelector("[data-mail-operation-undo-confirm]")
+    if (confirm) confirm.disabled = false
+    window.tui.dialog.open("mail-operation-undo-dialog")
+  })
+  document.addEventListener("click", function (event) {
+    var confirm = event.target && event.target.closest ? event.target.closest("[data-mail-operation-undo-confirm]") : null
+    if (!confirm) return
+    event.preventDefault()
+    var dialog = document.getElementById("mail-operation-undo-dialog")
+    var operationID = dialog ? dialog.getAttribute("data-mail-operation-id") || "" : ""
+    if (!operationID) return
+    confirm.disabled = true
+    fetch("/api/mail-operations/" + encodeURIComponent(operationID) + "/undo", {
+      method: "POST",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || goferT("js.operations.unchanged"))
+        return data
+      })
+    }).then(function () {
+      if (window.tui && window.tui.dialog) window.tui.dialog.close("mail-operation-undo-dialog")
+      if (window.htmx && typeof window.htmx.ajax === "function") {
+        window.htmx.ajax("GET", "/settings/operations/content", { target: "#mail-operations-content", swap: "outerHTML" })
+      } else {
+        window.location.reload()
+      }
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.undone"), description: goferT("js.operations.undone_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
+      }
+    }).catch(function (error) {
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.undo_failed_title"), description: error && error.message ? error.message : goferT("js.operations.unchanged"), variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+      }
+      confirm.disabled = false
+    })
+  })
 }
 
 // On a phone the open reader slides away before it is cleared (see mobile-nav.js).

@@ -241,9 +241,8 @@ func quarantineRemovedFolderWork(ctx context.Context, tx *sql.Tx, folderIDs []st
 	placeholders := sqlPlaceholders(len(folderIDs))
 	args := stringsToAny(folderIDs)
 	reason := fmt.Sprintf("folder removed remotely (%s discovery)", providerKind)
-	terminalRetryAt := time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC)
 
-	mutationArgs := append([]any{MessageMutationFailed, reason, terminalRetryAt}, args...)
+	mutationArgs := append([]any{MessageMutationFailed, reason, parkedRetryAt}, args...)
 	mutationArgs = append(mutationArgs, args...)
 	mutationArgs = append(mutationArgs, MessageMutationPending, MessageMutationProcessing, MessageMutationFailed)
 	if _, err := tx.ExecContext(ctx, `UPDATE message_mutations
@@ -253,14 +252,14 @@ func quarantineRemovedFolderWork(ctx context.Context, tx *sql.Tx, folderIDs []st
 		return fmt.Errorf("fail mutations for removed folders: %w", err)
 	}
 
-	labelArgs := append([]any{reason, terminalRetryAt}, args...)
+	labelArgs := append([]any{reason, parkedRetryAt}, args...)
 	if _, err := tx.ExecContext(ctx, `UPDATE label_mutation_queue
 		SET last_error = ?, next_attempt_at = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE folder_id IN (`+placeholders+`)`, labelArgs...); err != nil {
 		return fmt.Errorf("pause label mutations for removed folders: %w", err)
 	}
 
-	draftArgs := []any{reason, terminalRetryAt}
+	draftArgs := []any{reason, parkedRetryAt}
 	draftArgs = append(draftArgs, args...)
 	if _, err := tx.ExecContext(ctx, `UPDATE imap_draft_operations
 		SET status = 'failed', last_error = ?, locked_at = NULL, next_attempt_at = ?, updated_at = CURRENT_TIMESTAMP

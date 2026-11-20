@@ -145,6 +145,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 				pattern != "GET /api/mail-operations" &&
 				pattern != "GET /settings/operations/content" &&
 				pattern != "POST /api/mail-operations/{id}/retry" &&
+				pattern != "POST /api/mail-operations/{id}/undo" &&
 				pattern != "GET /api/calendar/events/new" &&
 				pattern != "POST /api/calendar/events" &&
 				pattern != "PATCH /api/calendar/events/{id}" &&
@@ -434,6 +435,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("GET /api/contacts/{id}/sync-setup/findings", routed.handleUserContactSyncSetupFindings)
 		private("POST /api/contacts/{id}/sync-setup/preview", routed.handleUserPreviewContactSyncSetup)
 		private("POST /api/mail-operations/{id}/retry", routed.handleUserRetryMailOperation)
+		private("POST /api/mail-operations/{id}/undo", routed.handleUserUndoMailOperation)
 		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)
 		private("POST /api/settings/accounts/{id}/outlook-push", routed.handleOutlookPushSetting)
 		private("POST /api/settings/accounts/{id}/outlook-push/check", routed.handleOutlookPushCheck)

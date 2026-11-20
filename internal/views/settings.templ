@@ -6533,6 +6533,9 @@ func mailOperationKindLabel(ctx context.Context, operationType string) string {
 }
 
 func mailOperationStateLabel(ctx context.Context, operation models.MailOperationSummary) string {
+	if operation.Parked {
+		return i18n.T(ctx, "settings.operations.state.parked")
+	}
 	if operation.State == "blocked" {
 		return i18n.T(ctx, "settings.operations.state.blocked")
 	}
@@ -6584,6 +6587,45 @@ func mailOperationTimeLabel(ctx context.Context, value time.Time) string {
 	return i18n.Dates(ctx).ShortDateTime(value.Local())
 }
 
+// mailOperationParkedReason says, in the page's language, why a parked
+// operation can't be completed.
+func mailOperationParkedReason(ctx context.Context, operation models.MailOperationSummary) string {
+	switch operation.ParkedReason {
+	case models.MailOperationParkedFolderRemoved:
+		return i18n.T(ctx, "settings.operations.parked.folder_removed")
+	default:
+		return operation.LastError
+	}
+}
+
+// mailOperationParkedSince is when an operation was parked. Rows that don't
+// keep an update time fall back to when they were queued.
+func mailOperationParkedSince(ctx context.Context, operation models.MailOperationSummary) string {
+	since := operation.UpdatedAt
+	if since.IsZero() {
+		since = operation.CreatedAt
+	}
+	return i18n.T(ctx, "settings.operations.parked_since", "time", mailOperationTimeLabel(ctx, since))
+}
+
+// mailOperationUndoText is what the confirm dialog says undoing the operation
+// does.
+func mailOperationUndoText(ctx context.Context, operation models.MailOperationSummary) string {
+	if operation.Type == models.MailOperationLabelMutation {
+		return i18n.T(ctx, "settings.operations.undo.label")
+	}
+	switch operation.Operation {
+	case "move":
+		return i18n.T(ctx, "settings.operations.undo.move")
+	case "delete":
+		return i18n.T(ctx, "settings.operations.undo.delete")
+	case "starred":
+		return i18n.T(ctx, "settings.operations.undo.starred")
+	default:
+		return i18n.T(ctx, "settings.operations.undo.read")
+	}
+}
+
 func mailOperationActionLabel(ctx context.Context, operation models.MailOperationSummary) string {
 	if operation.CanReconcile {
 		return i18n.T(ctx, "settings.operations.reconcile_now")
@@ -6607,7 +6649,31 @@ templ SettingsOperationsTab() {
 		<div id="mail-operations-content" hx-get="/settings/operations/content" hx-trigger="load" hx-swap="outerHTML" class="settings-card rounded-lg border bg-card p-6 text-sm text-muted-foreground">
 			{ i18n.T(ctx, "settings.operations.loading") }
 		</div>
+		@mailOperationUndoDialog()
 	</div>
+}
+
+// mailOperationUndoDialog asks before an operation is undone. It sits outside
+// the list, which reloads itself, so a reload can't close it; the Undo button
+// that opens it fills in the operation and what undoing it does.
+templ mailOperationUndoDialog() {
+	@dataActionDialog("mail-operation-undo-dialog", "", i18n.T(ctx, "settings.operations.undo.title"), "sm:max-w-md") {
+		<div class={ dataDialogFormClass }>
+			@dataDialogScroll("pb-4") {
+				<p class="text-sm leading-relaxed text-muted-foreground" data-mail-operation-undo-text></p>
+			}
+			@dataDialogFooter() {
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: templ.Attributes{"type": "button"}}) {
+						{ i18n.T(ctx, "common.cancel") }
+					}
+				}
+				@button.Button(button.Props{Attributes: templ.Attributes{"type": "button", "data-mail-operation-undo-confirm": ""}}) {
+					{ i18n.T(ctx, "settings.operations.undo") }
+				}
+			}
+		</div>
+	}
 }
 
 // mailOperationsRefreshSeconds is how often the list reloads itself; the page
@@ -6685,7 +6751,11 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 										<span> · { mailOperationTargetLabel(operation) }</span>
 									}
 								</div>
-								if operation.LastError != "" {
+								if operation.Parked {
+									<div class="mt-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground" data-mail-operation-parked-reason>
+										{ mailOperationParkedReason(ctx, operation) }
+									</div>
+								} else if operation.LastError != "" {
 									<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">
 										{ operation.LastError }
 										// Once a folder is chosen, Retry files the copy there.
@@ -6695,11 +6765,20 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 									</div>
 								}
 								<div class="mt-2 text-[11px] text-muted-foreground">
-									{ i18n.T(ctx, "settings.operations.attempt", "attempt", operation.Attempts, "time", mailOperationTimeLabel(ctx, operation.NextRetryAt)) }
+									if operation.Parked {
+										{ mailOperationParkedSince(ctx, operation) }
+									} else {
+										{ i18n.T(ctx, "settings.operations.attempt", "attempt", operation.Attempts, "time", mailOperationTimeLabel(ctx, operation.NextRetryAt)) }
+									}
 								</div>
 							</div>
 							<div class="flex shrink-0 items-center gap-2">
-								if operation.CanRetry || operation.CanReconcile {
+								if operation.CanUndo {
+									<button type="button" data-mail-operation-undo data-mail-operation-id={ operation.ID } data-mail-operation-undo-text={ mailOperationUndoText(ctx, operation) } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+										@icon.Undo2(icon.Props{Class: "size-3.5"})
+										{ i18n.T(ctx, "settings.operations.undo") }
+									</button>
+								} else if operation.CanRetry || operation.CanReconcile {
 									<button type="button" data-mail-operation-retry data-mail-operation-id={ operation.ID } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
 										@icon.RefreshCw(icon.Props{Class: "size-3.5"})
 										{ mailOperationActionLabel(ctx, operation) }

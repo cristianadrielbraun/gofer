@@ -10,6 +10,10 @@ const (
 	MailOperationSentCopy        = "sent_copy"
 )
 
+// MailOperationParkedFolderRemoved is why a parked operation can't finish: a
+// folder it needs was deleted on the server.
+const MailOperationParkedFolderRemoved = "folder_removed"
+
 // MailOperationSummary is a safe, user-scoped view of a durable background
 // mail operation. It intentionally has no subject, recipient, MIME, or
 // provider-token fields.
@@ -37,6 +41,18 @@ type MailOperationSummary struct {
 	CanReconcile          bool      `json:"can_reconcile"`
 	CanCancel             bool      `json:"can_cancel"`
 	Ambiguous             bool      `json:"ambiguous"`
+	// Parked operations can never finish and are not tried again;
+	// ParkedReason says why. CanUndo means Gofer can put its own view of the
+	// message back to how it was before the change, without the server.
+	Parked       bool   `json:"parked"`
+	ParkedReason string `json:"parked_reason,omitempty"`
+	CanUndo      bool   `json:"can_undo"`
+}
+
+// NeedsAttention reports whether the person has to act on the operation:
+// retry it, reconcile it, cancel it, undo it, or fix what blocks it.
+func (o MailOperationSummary) NeedsAttention() bool {
+	return o.CanRetry || o.CanReconcile || o.CanCancel || o.CanUndo || o.Parked || o.State == "blocked"
 }
 
 // NoSentFolderError is why a sent copy failed when its IMAP account has no

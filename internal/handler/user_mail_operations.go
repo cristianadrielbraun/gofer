@@ -36,28 +36,8 @@ func (h *Handler) handleUserRetryMailOperation(w http.ResponseWriter, r *http.Re
 	if err == nil {
 		account := operation.AccountID
 		err = h.userAccounts.WithAccountForUser(ctx, owner, account, func(_ *config.AccountStore, db *storage.DB) error {
-			guard := func(tx *sql.Tx) error {
-				if err := h.userStorage.ValidateUser(ctx, owner); err != nil {
-					return err
-				}
-				state, err := h.userStorage.AccountStateForUser(ctx, owner, account)
-				if err != nil {
-					return err
-				}
-				if state != storage.AccountActive {
-					return storage.ErrAccountRoute
-				}
-				var active bool
-				if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=? AND user_id=? AND COALESCE(is_deleting,0)=0)`, account, owner).Scan(&active); err != nil {
-					return err
-				}
-				if !active {
-					return storage.ErrAccountRoute
-				}
-				return ctx.Err()
-			}
 			var err error
-			operation, err = db.RetryMailOperationForUserGuarded(ctx, owner, id, guard)
+			operation, err = db.RetryMailOperationForUserGuarded(ctx, owner, id, h.mailOperationAccountGuard(ctx, owner, account))
 			return err
 		})
 	}
@@ -80,4 +60,60 @@ func (h *Handler) handleUserRetryMailOperation(w http.ResponseWriter, r *http.Re
 		w.Header().Set("X-Gofer-Mail-Delivery", "delayed")
 	}
 	writeMailOperationsJSON(w, http.StatusOK, mailOperationResponseFrom(operation))
+}
+
+// mailOperationAccountGuard runs inside a mail operation's write transaction.
+// It refuses when the user is no longer valid or the account is no longer
+// active, so a change can't land on an account being removed.
+func (h *Handler) mailOperationAccountGuard(ctx context.Context, owner, account string) func(*sql.Tx) error {
+	return func(tx *sql.Tx) error {
+		if err := h.userStorage.ValidateUser(ctx, owner); err != nil {
+			return err
+		}
+		state, err := h.userStorage.AccountStateForUser(ctx, owner, account)
+		if err != nil {
+			return err
+		}
+		if state != storage.AccountActive {
+			return storage.ErrAccountRoute
+		}
+		var active bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=? AND user_id=? AND COALESCE(is_deleting,0)=0)`, account, owner).Scan(&active); err != nil {
+			return err
+		}
+		if !active {
+			return storage.ErrAccountRoute
+		}
+		return ctx.Err()
+	}
+}
+
+// handleUserUndoMailOperation undoes a parked mail operation in Gofer only.
+// Nothing goes to the server, so no queue is woken.
+func (h *Handler) handleUserUndoMailOperation(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	stop := context.AfterFunc(h.userStorageContext, cancel)
+	defer stop()
+	owner, id := h.userID(ctx), strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeMailOperationsJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(r.Context(), "server.msg.operation_id_is_required")})
+		return
+	}
+	// As with retry: resolve the account first, then take its guard.
+	var operation models.MailOperationSummary
+	err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
+		var err error
+		operation, err = db.GetMailOperationForUser(ctx, owner, id)
+		return err
+	})
+	if err == nil {
+		account := operation.AccountID
+		err = h.userAccounts.WithAccountForUser(ctx, owner, account, func(_ *config.AccountStore, db *storage.DB) error {
+			var err error
+			operation, err = db.UndoMailOperationForUser(ctx, owner, id, h.mailOperationAccountGuard(ctx, owner, account))
+			return err
+		})
+	}
+	h.writeMailOperationUndoResult(w, r, operation, err)
 }
