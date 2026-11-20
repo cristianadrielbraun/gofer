@@ -2121,6 +2121,37 @@ goferOnContent("#mail-operations-content[data-mail-operations-refresh]", functio
   countDown(false)
 })
 
+// Details opened in the Mail operations list stay open when the list reloads
+// itself: the open rows are noted before the swap and reopened in the new
+// list before it is drawn.
+var openMailOperationDetails = []
+document.addEventListener("htmx:beforeSwap", function (event) {
+  var target = event.detail && event.detail.target
+  if (target && target.id === "mail-operations-content") openMailOperationDetails = openMailOperationDetailIDs(target)
+})
+goferOnContent("#mail-operations-content", function (content) {
+  reopenMailOperationDetails(content, openMailOperationDetails)
+})
+
+function openMailOperationDetailIDs(list) {
+  var ids = []
+  list.querySelectorAll('[data-mail-operation-details][data-tui-collapsible-state="open"]').forEach(function (root) {
+    ids.push(root.getAttribute("data-mail-operation-details"))
+  })
+  return ids
+}
+
+function reopenMailOperationDetails(list, ids) {
+  list.querySelectorAll("[data-mail-operation-details]").forEach(function (root) {
+    if (ids.indexOf(root.getAttribute("data-mail-operation-details")) < 0) return
+    root.setAttribute("data-tui-collapsible-state", "open")
+    var trigger = root.querySelector('[data-tui-collapsible="trigger"]')
+    if (trigger) trigger.setAttribute("aria-expanded", "true")
+    var content = root.querySelector('[data-tui-collapsible="content"]')
+    if (content) content.classList.add("tui-collapsible-open")
+  })
+}
+
 // /settings/accounts?folder_roles=<account> opens that account's folder roles,
 // as a delete refused for want of a Trash folder offers.
 goferOnContent("#edit-account-container", function () {

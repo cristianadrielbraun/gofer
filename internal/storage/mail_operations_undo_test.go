@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -375,5 +377,23 @@ func TestUndoKeepsMessageOtherQueuedWorkNeeds(t *testing.T) {
 	}
 	if n := countRows(t, db, `SELECT COUNT(*) FROM label_mutation_queue WHERE message_id = 1`); n != 1 {
 		t.Fatalf("undoing the move removed another queued change of the message")
+	}
+}
+
+func TestMailOperationErrorKeepsLongRepliesReadable(t *testing.T) {
+	reply := "password=hunter2 " + strings.Repeat("é", 1200) + " the end"
+	got := sanitizeMailOperationError(reply)
+	if strings.Contains(got, "hunter2") {
+		t.Fatalf("secret kept: %q", got[:40])
+	}
+	if !utf8.ValidString(got) || !strings.HasSuffix(got, "…") || len(got) > mailOperationErrorLimit+len("…") {
+		t.Fatalf("cut error is not valid text within the limit (%d bytes)", len(got))
+	}
+	if len(got) < 1500 {
+		t.Fatalf("kept only %d bytes of the reply, want close to %d", len(got), mailOperationErrorLimit)
+	}
+	short := strings.Repeat("x", 800)
+	if sanitizeMailOperationError(short) != short {
+		t.Fatalf("an 800-byte error was cut")
 	}
 }

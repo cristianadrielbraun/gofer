@@ -19,6 +19,8 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/collapsible"
+	"github.com/cristianadrielbraun/gofer/components/copybutton"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
@@ -6626,6 +6628,59 @@ func mailOperationUndoText(ctx context.Context, operation models.MailOperationSu
 	}
 }
 
+// mailOperationHasDetails reports whether a row offers Details: anything
+// that failed or can't be completed.
+func mailOperationHasDetails(operation models.MailOperationSummary) bool {
+	return operation.LastError != "" || operation.Parked
+}
+
+// mailOperationDetail is one line of an operation's Details.
+type mailOperationDetail struct {
+	Label, Value string
+	Code         bool
+}
+
+// mailOperationDetails lists what Details shows, in order. Times an
+// operation doesn't keep are left out, and so is the next try of work that
+// won't be tried again.
+func mailOperationDetails(ctx context.Context, operation models.MailOperationSummary) []mailOperationDetail {
+	details := []mailOperationDetail{}
+	if operation.LastError != "" {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.error"), Value: operation.LastError, Code: true})
+	}
+	if !operation.CreatedAt.IsZero() {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.queued"), Value: mailOperationTimeLabel(ctx, operation.CreatedAt)})
+	}
+	if !operation.UpdatedAt.IsZero() {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.last_change"), Value: mailOperationTimeLabel(ctx, operation.UpdatedAt)})
+	}
+	details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.attempts"), Value: i18n.Number(ctx, operation.Attempts)})
+	if !operation.Parked {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.next_try"), Value: mailOperationTimeLabel(ctx, operation.NextRetryAt)})
+	}
+	details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.reference"), Value: operation.ID, Code: true})
+	return details
+}
+
+// mailOperationDetailsText is what Copy details puts on the clipboard: the
+// row and its Details as plain text, ready to paste into a bug report.
+func mailOperationDetailsText(ctx context.Context, operation models.MailOperationSummary) string {
+	lines := []string{
+		mailOperationKindLabel(ctx, operation.Type) + " · " + mailOperationStateLabel(ctx, operation),
+		i18n.T(ctx, "settings.operations.details.account") + ": " + operation.AccountEmail,
+	}
+	if target := mailOperationTargetLabel(operation); target != "" {
+		lines = append(lines, i18n.T(ctx, "settings.operations.details.change")+": "+target)
+	}
+	if operation.Parked {
+		lines = append(lines, mailOperationParkedReason(ctx, operation))
+	}
+	for _, detail := range mailOperationDetails(ctx, operation) {
+		lines = append(lines, detail.Label+": "+detail.Value)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func mailOperationActionLabel(ctx context.Context, operation models.MailOperationSummary) string {
 	if operation.CanReconcile {
 		return i18n.T(ctx, "settings.operations.reconcile_now")
@@ -6651,6 +6706,38 @@ templ SettingsOperationsTab() {
 		</div>
 		@mailOperationUndoDialog()
 	</div>
+}
+
+// mailOperationDetailsSection is a row's Details: the full error, its times
+// and attempts, and a button that copies all of it. The list reopens the
+// ones that were open after it reloads itself (see settings.js).
+templ mailOperationDetailsSection(operation models.MailOperationSummary) {
+	@collapsible.Collapsible(collapsible.Props{Class: "mt-2", Attributes: templ.Attributes{"data-mail-operation-details": operation.ID}}) {
+		@collapsible.Trigger(collapsible.TriggerProps{Class: "group inline-flex cursor-pointer"}) {
+			<button type="button" class="inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+				@icon.ChevronRight(icon.Props{Class: "size-3.5 transition-transform group-aria-expanded:rotate-90"})
+				{ i18n.T(ctx, "settings.operations.details") }
+			</button>
+		}
+		@collapsible.Content() {
+			<div class="pt-2">
+				<div class="rounded-md border border-border/60 bg-muted/30 p-3">
+					<dl class="grid grid-cols-1 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-1.5">
+						for _, detail := range mailOperationDetails(ctx, operation) {
+							<dt class="font-medium text-muted-foreground">{ detail.Label }</dt>
+							// Server replies and references can be one long word; let
+							// them break anywhere rather than widen the page.
+							<dd class={ "min-w-0 break-words text-foreground", templ.KV("whitespace-pre-wrap font-mono [overflow-wrap:anywhere]", detail.Code) }>{ detail.Value }</dd>
+						}
+					</dl>
+					<textarea id={ "mail-operation-copy-" + operation.ID } class="hidden" readonly aria-hidden="true" tabindex="-1">{ mailOperationDetailsText(ctx, operation) }</textarea>
+					<div class="mt-3 flex justify-end">
+						@copybutton.CopyButton(copybutton.Props{TargetID: "mail-operation-copy-" + operation.ID, Label: i18n.T(ctx, "settings.operations.details.copy")})
+					</div>
+				</div>
+			</div>
+		}
+	}
 }
 
 // mailOperationUndoDialog asks before an operation is undone. It sits outside
@@ -6757,10 +6844,11 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 									</div>
 								} else if operation.LastError != "" {
 									<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">
-										{ operation.LastError }
+										// Long server replies are cut short here; Details has all of it.
+										<span class="line-clamp-2 break-words" data-mail-operation-error>{ operation.LastError }</span>
 										// Once a folder is chosen, Retry files the copy there.
 										if strings.Contains(operation.LastError, models.NoSentFolderError) {
-											<a href={ templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)) } class="ml-1 font-semibold underline underline-offset-2" data-mail-operation-choose-sent>{ i18n.T(ctx, "settings.operations.choose_sent") }</a>
+											<a href={ templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)) } class="mt-1 inline-block font-semibold underline underline-offset-2" data-mail-operation-choose-sent>{ i18n.T(ctx, "settings.operations.choose_sent") }</a>
 										}
 									</div>
 								}
@@ -6771,6 +6859,9 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 										{ i18n.T(ctx, "settings.operations.attempt", "attempt", operation.Attempts, "time", mailOperationTimeLabel(ctx, operation.NextRetryAt)) }
 									}
 								</div>
+								if mailOperationHasDetails(operation) {
+									@mailOperationDetailsSection(operation)
+								}
 							</div>
 							<div class="flex shrink-0 items-center gap-2">
 								if operation.CanUndo {

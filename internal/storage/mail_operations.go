@@ -193,6 +193,9 @@ const userProviderDraftOperationProjection = `
     LEFT JOIN folders f ON f.id=s.folder_id
 `
 
+// mailOperationErrorLimit is how many bytes of an operation's error are shown.
+const mailOperationErrorLimit = 2000
+
 func sanitizeMailOperationError(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -200,8 +203,10 @@ func sanitizeMailOperationError(value string) string {
 	}
 	value = mailOperationBearerPattern.ReplaceAllString(value, "Bearer [redacted]")
 	value = mailOperationSecretPattern.ReplaceAllString(value, "$1=[redacted]")
-	if len(value) > 500 {
-		value = value[:500] + "…"
+	// Provider replies often put the useful part at the end, so keep enough
+	// of them to read in the operation's details.
+	if len(value) > mailOperationErrorLimit {
+		value = strings.ToValidUTF8(value[:mailOperationErrorLimit], "") + "…"
 	}
 	return value
 }
