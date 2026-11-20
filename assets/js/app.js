@@ -26233,7 +26233,11 @@ function applyEmailBodyTheme(targetFrame) {
   var fg = palette.fg
   var link = palette.link
   if (original) {
-    iframe.style.backgroundColor = ""
+    // Messages shown as sent assume the browser's white page. A frame's own
+    // page is transparent, so without this a message that sets no background
+    // shows its default black text over a dark Gofer theme. The message's own
+    // backgrounds still paint over this one.
+    iframe.style.backgroundColor = "#ffffff"
   } else if (bg) {
     iframe.style.backgroundColor = bg
   }
