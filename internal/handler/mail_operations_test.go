@@ -241,3 +241,28 @@ func TestMailActionHandlersAreUserScoped(t *testing.T) {
 		t.Fatalf("status after group retry = %q, %v", status, err)
 	}
 }
+
+func TestMailOperationsAttentionIsUserScoped(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	seedHandlerMailOperation(t, h, db)
+	attention := func(userID string) (int, string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/mail-operations/attention", nil)
+		rec := httptest.NewRecorder()
+		h.handleMailOperationsAttention(rec, mailOperationsRequest(req, userID, false))
+		var result struct {
+			Count       int
+			Fingerprint string
+		}
+		if rec.Code != http.StatusOK || json.NewDecoder(rec.Body).Decode(&result) != nil {
+			t.Fatalf("%s attention = %d %q", userID, rec.Code, rec.Body.String())
+		}
+		return result.Count, result.Fingerprint
+	}
+	if count, fingerprint := attention("attacker"); count != 0 || fingerprint != "" {
+		t.Fatalf("attacker sees %d, %q", count, fingerprint)
+	}
+	if count, fingerprint := attention("owner"); count != 1 || fingerprint == "" {
+		t.Fatalf("owner sees %d, %q; want the failed change", count, fingerprint)
+	}
+}

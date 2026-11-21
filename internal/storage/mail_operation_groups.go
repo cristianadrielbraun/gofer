@@ -337,3 +337,27 @@ func queryStringsTx(ctx context.Context, tx *sql.Tx, query string, args ...any) 
 	}
 	return values, rows.Err()
 }
+
+// MailOperationsAttentionForUser counts what in the user's Mail operations
+// list needs attention, the way the list counts it: an action whose changes
+// failed, can't be completed or are blocked counts once, and so does each
+// such change with no recorded action. fingerprint changes whenever the count
+// or the latest of those changes does, so a notice can tell new problems
+// from ones already shown. It reads only; nothing is written.
+func (db *DB) MailOperationsAttentionForUser(ctx context.Context, userID string) (count int, fingerprint string, err error) {
+	var latest sql.NullString
+	err = db.Read().QueryRowContext(ctx, `
+SELECT COUNT(DISTINCT CASE WHEN action_id != '' THEN 'a:' || action_id ELSE 'o:' || operation_id END),
+       MAX(COALESCE(CAST(updated_at AS TEXT), CAST(created_at AS TEXT), ''))
+FROM (`+db.mailOperationProjection()+`
+    WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?)
+      AND (can_retry = 1 OR can_reconcile = 1 OR can_cancel = 1 OR state = 'blocked' OR next_retry_at = ?)
+) p`, mailOperationArgs(strings.TrimSpace(userID), parkedRetryAt)...).Scan(&count, &latest)
+	if err != nil {
+		return 0, "", err
+	}
+	if count == 0 {
+		return 0, "", nil
+	}
+	return count, fmt.Sprintf("%d|%s", count, latest.String), nil
+}

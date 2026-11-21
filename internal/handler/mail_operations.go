@@ -120,6 +120,32 @@ func (h *Handler) handleMailOperations(w http.ResponseWriter, r *http.Request) {
 	writeMailOperationsJSON(w, http.StatusOK, mailOperationsResponseFrom(status))
 }
 
+// mailOperationsAttentionResponse is how many rows of the user's Mail
+// operations list need attention, and a fingerprint that changes when there
+// is something new, so the page can say so once.
+type mailOperationsAttentionResponse struct {
+	Count       int    `json:"count"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// handleMailOperationsAttention answers how much of the user's background
+// mail work needs attention. It only reads.
+func (h *Handler) handleMailOperationsAttention(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	owner := h.userID(ctx)
+	var response mailOperationsAttentionResponse
+	err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
+		var err error
+		response.Count, response.Fingerprint, err = db.MailOperationsAttentionForUser(ctx, owner)
+		return err
+	})
+	if err != nil {
+		writeMailOperationsJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(ctx, "server.error.failed_to_load_mail_operations")})
+		return
+	}
+	writeMailOperationsJSON(w, http.StatusOK, response)
+}
+
 // mailOperationOpenGroupsLimit is how many open groups a reload of the list
 // fills in; any others load their messages again when opened.
 const mailOperationOpenGroupsLimit = 10

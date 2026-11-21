@@ -193,3 +193,29 @@ func groupRowHTML(t *testing.T, html, actionID string) string {
 	}
 	return html[start : start+1+end]
 }
+
+func TestWaysIntoMailOperationsCarryTheAttentionMarks(t *testing.T) {
+	var out bytes.Buffer
+	if err := SidebarFooter().Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	footer := out.String()
+	// Hidden until app.js hears that something needs attention.
+	if !strings.Contains(footer, `<span hidden class="ml-auto size-2`) || !strings.Contains(footer, "data-mail-operations-attention-dot") || !strings.Contains(footer, "data-mail-operations-attention-label") {
+		t.Fatalf("the Settings link lacks the hidden dot:\n%s", footer)
+	}
+	out.Reset()
+	if err := SettingsSidebarItem("accounts", "operations", "Mail operations").Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if item := out.String(); !strings.Contains(item, "data-mail-operations-attention-count") || !strings.Contains(item, "<span hidden") {
+		t.Fatalf("the Mail operations item lacks its hidden count:\n%s", item)
+	}
+	out.Reset()
+	if err := SettingsSidebarItem("operations", "sync", "Sync").Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "data-mail-operations-attention") {
+		t.Fatalf("other Settings items show the count")
+	}
+}

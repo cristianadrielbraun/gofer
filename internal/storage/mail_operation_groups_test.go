@@ -155,3 +155,50 @@ func TestUndoMailActionTakesBackSpamKeywordsAndMove(t *testing.T) {
 		t.Fatalf("%d changes still queued", n)
 	}
 }
+
+func TestMailOperationsAttentionCountsAsTheList(t *testing.T) {
+	ctx := context.Background()
+	db := seedUndoTest(t, "imap")
+	count, fingerprint, err := db.MailOperationsAttentionForUser(ctx, "default")
+	if err != nil || count != 0 || fingerprint != "" {
+		t.Fatalf("empty = %d %q %v", count, fingerprint, err)
+	}
+	// Queued work doesn't need attention.
+	moveCtx := WithUserMailAction(ctx, MailActionMove)
+	if err := db.MoveMessagesAndQueueForUser(moveCtx, []int64{1}, "projects", "archive", "default"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MoveMessagesAndQueueForUser(moveCtx, []int64{2}, "inbox", "archive", "default"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetMessagesReadAndQueueForUser(ctx, []int64{2}, true, "default"); err != nil {
+		t.Fatal(err)
+	}
+	if count, _, _ := db.MailOperationsAttentionForUser(ctx, "default"); count != 0 {
+		t.Fatalf("queued work counted: %d", count)
+	}
+	// One action with a parked and a failed change counts once; a failed
+	// change with no action counts on its own.
+	removeProjectsFolder(t, db)
+	if _, err := db.Write().Exec(`UPDATE message_mutations SET status = 'failed', attempt_count = 1, last_error = 'timeout', updated_at = '2026-11-20 10:00:00' WHERE message_id = 2`); err != nil {
+		t.Fatal(err)
+	}
+	count, first, err := db.MailOperationsAttentionForUser(ctx, "default")
+	if err != nil || count != 2 || first == "" {
+		t.Fatalf("attention = %d %q %v, want the action and the read change", count, first, err)
+	}
+	list, err := db.ListMailOperationGroupsForUser(ctx, "default")
+	if err != nil || len(list) != 1 || !list[0].NeedsAttention() {
+		t.Fatalf("groups = %+v %v", list, err)
+	}
+	if others, _, err := db.MailOperationsAttentionForUser(ctx, "other"); err != nil || others != 0 {
+		t.Fatalf("another user's count = %d %v", others, err)
+	}
+	// A newer failure changes the fingerprint even when the count doesn't.
+	if _, err := db.Write().Exec(`UPDATE message_mutations SET updated_at = '2026-11-21 09:00:00' WHERE message_id = 2 AND kind = 'read'`); err != nil {
+		t.Fatal(err)
+	}
+	if count, second, _ := db.MailOperationsAttentionForUser(ctx, "default"); count != 2 || second == first {
+		t.Fatalf("fingerprint %q didn't change from %q", second, first)
+	}
+}

@@ -34,7 +34,7 @@ function setup(response) {
   const dialog = element({ id: 'mail-operation-undo-dialog' })
   dialog.children['[data-mail-operation-undo-text]'] = text
   dialog.children['[data-mail-operation-undo-confirm]'] = confirm
-  const calls = { opened: [], closed: [], fetched: [], reloads: [], toasts: [] }
+  const calls = { opened: [], closed: [], fetched: [], reloads: [], toasts: [], attention: [] }
   const context = vm.createContext({
     _mailOperationActionsSetupDone: false,
     document: {
@@ -53,6 +53,7 @@ function setup(response) {
     goferT: key => key,
     goferTn: (key, count) => key + ':' + count,
     showGoferToast: toast => calls.toasts.push(toast),
+    refreshMailOperationsAttention: now => calls.attention.push(now),
   })
   vm.runInContext(source.slice(start, end), context)
   context.setupMailOperationActions()
@@ -87,6 +88,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
     assert.deepEqual(page.calls.closed, ['mail-operation-undo-dialog'])
     assert.deepEqual(page.calls.reloads, [['GET', '/settings/operations/content', '#mail-operations-content']])
     assert.equal(page.calls.toasts[0].title, 'js.operations.undone')
+    assert.deepEqual(page.calls.attention, [true], 'An undo asks again what needs attention')
   }
 
   // A refusal keeps the dialog open, says why, and lets the person try again.

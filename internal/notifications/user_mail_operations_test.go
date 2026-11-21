@@ -304,6 +304,15 @@ func TestUserMailOperationsHTTPGroupActionsStayWithTheirOwner(t *testing.T) {
 		t.Fatal("group messages", changes.Code, changes.Body.String())
 	}
 
+	// The notice counts each owner's own work: alice's action is one row.
+	for owner, want := range map[string]int{"alice": 1, "bob": 1} {
+		var attention struct{ Count int }
+		response := f.request(owner, "GET", "/api/mail-operations/attention", "")
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &attention) != nil || attention.Count != want {
+			t.Fatalf("%s attention = %d %s", owner, response.Code, response.Body.String())
+		}
+	}
+
 	var result struct{ Changed, Skipped int }
 	response := f.request("alice", "POST", "/api/mail-operations/actions/act-1/retry", "")
 	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Changed != 1 || result.Skipped != 1 {

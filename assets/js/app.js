@@ -513,6 +513,7 @@ document.addEventListener("DOMContentLoaded", function () {
   })
   setupOutgoingSendStatus()
   setupMailOperationActions()
+  setupMailOperationsAttention()
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
@@ -8688,6 +8689,12 @@ document.addEventListener("DOMContentLoaded", function () {
       showComposeSendResult(data)
     })
 
+    // Mail changes and finished syncs may have left work that needs
+    // attention, or cleared it.
+    ;["mutation", "manual-sync-complete", "scheduled-sync-complete"].forEach(function (type) {
+      source.addEventListener(type, function () { refreshMailOperationsAttention(false) })
+    })
+
     source.addEventListener("mutation", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { data = null }
@@ -12335,6 +12342,7 @@ function setupMailOperationActions() {
       } else {
         window.location.reload()
       }
+      refreshMailOperationsAttention(true)
       if (typeof showGoferToast === "function") {
         showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.queued"), description: goferT("js.operations.queued_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
       }
@@ -12366,6 +12374,7 @@ function setupMailOperationActions() {
       } else {
         window.location.reload()
       }
+      refreshMailOperationsAttention(true)
       var retried = data.retried || 0
       var skipped = data.skipped || 0
       var title = retried > 0 ? goferTn("js.operations.retry_all.retrying", retried) : goferT("js.operations.retry_all.none")
@@ -12420,6 +12429,7 @@ function setupMailOperationActions() {
       } else {
         window.location.reload()
       }
+      refreshMailOperationsAttention(true)
       if (typeof showGoferToast === "function") {
         showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.undone"), description: goferT("js.operations.undone_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
       }
@@ -12429,6 +12439,108 @@ function setupMailOperationActions() {
       }
       confirm.disabled = false
     })
+  })
+}
+
+// Background mail work that needs attention shows as a dot on the way into
+// Settings and a count on Mail operations, and once as a toast outside
+// Settings. The page asks when it loads, after live events about mail, when
+// it is shown again, and after a Retry or Undo; nothing polls. State lives on
+// the function, since startup calls it before later vars are assigned.
+function mailOperationsAttentionState() {
+  var fn = mailOperationsAttentionState
+  if (!fn.state) fn.state = { data: null, last: 0, timer: null, loading: false }
+  return fn.state
+}
+
+function setupMailOperationsAttention() {
+  var state = mailOperationsAttentionState()
+  if (state.setup) return
+  state.setup = true
+  refreshMailOperationsAttention(true)
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) refreshMailOperationsAttention(false)
+  })
+  // Sidebars arrive with the dot hidden; show what is already known.
+  document.addEventListener("htmx:afterSettle", function () {
+    applyMailOperationsAttention(document, mailOperationsAttentionState().data)
+  })
+  if (typeof window.goferOnContent === "function") {
+    window.goferOnContent("[data-mail-operations-attention-dot], [data-mail-operations-attention-count]", function () {
+      applyMailOperationsAttention(document, mailOperationsAttentionState().data)
+    })
+  }
+}
+
+// refreshMailOperationsAttention asks again, at most once every few seconds
+// unless now is set; a request held back runs when the wait is over.
+function refreshMailOperationsAttention(now) {
+  var state = mailOperationsAttentionState()
+  var wait = 5000 - (Date.now() - state.last)
+  if (!now && wait > 0) {
+    if (!state.timer) state.timer = setTimeout(function () { state.timer = null; refreshMailOperationsAttention(true) }, wait)
+    return
+  }
+  if (state.loading) return
+  state.loading = true
+  state.last = Date.now()
+  fetch("/api/mail-operations/attention", { headers: { "Accept": "application/json" } }).then(function (response) {
+    return response.ok ? response.json() : null
+  }).then(function (data) {
+    state.loading = false
+    if (!data) return
+    state.data = data
+    applyMailOperationsAttention(document, data)
+    showMailOperationsAttentionToast(data)
+  }).catch(function () {
+    state.loading = false
+  })
+}
+
+function applyMailOperationsAttention(root, data) {
+  var count = data && data.count > 0 ? data.count : 0
+  var label = count > 0 ? goferTn("js.operations.attention.title", count, { count: goferNumber(count) }) : ""
+  root.querySelectorAll("[data-mail-operations-attention-dot]").forEach(function (dot) { dot.hidden = count === 0 })
+  root.querySelectorAll("[data-mail-operations-attention-count]").forEach(function (badge) {
+    badge.hidden = count === 0
+    badge.textContent = count > 0 ? goferNumber(count) : ""
+  })
+  root.querySelectorAll("[data-mail-operations-attention-label]").forEach(function (text) { text.textContent = label })
+}
+
+// mailOperationsAttentionToastWanted reports whether the toast should show:
+// something needs attention that wasn't shown before, and the person isn't in
+// Settings, Contacts, Calendar or the admin pages.
+function mailOperationsAttentionToastWanted(data, pathname, seen) {
+  if (!data || !(data.count > 0) || !data.fingerprint || data.fingerprint === seen) return false
+  return !/^\/(settings|contacts|calendar|admin)(\/|$)/.test(pathname || "")
+}
+
+function showMailOperationsAttentionToast(data) {
+  var key = "gofer.mailOperations.attentionSeen"
+  var seen = ""
+  try { seen = window.localStorage.getItem(key) || "" } catch (_) {}
+  if (!mailOperationsAttentionToastWanted(data, window.location.pathname, seen)) return
+  try { window.localStorage.setItem(key, data.fingerprint) } catch (_) {}
+  if (typeof showGoferToast !== "function") return
+  showGoferToast({
+    id: "mail-operations-attention-toast",
+    title: goferTn("js.operations.attention.title", data.count, { count: goferNumber(data.count) }),
+    description: goferT("js.operations.attention.help"),
+    variant: "warning",
+    icon: "warning",
+    position: "bottom-right",
+    duration: 10000,
+    dismissible: true,
+    actions: [{
+      label: goferT("js.operations.attention.open"),
+      onClick: function () {
+        var toast = document.getElementById("mail-operations-attention-toast")
+        if (toast && typeof dismissGoferToast === "function") dismissGoferToast(toast)
+        if (typeof window.goferNavigate === "function") window.goferNavigate("/settings/operations")
+        else window.location.href = "/settings/operations"
+      },
+    }],
   })
 }
 

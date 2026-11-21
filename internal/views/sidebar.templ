@@ -534,7 +534,18 @@ templ SettingsSidebarItem(activeTab string, value string, label string) {
 			@SettingsSidebarItemIcon(value)
 		</span>
 		<span class="flex-1 truncate">{ label }</span>
+		if value == "operations" {
+			<span hidden class="shrink-0 rounded-full border border-amber-500/25 bg-amber-500/15 px-1.5 text-[10px] font-semibold tabular-nums text-amber-800 dark:text-amber-200" aria-hidden="true" data-mail-operations-attention-count></span>
+			<span class="sr-only" data-mail-operations-attention-label></span>
+		}
 	</a>
+}
+
+// mailOperationsAttentionDot marks a way into Settings while background mail
+// work needs attention. It starts hidden; app.js asks the server and shows it.
+templ mailOperationsAttentionDot() {
+	<span hidden class="ml-auto size-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true" data-mail-operations-attention-dot></span>
+	<span class="sr-only" data-mail-operations-attention-label></span>
 }
 
 templ SettingsSidebarItemIcon(value string) {
@@ -1232,6 +1243,8 @@ templ SidebarFooter() {
 					@icon.Settings(icon.Props{Class: "size-4"})
 				</span>
 				<span class="truncate">{ i18n.T(ctx, "settings.section.default.title") }</span>
+				// Background mail work that needs attention; app.js shows it.
+				@mailOperationsAttentionDot()
 			</a>
 			@popover.Root(popover.RootProps{ID: "sidebar-shortcuts", Class: "hidden shrink-0 lg:block"}) {
 				@popover.Trigger() {
