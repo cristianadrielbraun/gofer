@@ -243,3 +243,100 @@ func TestUserMailOperationsHTTPRetryAllGoesOnPastARefusingAccount(t *testing.T) 
 		t.Fatalf("bob's change was retried by alice: %s", got)
 	}
 }
+
+func TestUserMailOperationsHTTPGroupActionsStayWithTheirOwner(t *testing.T) {
+	f := newUserStorageFixtureMode(t, true)
+	leaving, err := f.accountStore.CreateAccount(t.Context(), "alice", &models.CreateAccountRequest{
+		Provider: "imap", EmailAddress: "alex@example.com", DisplayName: "Alex",
+		IMAPHost: "imap.example.com", SMTPHost: "smtp.example.com", Username: "alex", Password: "synthetic-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parked := time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC)
+	seed := func(owner string, statements ...func(db *storage.DB) error) {
+		t.Helper()
+		if err := f.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			for _, statement := range statements {
+				if err := statement(db); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec := func(query string, args ...any) func(db *storage.DB) error {
+		return func(db *storage.DB) error {
+			_, err := db.Write().Exec(query, args...)
+			return err
+		}
+	}
+	// One action of alice's: a failed change, a parked one, and a failed one
+	// in an account being removed. Bob happens to have an action with the
+	// same ID.
+	alice := f.accounts["alice"].ID
+	seed("alice",
+		exec(`INSERT INTO messages(id,account_id,internet_message_id,subject) VALUES(1,?,'<lunch@test.invalid>','Lunch on Friday?')`, alice),
+		exec(`INSERT INTO messages(id,account_id,internet_message_id,subject) VALUES(5,?,'<plans@test.invalid>','Weekend plans')`, leaving.ID),
+		exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at,action_id,action_kind,action_source) VALUES('failed-read',?,1,'','imap','read',1,'failed',1,'server busy',?,'act-1','mark_read','you')`, alice, time.Now().Add(time.Hour)),
+		exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at,action_id,action_kind,action_source) VALUES('parked-star',?,1,'','imap','starred',1,'failed',1,'folder removed remotely (imap discovery)',?,'act-1','mark_read','you')`, alice, parked),
+		exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at,action_id,action_kind,action_source) VALUES('leaving-read',?,5,'','imap','read',1,'failed',1,'server busy',?,'act-1','mark_read','you')`, leaving.ID, time.Now().Add(time.Hour)),
+		exec(`UPDATE accounts SET is_deleting=1 WHERE id=?`, leaving.ID),
+	)
+	seed("bob",
+		exec(`INSERT INTO messages(id,account_id,internet_message_id,subject) VALUES(1,?,'<bob@test.invalid>','Book club notes')`, f.accounts["bob"].ID),
+		exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at,action_id,action_kind,action_source) VALUES('bob-read',?,1,'','imap','read',1,'failed',1,'server busy',?,'act-1','mark_read','you')`, f.accounts["bob"].ID, time.Now().Add(time.Hour)),
+	)
+
+	page := f.request("alice", "GET", "/settings/operations/content", "")
+	if page.Code != 200 || !strings.Contains(page.Body.String(), `data-mail-operation-group-row="act-1"`) || !strings.Contains(page.Body.String(), "Mark 2 messages as read") {
+		t.Fatal("group not listed", page.Code, page.Body.String())
+	}
+	if strings.Contains(page.Body.String(), "Lunch on Friday?") {
+		t.Fatal("a closed group lists its messages")
+	}
+	if open := f.request("alice", "GET", "/settings/operations/content?open=act-1", ""); !strings.Contains(open.Body.String(), "Lunch on Friday?") {
+		t.Fatal("an open group came back without its messages")
+	}
+	changes := f.request("alice", "GET", "/settings/operations/actions/act-1", "")
+	if changes.Code != 200 || !strings.Contains(changes.Body.String(), "Lunch on Friday?") || !strings.Contains(changes.Body.String(), "Weekend plans") || strings.Contains(changes.Body.String(), "Book club notes") {
+		t.Fatal("group messages", changes.Code, changes.Body.String())
+	}
+
+	var result struct{ Changed, Skipped int }
+	response := f.request("alice", "POST", "/api/mail-operations/actions/act-1/retry", "")
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Changed != 1 || result.Skipped != 1 {
+		t.Fatalf("group retry = %d %s, want 1 retried and the leaving account skipped", response.Code, response.Body.String())
+	}
+	response = f.request("alice", "POST", "/api/mail-operations/actions/act-1/undo", "")
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Changed != 1 {
+		t.Fatalf("group undo = %d %s", response.Code, response.Body.String())
+	}
+	status := func(owner, id string) string {
+		var s string
+		if err := f.routing.WithUser(t.Context(), owner, func(db *storage.DB) error {
+			return db.Read().QueryRow(`SELECT COALESCE((SELECT status FROM message_mutations WHERE id=?), 'gone')`, id).Scan(&s)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	// The retried change was woken, so it may already be done.
+	if got := status("alice", "failed-read"); got == "failed" {
+		t.Errorf("alice's failed change was not retried")
+	}
+	for _, check := range []struct{ owner, id, want string }{
+		{"alice", "parked-star", "gone"},
+		{"alice", "leaving-read", "failed"},
+		{"bob", "bob-read", "failed"},
+	} {
+		if got := status(check.owner, check.id); got != check.want {
+			t.Errorf("%s %s = %s, want %s", check.owner, check.id, got, check.want)
+		}
+	}
+	// Nothing left to undo: refused, as for a single change.
+	if response := f.request("alice", "POST", "/api/mail-operations/actions/act-1/undo", ""); response.Code != 409 {
+		t.Fatal("second group undo", response.Code, response.Body.String())
+	}
+}

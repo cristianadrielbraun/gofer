@@ -63,6 +63,56 @@ func (o MailOperationSummary) NeedsAttention() bool {
 	return o.CanRetry || o.CanReconcile || o.CanCancel || o.CanUndo || o.Parked || o.State == "blocked"
 }
 
+// MailOperationGroup sums up the changes one action queued, such as Empty
+// folder or a mail rule's moves. Folders and the label are set only when
+// every change shares them. FolderName and DestinationName are the names
+// Gofer shows, with their role, so they can be translated as in the sidebar.
+type MailOperationGroup struct {
+	ActionID, ActionKind, ActionSource string
+	ActionRuleID, ActionRuleName       string
+	AccountID, AccountEmail            string
+	Accounts, Messages, Jobs           int
+	Failed, Parked, Blocked, Active    int
+	FolderID, FolderName, FolderRole   string
+	DestinationFolderID                string
+	DestinationName, DestinationRole   string
+	LabelName                          string
+	CreatedAt, UpdatedAt               time.Time
+	Changes                            []MailOperationGroupMessage
+	ChangesLoaded                      bool
+}
+
+// NeedsAttention reports whether some of the action's changes failed, can't
+// be completed, or are blocked.
+func (g MailOperationGroup) NeedsAttention() bool {
+	return g.Failed+g.Parked+g.Blocked > 0
+}
+
+// MailOperationGroupMessage is one change of an action, with the message it
+// is about as Gofer shows it.
+type MailOperationGroupMessage struct {
+	Operation                        MailOperationSummary
+	Subject, FromName, FromEmail     string
+	FolderName, FolderRole           string
+	DestinationName, DestinationRole string
+}
+
+// MailOperationsList is what the Mail operations list in Settings shows:
+// one row per action, then the changes that have no recorded action.
+type MailOperationsList struct {
+	Groups     []MailOperationGroup
+	Operations []MailOperationSummary
+	// ActionRequired counts the rows that need attention; Retryable counts
+	// all failed work Retry all failed would retry.
+	ActionRequired int
+	Retryable      int
+}
+
+// Total is how many rows the list shows.
+func (l MailOperationsList) Total() int {
+	return len(l.Groups) + len(l.Operations)
+}
+
 // NoSentFolderError is why a sent copy failed when its IMAP account has no
 // Sent folder; the failure offers to choose one.
 const NoSentFolderError = "This account has no Sent folder."

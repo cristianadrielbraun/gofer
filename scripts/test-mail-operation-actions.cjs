@@ -71,12 +71,12 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
     const page = setup({ ok: true, body: {} })
     const undo = element({
       'data-mail-operation-undo': '',
-      'data-mail-operation-id': 'message_mutation:abc',
+      'data-mail-operation-undo-url': '/api/mail-operations/message_mutation%3Aabc/undo',
       'data-mail-operation-undo-text': 'Gofer will stop trying to move this message.',
     })
     page.click(undo)
     assert.deepEqual(page.calls.opened, ['mail-operation-undo-dialog'])
-    assert.equal(page.dialog.getAttribute('data-mail-operation-id'), 'message_mutation:abc')
+    assert.equal(page.dialog.getAttribute('data-mail-operation-undo-url'), '/api/mail-operations/message_mutation%3Aabc/undo')
     assert.equal(page.text.textContent, 'Gofer will stop trying to move this message.')
     assert.equal(page.calls.fetched.length, 0, 'Opening the dialog must not undo anything yet')
 
@@ -92,7 +92,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
   // A refusal keeps the dialog open, says why, and lets the person try again.
   {
     const page = setup({ ok: false, body: { error: "This change can't be undone in Gofer." } })
-    page.click(element({ 'data-mail-operation-undo': '', 'data-mail-operation-id': 'label_mutation:7', 'data-mail-operation-undo-text': 'x' }))
+    page.click(element({ 'data-mail-operation-undo': '', 'data-mail-operation-undo-url': '/api/mail-operations/label_mutation%3A7/undo', 'data-mail-operation-undo-text': 'x' }))
     page.click(page.confirm)
     await flush()
     await flush()
@@ -131,6 +131,28 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
     await flush()
     assert.equal(page.calls.toasts[0].title, 'js.operations.retry_failed_title')
     assert.equal(retryAll.disabled, false, 'A refused Retry all can be pressed again')
+  }
+
+  // A group's Undo opens the same dialog and posts for the whole action.
+  {
+    const page = setup({ ok: true, body: { changed: 3, skipped: 0 } })
+    page.click(element({ 'data-mail-operation-undo': '', 'data-mail-operation-undo-url': '/api/mail-operations/actions/a1/undo', 'data-mail-operation-undo-text': 'Gofer will stop trying to make the 3 changes.' }))
+    assert.equal(page.text.textContent, 'Gofer will stop trying to make the 3 changes.')
+    page.click(page.confirm)
+    await flush()
+    assert.deepEqual(page.calls.fetched, [['/api/mail-operations/actions/a1/undo', 'POST']])
+    assert.deepEqual(page.calls.reloads, [['GET', '/settings/operations/content', '#mail-operations-content']])
+  }
+
+  // Retry posts where its button says: one change, or a whole group.
+  for (const url of ['/api/mail-operations/message_mutation%3Aabc/retry', '/api/mail-operations/actions/a1/retry']) {
+    const page = setup({ ok: true, body: {} })
+    const retry = element({ 'data-mail-operation-retry': '', 'data-mail-operation-retry-url': url })
+    page.click(retry)
+    assert.equal(retry.disabled, true)
+    await flush()
+    assert.deepEqual(page.calls.fetched, [[url, 'POST']])
+    assert.equal(page.calls.toasts[0].title, 'js.operations.queued')
   }
 
   console.log('mail operation actions: ok')

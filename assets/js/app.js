@@ -12318,10 +12318,10 @@ function setupMailOperationActions() {
     if (!button) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    var operationID = button.getAttribute("data-mail-operation-id") || ""
-    if (!operationID) return
+    var url = button.getAttribute("data-mail-operation-retry-url") || ""
+    if (!url) return
     button.disabled = true
-    fetch("/api/mail-operations/" + encodeURIComponent(operationID) + "/retry", {
+    fetch(url, {
       method: "POST",
       headers: { "Accept": "application/json" },
     }).then(function (response) {
@@ -12382,14 +12382,15 @@ function setupMailOperationActions() {
     })
   })
   // Undo asks first. The dialog lives outside the list, which reloads itself,
-  // and remembers which operation it was opened for.
+  // and remembers where the Undo that opened it posts: one change, or every
+  // change of a group that can't be completed.
   document.addEventListener("click", function (event) {
     var button = event.target && event.target.closest ? event.target.closest("[data-mail-operation-undo]") : null
     if (!button) return
     event.preventDefault()
     var dialog = document.getElementById("mail-operation-undo-dialog")
     if (!dialog || !window.tui || !window.tui.dialog) return
-    dialog.setAttribute("data-mail-operation-id", button.getAttribute("data-mail-operation-id") || "")
+    dialog.setAttribute("data-mail-operation-undo-url", button.getAttribute("data-mail-operation-undo-url") || "")
     var text = dialog.querySelector("[data-mail-operation-undo-text]")
     if (text) text.textContent = button.getAttribute("data-mail-operation-undo-text") || ""
     var confirm = dialog.querySelector("[data-mail-operation-undo-confirm]")
@@ -12401,10 +12402,10 @@ function setupMailOperationActions() {
     if (!confirm) return
     event.preventDefault()
     var dialog = document.getElementById("mail-operation-undo-dialog")
-    var operationID = dialog ? dialog.getAttribute("data-mail-operation-id") || "" : ""
-    if (!operationID) return
+    var url = dialog ? dialog.getAttribute("data-mail-operation-undo-url") || "" : ""
+    if (!url) return
     confirm.disabled = true
-    fetch("/api/mail-operations/" + encodeURIComponent(operationID) + "/undo", {
+    fetch(url, {
       method: "POST",
       headers: { "Accept": "application/json" },
     }).then(function (response) {

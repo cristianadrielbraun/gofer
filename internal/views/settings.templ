@@ -6710,6 +6710,225 @@ func mailOperationActionLabel(ctx context.Context, operation models.MailOperatio
 	return i18n.T(ctx, "settings.operations.retry_now")
 }
 
+// MailOperationGroupChangesLimit is how many of an action's changes its
+// message list shows.
+const MailOperationGroupChangesLimit = 100
+
+// mailOperationURL is where a change's own Retry or Undo posts.
+func mailOperationURL(operationID, verb string) string {
+	return "/api/mail-operations/" + url.PathEscape(operationID) + "/" + verb
+}
+
+// mailActionURL is where a group's Retry or Undo posts.
+func mailActionURL(actionID, verb string) string {
+	return "/api/mail-operations/actions/" + url.PathEscape(actionID) + "/" + verb
+}
+
+// mailOperationListItem is one row of the list: a group, or a change with no
+// recorded action.
+type mailOperationListItem struct {
+	Group     *models.MailOperationGroup
+	Operation *models.MailOperationSummary
+}
+
+// mailOperationListItems puts groups and single changes in one order: those
+// that need attention first, then the most recently changed.
+func mailOperationListItems(list models.MailOperationsList) []mailOperationListItem {
+	items := make([]mailOperationListItem, 0, list.Total())
+	for i := range list.Groups {
+		items = append(items, mailOperationListItem{Group: &list.Groups[i]})
+	}
+	for i := range list.Operations {
+		items = append(items, mailOperationListItem{Operation: &list.Operations[i]})
+	}
+	attention := func(item mailOperationListItem) bool {
+		if item.Group != nil {
+			return item.Group.NeedsAttention()
+		}
+		return item.Operation.NeedsAttention()
+	}
+	updated := func(item mailOperationListItem) time.Time {
+		if item.Group != nil {
+			return item.Group.UpdatedAt
+		}
+		return item.Operation.UpdatedAt
+	}
+	slices.SortStableFunc(items, func(a, b mailOperationListItem) int {
+		if attention(a) != attention(b) {
+			if attention(a) {
+				return -1
+			}
+			return 1
+		}
+		return updated(b).Compare(updated(a))
+	})
+	return items
+}
+
+// mailOperationFolderName is a folder as the sidebar names it. A folder Gofer
+// no longer has is "a deleted folder"; no folder at all is "".
+func mailOperationFolderName(ctx context.Context, folderID, name, role string) string {
+	if folderID == "" {
+		return ""
+	}
+	if name == "" {
+		return i18n.T(ctx, "settings.operations.group.deleted_folder")
+	}
+	return i18n.FolderName(ctx, role, name)
+}
+
+// mailOperationGroupKinds are the actions whose title only needs how many
+// messages they changed.
+var mailOperationGroupKinds = map[string]bool{
+	"archive": true, "unarchive": true, "delete": true, "mark_read": true, "mark_unread": true,
+	"star": true, "unstar": true, "spam": true, "not_spam": true, "move": true,
+	"label_add": true, "label_remove": true,
+}
+
+// mailOperationGroupCount is how many messages the action changed, or its
+// changes when they have no message.
+func mailOperationGroupCount(group models.MailOperationGroup) int {
+	if group.Messages > 0 {
+		return group.Messages
+	}
+	return group.Jobs
+}
+
+// mailOperationGroupTitle says what the action does, in plain words: "Move 3
+// messages from Inbox to Archive", "Empty Trash". A folder or label is named
+// only when every change shares it.
+func mailOperationGroupTitle(ctx context.Context, group models.MailOperationGroup) string {
+	count := mailOperationGroupCount(group)
+	from := mailOperationFolderName(ctx, group.FolderID, group.FolderName, group.FolderRole)
+	to := mailOperationFolderName(ctx, group.DestinationFolderID, group.DestinationName, group.DestinationRole)
+	key := "settings.operations.group.title." + group.ActionKind
+	switch group.ActionKind {
+	case "empty_folder", "mark_folder_read":
+		if from == "" {
+			return i18n.T(ctx, key)
+		}
+		return i18n.T(ctx, key+".folder", "folder", from)
+	case "move":
+		switch {
+		case from != "" && to != "":
+			key += ".from_to"
+		case to != "":
+			key += ".to"
+		}
+	case "label_add", "label_remove":
+		if group.LabelName != "" {
+			key += ".label"
+		}
+	default:
+		if !mailOperationGroupKinds[group.ActionKind] {
+			key = "settings.operations.group.title.other"
+		}
+	}
+	return i18n.N(ctx, key, count, "from", from, "to", to, "label", group.LabelName)
+}
+
+// mailOperationGroupState is the one state a group shows: the worst of its
+// changes.
+func mailOperationGroupState(ctx context.Context, group models.MailOperationGroup) string {
+	switch {
+	case group.Failed > 0:
+		return i18n.T(ctx, "settings.operations.state.failed")
+	case group.Parked > 0:
+		return i18n.T(ctx, "settings.operations.state.parked")
+	case group.Blocked > 0:
+		return i18n.T(ctx, "settings.operations.state.blocked")
+	case group.Active > 0:
+		return i18n.T(ctx, "settings.operations.state.in_progress")
+	default:
+		return i18n.T(ctx, "settings.operations.state.queued")
+	}
+}
+
+// mailOperationGroupProblems says how many of the action's changes need
+// attention, and why: "2 of 340 changes failed".
+func mailOperationGroupProblems(ctx context.Context, group models.MailOperationGroup) []string {
+	problems := []string{}
+	if group.Failed > 0 {
+		problems = append(problems, i18n.N(ctx, "settings.operations.group.failed", group.Failed, "total", group.Jobs))
+	}
+	if group.Parked > 0 {
+		problems = append(problems, i18n.N(ctx, "settings.operations.group.parked", group.Parked, "total", group.Jobs))
+	}
+	if group.Blocked > 0 {
+		problems = append(problems, i18n.N(ctx, "settings.operations.group.blocked", group.Blocked, "total", group.Jobs))
+	}
+	return problems
+}
+
+// mailOperationGroupAccount is the account the action changed, or how many.
+func mailOperationGroupAccount(ctx context.Context, group models.MailOperationGroup) string {
+	if group.Accounts > 1 {
+		return i18n.N(ctx, "settings.operations.group.accounts", group.Accounts)
+	}
+	return group.AccountEmail
+}
+
+// mailOperationGroupOrigin says who started the action, and when.
+func mailOperationGroupOrigin(ctx context.Context, group models.MailOperationGroup) string {
+	at := mailOperationTimeLabel(ctx, group.CreatedAt)
+	switch {
+	case group.ActionSource == "rule" && group.ActionRuleName != "":
+		return i18n.T(ctx, "settings.operations.group.origin.rule", "rule", group.ActionRuleName, "time", at)
+	case group.ActionSource == "rule":
+		return i18n.T(ctx, "settings.operations.group.origin.rule_deleted", "time", at)
+	default:
+		return i18n.T(ctx, "settings.operations.group.origin.you", "time", at)
+	}
+}
+
+// mailOperationChangeSubject is a message as the list names it. A message
+// Gofer no longer has is said so.
+func mailOperationChangeSubject(ctx context.Context, change models.MailOperationGroupMessage) string {
+	switch {
+	case change.Subject != "":
+		return change.Subject
+	case change.FromEmail == "" && change.FromName == "":
+		return i18n.T(ctx, "settings.operations.group.message_gone")
+	default:
+		return i18n.T(ctx, "mail.no_subject")
+	}
+}
+
+// mailOperationChangeFolders is where one change moves its message, or the
+// folder it is in, as the sidebar names them.
+func mailOperationChangeFolders(ctx context.Context, change models.MailOperationGroupMessage) string {
+	from := mailOperationFolderName(ctx, change.Operation.FolderID, change.FolderName, change.FolderRole)
+	to := mailOperationFolderName(ctx, change.Operation.DestinationFolderID, change.DestinationName, change.DestinationRole)
+	switch {
+	case from != "" && to != "" && from != to:
+		return from + " → " + to
+	case to != "":
+		return to
+	default:
+		return from
+	}
+}
+
+// mailOperationChangesShareFolders reports whether every change in the list
+// is in the same folders, so the rows don't each repeat them.
+func mailOperationChangesShareFolders(changes []models.MailOperationGroupMessage) bool {
+	for _, change := range changes {
+		first := changes[0].Operation
+		if change.Operation.FolderID != first.FolderID || change.Operation.DestinationFolderID != first.DestinationFolderID {
+			return false
+		}
+	}
+	return true
+}
+
+// mailOperationChangeSender is who sent the message, as the list shows it.
+func mailOperationChangeSender(change models.MailOperationGroupMessage) string {
+	if change.FromName != "" {
+		return change.FromName
+	}
+	return change.FromEmail
+}
+
 templ SettingsOperationsTab() {
 	<div class="mt-6 space-y-6">
 		<div class="settings-card bg-card rounded-lg border p-6">
@@ -6792,7 +7011,7 @@ const mailOperationsRefreshSeconds = 15
 // SettingsOperationsContent is the list of mail operations. It reloads itself
 // when the countdown in settings.js reaches zero, or when Refresh is pressed;
 // either way the whole block is replaced and the countdown starts again.
-templ SettingsOperationsContent(status models.MailOperationsStatus) {
+templ SettingsOperationsContent(status models.MailOperationsList) {
 	<div
 		id="mail-operations-content"
 		hx-get="/settings/operations/content"
@@ -6808,7 +7027,7 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 			<div class="min-w-0">
 				<h3 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.operations.background") }</h3>
 				<p class="mt-1 text-xs text-muted-foreground">
-					{ i18n.N(ctx, "settings.operations.total", status.Total) }
+					{ i18n.N(ctx, "settings.operations.total", status.Total()) }
 					<span aria-hidden="true">·</span>
 					<span class="tabular-nums" aria-live="off" data-mail-operations-countdown>
 						{ i18n.T(ctx, "settings.operations.countdown", "seconds", mailOperationsRefreshSeconds) }
@@ -6854,78 +7073,217 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 				}
 			</div>
 		}
-		if len(status.Operations) == 0 {
+		if status.Total() == 0 {
 			<div class="rounded-md border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "settings.operations.empty") }</div>
 		} else {
 			<div class="space-y-2">
-				for _, operation := range status.Operations {
-					<div class={
-						"settings-item rounded-lg border bg-background/40 p-4",
-						templ.KV("border-amber-500/25", operation.CanRetry || operation.CanReconcile),
-						templ.KV("border-border/60", !operation.CanRetry && !operation.CanReconcile),
-					} data-mail-operation-id={ operation.ID }>
-						<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-							<div class="min-w-0">
-								<div class="flex flex-wrap items-center gap-2">
-									<span class="text-sm font-semibold text-foreground">{ mailOperationKindLabel(ctx, operation.Type) }</span>
-									<span class={
-										"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-										templ.KV("border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200", operation.CanRetry || operation.CanReconcile),
-										templ.KV("border-border bg-card text-muted-foreground", !operation.CanRetry && !operation.CanReconcile),
-									}>{ mailOperationStateLabel(ctx, operation) }</span>
-								</div>
-								<div class="mt-1 text-xs text-muted-foreground">
-									{ operation.AccountEmail }
-									if mailOperationTargetLabel(operation) != "" {
-										<span> · { mailOperationTargetLabel(operation) }</span>
-									}
-								</div>
-								if origin := mailOperationOrigin(ctx, operation); origin != "" {
-									<div class="mt-0.5 text-xs text-muted-foreground" data-mail-operation-origin>{ origin }</div>
-								}
-								if operation.Parked {
-									<div class="mt-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground" data-mail-operation-parked-reason>
-										{ mailOperationParkedReason(ctx, operation) }
-									</div>
-								} else if operation.LastError != "" {
-									<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">
-										// Long server replies are cut short here; Details has all of it.
-										<span class="line-clamp-2 break-words" data-mail-operation-error>{ operation.LastError }</span>
-										// Once a folder is chosen, Retry files the copy there.
-										if strings.Contains(operation.LastError, models.NoSentFolderError) {
-											<a href={ templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)) } class="mt-1 inline-block font-semibold underline underline-offset-2" data-mail-operation-choose-sent>{ i18n.T(ctx, "settings.operations.choose_sent") }</a>
-										}
-									</div>
-								}
-								<div class="mt-2 text-[11px] text-muted-foreground">
-									if operation.Parked {
-										{ mailOperationParkedSince(ctx, operation) }
-									} else {
-										{ i18n.T(ctx, "settings.operations.attempt", "attempt", operation.Attempts, "time", mailOperationTimeLabel(ctx, operation.NextRetryAt)) }
-									}
-								</div>
-								if mailOperationHasDetails(operation) {
-									@mailOperationDetailsSection(operation)
-								}
-							</div>
-							<div class="flex shrink-0 items-center gap-2">
-								if operation.CanUndo {
-									<button type="button" data-mail-operation-undo data-mail-operation-id={ operation.ID } data-mail-operation-undo-text={ mailOperationUndoText(ctx, operation) } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
-										@icon.Undo2(icon.Props{Class: "size-3.5"})
-										{ i18n.T(ctx, "settings.operations.undo") }
-									</button>
-								} else if operation.CanRetry || operation.CanReconcile {
-									<button type="button" data-mail-operation-retry data-mail-operation-id={ operation.ID } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
-										@icon.RefreshCw(icon.Props{Class: "size-3.5"})
-										{ mailOperationActionLabel(ctx, operation) }
-									</button>
-								}
-							</div>
-						</div>
-					</div>
+				for _, item := range mailOperationListItems(status) {
+					if item.Group != nil {
+						@mailOperationGroupRow(*item.Group)
+					} else {
+						@mailOperationRow(*item.Operation)
+					}
 				}
 			</div>
 		}
+	</div>
+}
+
+// mailOperationGroupRow is one action and what became of its changes. Its
+// message list loads the first time it is opened; when the list reloads
+// itself, the groups that were open come back with theirs.
+templ mailOperationGroupRow(group models.MailOperationGroup) {
+	<div class={
+		"settings-item rounded-lg border bg-background/40 p-4",
+		templ.KV("border-amber-500/25", group.NeedsAttention()),
+		templ.KV("border-border/60", !group.NeedsAttention()),
+	} data-mail-operation-group-row={ group.ActionID }>
+		// The buttons sit beside the title only; what follows uses the full
+		// width, so the message list has room.
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0">
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="text-sm font-semibold text-foreground" data-mail-operation-group-title>{ mailOperationGroupTitle(ctx, group) }</span>
+					<span class={
+						"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+						templ.KV("border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200", group.NeedsAttention()),
+						templ.KV("border-border bg-card text-muted-foreground", !group.NeedsAttention()),
+					}>{ mailOperationGroupState(ctx, group) }</span>
+				</div>
+				<div class="mt-1 text-xs text-muted-foreground">{ mailOperationGroupAccount(ctx, group) }</div>
+				<div class="mt-0.5 text-xs text-muted-foreground" data-mail-operation-origin>{ mailOperationGroupOrigin(ctx, group) }</div>
+			</div>
+			<div class="flex shrink-0 flex-wrap items-center gap-2">
+				if group.Parked > 0 {
+					<button type="button" data-mail-operation-undo data-mail-operation-undo-url={ mailActionURL(group.ActionID, "undo") } data-mail-operation-undo-text={ i18n.N(ctx, "settings.operations.undo.group", group.Parked) } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+						@icon.Undo2(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "settings.operations.undo") }
+					</button>
+				}
+				if group.Failed > 0 {
+					<button type="button" data-mail-operation-retry data-mail-operation-retry-url={ mailActionURL(group.ActionID, "retry") } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+						@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+						{ i18n.N(ctx, "settings.operations.group.retry", group.Failed) }
+					</button>
+				}
+			</div>
+		</div>
+		if problems := mailOperationGroupProblems(ctx, group); len(problems) > 0 {
+			<div class="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200" data-mail-operation-group-problems>
+				for _, problem := range problems {
+					<p>{ problem }</p>
+				}
+				if group.Parked > 0 {
+					<p class="mt-1 text-muted-foreground">{ i18n.T(ctx, "settings.operations.parked.folder_removed") }</p>
+				}
+			</div>
+		}
+		@collapsible.Collapsible(collapsible.Props{Class: "mt-2", Open: group.ChangesLoaded, Attributes: templ.Attributes{"data-mail-operation-group": group.ActionID}}) {
+			@collapsible.Trigger(collapsible.TriggerProps{Class: "group inline-flex cursor-pointer"}) {
+				<button
+					type="button"
+					class="inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+					if !group.ChangesLoaded {
+						data-mail-operation-group-load
+						hx-get={ "/settings/operations/actions/" + url.PathEscape(group.ActionID) }
+						hx-trigger="mail-operation-group-open"
+						hx-target={ "#mail-operation-group-changes-" + group.ActionID }
+						hx-swap="innerHTML"
+					}
+				>
+					@icon.ChevronRight(icon.Props{Class: "size-3.5 transition-transform group-aria-expanded:rotate-90"})
+					{ i18n.N(ctx, "settings.operations.group.messages", mailOperationGroupCount(group)) }
+				</button>
+			}
+			@collapsible.Content() {
+				<div id={ "mail-operation-group-changes-" + group.ActionID } class="pt-2" data-mail-operation-group-changes>
+					if group.ChangesLoaded {
+						@MailOperationGroupChanges(group.Changes)
+					} else {
+						<p class="text-[11px] text-muted-foreground">{ i18n.T(ctx, "settings.operations.group.loading") }</p>
+					}
+				</div>
+			}
+		}
+	</div>
+}
+
+// MailOperationGroupChanges is a group's message list: each change with its
+// message, state, error and Details, and its own Retry or Undo.
+templ MailOperationGroupChanges(changes []models.MailOperationGroupMessage) {
+	if len(changes) == 0 {
+		<p class="text-[11px] text-muted-foreground">{ i18n.T(ctx, "settings.operations.group.no_messages") }</p>
+	} else {
+		{{ shared := mailOperationChangesShareFolders(changes) }}
+		<ul class="divide-y divide-border/60 rounded-md border border-border/60 bg-card/60">
+			for _, change := range changes {
+				<li class="px-3 py-2" data-mail-operation-change={ change.Operation.ID }>
+					<div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+						<div class="min-w-0">
+							<p class="truncate text-xs font-medium text-foreground">{ mailOperationChangeSubject(ctx, change) }</p>
+							<p class="mt-0.5 text-[11px] text-muted-foreground">
+								if sender := mailOperationChangeSender(change); sender != "" {
+									<span>{ sender } · </span>
+								}
+								if !shared {
+									if folders := mailOperationChangeFolders(ctx, change); folders != "" {
+										<span>{ folders } · </span>
+									}
+								}
+								<span class={ templ.KV("font-semibold text-amber-800 dark:text-amber-200", change.Operation.NeedsAttention()) }>{ mailOperationStateLabel(ctx, change.Operation) }</span>
+							</p>
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							@mailOperationButtons(change.Operation)
+						</div>
+					</div>
+					// The error and Details use the row's full width.
+					if change.Operation.LastError != "" && !change.Operation.Parked {
+						<p class="mt-1 line-clamp-2 break-words text-[11px] text-red-800 dark:text-red-200" data-mail-operation-error>{ change.Operation.LastError }</p>
+					}
+					if mailOperationHasDetails(change.Operation) {
+						@mailOperationDetailsSection(change.Operation)
+					}
+				</li>
+			}
+		</ul>
+		if len(changes) >= MailOperationGroupChangesLimit {
+			<p class="mt-2 text-[11px] text-muted-foreground">{ i18n.T(ctx, "settings.operations.group.first", "count", MailOperationGroupChangesLimit) }</p>
+		}
+	}
+}
+
+// mailOperationButtons are a change's own Undo or Retry.
+templ mailOperationButtons(operation models.MailOperationSummary) {
+	if operation.CanUndo {
+		<button type="button" data-mail-operation-undo data-mail-operation-undo-url={ mailOperationURL(operation.ID, "undo") } data-mail-operation-undo-text={ mailOperationUndoText(ctx, operation) } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+			@icon.Undo2(icon.Props{Class: "size-3.5"})
+			{ i18n.T(ctx, "settings.operations.undo") }
+		</button>
+	} else if operation.CanRetry || operation.CanReconcile {
+		<button type="button" data-mail-operation-retry data-mail-operation-retry-url={ mailOperationURL(operation.ID, "retry") } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+			@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+			{ mailOperationActionLabel(ctx, operation) }
+		</button>
+	}
+}
+
+// mailOperationRow is one change that has no recorded action: a draft, a
+// Sent copy, or a change queued before Gofer recorded actions.
+templ mailOperationRow(operation models.MailOperationSummary) {
+	<div class={
+		"settings-item rounded-lg border bg-background/40 p-4",
+		templ.KV("border-amber-500/25", operation.CanRetry || operation.CanReconcile),
+		templ.KV("border-border/60", !operation.CanRetry && !operation.CanReconcile),
+	} data-mail-operation-id={ operation.ID }>
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0">
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="text-sm font-semibold text-foreground">{ mailOperationKindLabel(ctx, operation.Type) }</span>
+					<span class={
+						"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+						templ.KV("border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200", operation.CanRetry || operation.CanReconcile),
+						templ.KV("border-border bg-card text-muted-foreground", !operation.CanRetry && !operation.CanReconcile),
+					}>{ mailOperationStateLabel(ctx, operation) }</span>
+				</div>
+				<div class="mt-1 text-xs text-muted-foreground">
+					{ operation.AccountEmail }
+					if mailOperationTargetLabel(operation) != "" {
+						<span> · { mailOperationTargetLabel(operation) }</span>
+					}
+				</div>
+				if origin := mailOperationOrigin(ctx, operation); origin != "" {
+					<div class="mt-0.5 text-xs text-muted-foreground" data-mail-operation-origin>{ origin }</div>
+				}
+				if operation.Parked {
+					<div class="mt-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground" data-mail-operation-parked-reason>
+						{ mailOperationParkedReason(ctx, operation) }
+					</div>
+				} else if operation.LastError != "" {
+					<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">
+						// Long server replies are cut short here; Details has all of it.
+						<span class="line-clamp-2 break-words" data-mail-operation-error>{ operation.LastError }</span>
+						// Once a folder is chosen, Retry files the copy there.
+						if strings.Contains(operation.LastError, models.NoSentFolderError) {
+							<a href={ templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)) } class="mt-1 inline-block font-semibold underline underline-offset-2" data-mail-operation-choose-sent>{ i18n.T(ctx, "settings.operations.choose_sent") }</a>
+						}
+					</div>
+				}
+				<div class="mt-2 text-[11px] text-muted-foreground">
+					if operation.Parked {
+						{ mailOperationParkedSince(ctx, operation) }
+					} else {
+						{ i18n.T(ctx, "settings.operations.attempt", "attempt", operation.Attempts, "time", mailOperationTimeLabel(ctx, operation.NextRetryAt)) }
+					}
+				</div>
+				if mailOperationHasDetails(operation) {
+					@mailOperationDetailsSection(operation)
+				}
+			</div>
+			<div class="flex shrink-0 items-center gap-2">
+				@mailOperationButtons(operation)
+			</div>
+		</div>
 	</div>
 }
 

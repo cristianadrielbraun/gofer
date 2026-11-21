@@ -2121,29 +2121,58 @@ goferOnContent("#mail-operations-content[data-mail-operations-refresh]", functio
   countDown(false)
 })
 
-// Details opened in the Mail operations list stay open when the list reloads
-// itself: the open rows are noted before the swap and reopened in the new
-// list before it is drawn.
+// Details and groups opened in the Mail operations list stay open when the
+// list reloads itself: the open ones are noted before the swap and reopened in
+// the new list before it is drawn. Each reload also names the open groups, so
+// they come back with their messages already listed.
 var openMailOperationDetails = []
+var openMailOperationGroups = []
 document.addEventListener("htmx:beforeSwap", function (event) {
   var target = event.detail && event.detail.target
-  if (target && target.id === "mail-operations-content") openMailOperationDetails = openMailOperationDetailIDs(target)
+  if (!target || target.id !== "mail-operations-content") return
+  openMailOperationDetails = openMailOperationIDs(target, "data-mail-operation-details")
+  openMailOperationGroups = openMailOperationIDs(target, "data-mail-operation-group")
+})
+document.addEventListener("htmx:configRequest", function (event) {
+  var detail = event.detail || {}
+  if (!detail.target || detail.target.id !== "mail-operations-content") return
+  if (String(detail.path || "").indexOf("/settings/operations/content") !== 0) return
+  detail.parameters.open = openMailOperationIDs(detail.target, "data-mail-operation-group")
 })
 goferOnContent("#mail-operations-content", function (content) {
-  reopenMailOperationDetails(content, openMailOperationDetails)
+  reopenMailOperations(content, "data-mail-operation-details", openMailOperationDetails)
+  reopenMailOperations(content, "data-mail-operation-group", openMailOperationGroups)
 })
 
-function openMailOperationDetailIDs(list) {
+// A group's messages load the first time it is opened, by mouse or keyboard.
+// The collapsible has toggled by the time this runs.
+function loadOpenedMailOperationGroup(event) {
+  if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return
+  var trigger = event.target && event.target.closest ? event.target.closest('[data-tui-collapsible="trigger"]') : null
+  var button = trigger ? trigger.querySelector("[data-mail-operation-group-load]") : null
+  if (!button) return
+  setTimeout(function () {
+    var root = trigger.closest("[data-mail-operation-group]")
+    if (!root || root.getAttribute("data-tui-collapsible-state") !== "open") return
+    if (button.getAttribute("data-mail-operation-group-load") === "done") return
+    button.setAttribute("data-mail-operation-group-load", "done")
+    if (window.htmx) htmx.trigger(button, "mail-operation-group-open")
+  }, 0)
+}
+document.addEventListener("click", loadOpenedMailOperationGroup)
+document.addEventListener("keydown", loadOpenedMailOperationGroup)
+
+function openMailOperationIDs(list, attribute) {
   var ids = []
-  list.querySelectorAll('[data-mail-operation-details][data-tui-collapsible-state="open"]').forEach(function (root) {
-    ids.push(root.getAttribute("data-mail-operation-details"))
+  list.querySelectorAll("[" + attribute + '][data-tui-collapsible-state="open"]').forEach(function (root) {
+    ids.push(root.getAttribute(attribute))
   })
   return ids
 }
 
-function reopenMailOperationDetails(list, ids) {
-  list.querySelectorAll("[data-mail-operation-details]").forEach(function (root) {
-    if (ids.indexOf(root.getAttribute("data-mail-operation-details")) < 0) return
+function reopenMailOperations(list, attribute, ids) {
+  list.querySelectorAll("[" + attribute + "]").forEach(function (root) {
+    if (ids.indexOf(root.getAttribute(attribute)) < 0) return
     root.setAttribute("data-tui-collapsible-state", "open")
     var trigger = root.querySelector('[data-tui-collapsible="trigger"]')
     if (trigger) trigger.setAttribute("aria-expanded", "true")

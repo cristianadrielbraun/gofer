@@ -163,3 +163,60 @@ func (h *Handler) handleUserRetryFailedMailOperations(w http.ResponseWriter, r *
 	}
 	writeMailOperationsJSON(w, http.StatusOK, result)
 }
+
+// handleUserRetryMailAction and handleUserUndoMailAction act on every change
+// one action queued, account by account, each inside its account's guard.
+// An account that refuses is counted as skipped and the others still go
+// ahead.
+func (h *Handler) handleUserRetryMailAction(w http.ResponseWriter, r *http.Request) {
+	h.changeUserMailAction(w, r, true)
+}
+
+func (h *Handler) handleUserUndoMailAction(w http.ResponseWriter, r *http.Request) {
+	h.changeUserMailAction(w, r, false)
+}
+
+func (h *Handler) changeUserMailAction(w http.ResponseWriter, r *http.Request, retry bool) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	stop := context.AfterFunc(h.userStorageContext, cancel)
+	defer stop()
+	owner, actionID := h.userID(ctx), strings.TrimSpace(r.PathValue("id"))
+	var accounts []string
+	if err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
+		var err error
+		accounts, err = db.MailActionAccountsForUser(ctx, owner, actionID)
+		return err
+	}); err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	result := mailActionChangeResponse{}
+	for _, account := range accounts {
+		var changed int
+		err := h.userAccounts.WithAccountForUser(ctx, owner, account, func(_ *config.AccountStore, db *storage.DB) error {
+			var err error
+			guard := h.mailOperationAccountGuard(ctx, owner, account)
+			if retry {
+				changed, err = db.RetryMailActionForUser(ctx, owner, actionID, account, guard)
+			} else {
+				changed, err = db.UndoMailActionForUser(ctx, owner, actionID, account, guard)
+			}
+			return err
+		})
+		if err != nil {
+			log.Printf("mail action %s: account %s: %v", actionID, account, err)
+			result.Skipped++
+			continue
+		}
+		result.Changed += changed
+		// Undo stays in Gofer, so only a retry has anything to send.
+		if retry && changed > 0 {
+			if err := h.userIMAP.WakeMutations(ctx, owner, account); err != nil {
+				log.Printf("mail action retry saved; owned wake failed: %v", err)
+				w.Header().Set("X-Gofer-Mail-Delivery", "delayed")
+			}
+		}
+	}
+	writeMailActionResult(w, r, retry, result)
+}

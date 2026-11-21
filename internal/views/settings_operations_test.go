@@ -13,7 +13,7 @@ import (
 func TestMailOperationsDetailsShowFailuresInFull(t *testing.T) {
 	queued := time.Date(2026, time.November, 18, 14, 5, 0, 0, time.UTC)
 	longError := "NO [TRYCREATE] " + strings.Repeat("the server explained at length ", 20) + "Mailbox Projects does not exist"
-	status := models.MailOperationsStatus{Total: 3, Operations: []models.MailOperationSummary{
+	status := models.MailOperationsList{Operations: []models.MailOperationSummary{
 		{ID: "message_mutation:failed-1", Type: models.MailOperationMessageMutation, AccountEmail: "alex@example.com",
 			Operation: "move", FolderName: "Inbox", DestinationFolderName: "Projects", State: "failed", Attempts: 3,
 			LastError: longError, CreatedAt: queued, UpdatedAt: queued.Add(time.Hour), NextRetryAt: queued.Add(2 * time.Hour), CanRetry: true},
@@ -76,7 +76,7 @@ func TestRetryAllFailedShowsOnlyWithFailedWork(t *testing.T) {
 		want      string
 	}{{0, ""}, {1, "Retry 1 failed"}, {12, "Retry all 12 failed"}} {
 		var out bytes.Buffer
-		if err := SettingsOperationsContent(models.MailOperationsStatus{Retryable: tt.retryable}).Render(context.Background(), &out); err != nil {
+		if err := SettingsOperationsContent(models.MailOperationsList{Retryable: tt.retryable}).Render(context.Background(), &out); err != nil {
 			t.Fatal(err)
 		}
 		html := out.String()
@@ -89,33 +89,107 @@ func TestRetryAllFailedShowsOnlyWithFailedWork(t *testing.T) {
 	}
 }
 
-func TestMailOperationsSayWhoQueuedThem(t *testing.T) {
+func TestMailOperationGroupsSayWhatTheActionDid(t *testing.T) {
 	queued := time.Date(2026, time.November, 18, 14, 55, 0, 0, time.UTC)
-	row := func(id, source, kind, ruleName string) models.MailOperationSummary {
-		return models.MailOperationSummary{ID: id, Type: models.MailOperationMessageMutation, AccountEmail: "alex@example.com",
-			Operation: "delete", State: "pending", CreatedAt: queued, ActionID: "a-" + id, ActionKind: kind, ActionSource: source, ActionRuleName: ruleName}
-	}
-	status := models.MailOperationsStatus{Operations: []models.MailOperationSummary{
-		row("message_mutation:mine", "you", "empty_folder", ""),
-		row("message_mutation:rule", "rule", "move", "Newsletters"),
-		row("message_mutation:gone", "rule", "mark_read", ""),
-		row("message_mutation:old", "", "", ""),
+	list := models.MailOperationsList{Groups: []models.MailOperationGroup{
+		{ActionID: "a-move", ActionKind: "move", ActionSource: "you", AccountEmail: "alex@example.com", Accounts: 1, Messages: 3, Jobs: 3,
+			FolderID: "f-inbox", FolderName: "Inbox", FolderRole: "inbox", DestinationFolderID: "f-projects", DestinationName: "Projects", DestinationRole: "custom",
+			Failed: 1, Parked: 2, CreatedAt: queued, UpdatedAt: queued},
+		{ActionID: "a-empty", ActionKind: "empty_folder", ActionSource: "you", AccountEmail: "alex@example.com", Accounts: 1, Messages: 340, Jobs: 340,
+			FolderID: "f-trash", FolderName: "Trash", FolderRole: "trash", CreatedAt: queued, UpdatedAt: queued},
+		{ActionID: "a-rule", ActionKind: "label_add", ActionSource: "rule", ActionRuleName: "Newsletters", Accounts: 2, Messages: 1, Jobs: 1,
+			LabelName: "Reading", CreatedAt: queued, UpdatedAt: queued},
+		{ActionID: "a-gone", ActionKind: "move", ActionSource: "rule", AccountEmail: "alex@example.com", Accounts: 1, Messages: 2, Jobs: 2,
+			DestinationFolderID: "f-old", CreatedAt: queued, UpdatedAt: queued},
 	}}
 	var out bytes.Buffer
-	if err := SettingsOperationsContent(status).Render(context.Background(), &out); err != nil {
+	if err := SettingsOperationsContent(list).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
 	html := out.String()
-	for id, want := range map[string]string{
-		"message_mutation:mine": "You · Empty folder · ",
-		"message_mutation:rule": "Rule “Newsletters” · Move · ",
-		"message_mutation:gone": "A rule that was deleted · Mark as read · ",
+	for id, wants := range map[string][]string{
+		"a-move":  {"Move 3 messages from Inbox to Projects", "You · ", "1 of 3 changes failed", "2 of 3 changes can", "Retry 1 failed", `data-mail-operation-undo-url="/api/mail-operations/actions/a-move/undo"`, `data-mail-operation-retry-url="/api/mail-operations/actions/a-move/retry"`, "3 messages"},
+		"a-empty": {"Empty Trash", "Queued"},
+		"a-rule":  {"Add the label “Reading” to 1 message", "Rule “Newsletters” · ", "2 accounts"},
+		"a-gone":  {"Move 2 messages to a deleted folder", "A rule that was deleted · "},
 	} {
-		if got := operationRowHTML(t, html, id); !strings.Contains(got, want) {
-			t.Fatalf("row %s lacks %q", id, want)
+		row := groupRowHTML(t, html, id)
+		for _, want := range wants {
+			if !strings.Contains(row, want) {
+				t.Fatalf("group %s lacks %q:\n%s", id, want, row)
+			}
 		}
 	}
-	if strings.Contains(operationRowHTML(t, html, "message_mutation:old"), "data-mail-operation-origin") {
-		t.Fatalf("a change queued before origins were recorded shows one")
+	empty := groupRowHTML(t, html, "a-empty")
+	if strings.Contains(empty, "data-mail-operation-undo") || strings.Contains(empty, "data-mail-operation-retry") || strings.Contains(empty, "data-mail-operation-group-problems") {
+		t.Fatalf("a group with nothing wrong offers Undo or Retry:\n%s", empty)
 	}
+	// A closed group loads its messages when first opened.
+	if !strings.Contains(empty, `hx-get="/settings/operations/actions/a-empty"`) || !strings.Contains(empty, `data-tui-collapsible-state="closed"`) {
+		t.Fatalf("closed group can't load its messages:\n%s", empty)
+	}
+	// Groups that need attention come first.
+	if strings.Index(html, `data-mail-operation-group-row="a-move"`) > strings.Index(html, `data-mail-operation-group-row="a-empty"`) {
+		t.Fatalf("the group that needs attention isn't first")
+	}
+}
+
+func TestOpenMailOperationGroupListsItsMessages(t *testing.T) {
+	queued := time.Date(2026, time.November, 18, 14, 55, 0, 0, time.UTC)
+	change := func(id, subject, from string, parked bool) models.MailOperationGroupMessage {
+		return models.MailOperationGroupMessage{
+			Operation: models.MailOperationSummary{ID: id, Type: models.MailOperationMessageMutation, AccountEmail: "alex@example.com",
+				Operation: "move", FolderID: "f-inbox", DestinationFolderID: "f-archive", State: "failed", CreatedAt: queued,
+				ActionID: "a-move", ActionKind: "move", ActionSource: "you", Parked: parked, CanUndo: parked,
+				ParkedReason: models.MailOperationParkedFolderRemoved, LastError: "folder removed remotely (imap discovery)"},
+			Subject: subject, FromEmail: from, FolderName: "Inbox", FolderRole: "inbox", DestinationName: "Archive", DestinationRole: "archive",
+		}
+	}
+	group := models.MailOperationGroup{ActionID: "a-move", ActionKind: "move", ActionSource: "you", AccountEmail: "alex@example.com",
+		Accounts: 1, Messages: 2, Jobs: 2, Parked: 2, CreatedAt: queued, UpdatedAt: queued, ChangesLoaded: true,
+		Changes: []models.MailOperationGroupMessage{change("message_mutation:1", "Lunch on Friday?", "sam@example.com", true), change("message_mutation:2", "", "", true)}}
+	var out bytes.Buffer
+	if err := SettingsOperationsContent(models.MailOperationsList{Groups: []models.MailOperationGroup{group}}).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	if !strings.Contains(html, `data-tui-collapsible-state="open"`) || strings.Contains(html, `hx-get="/settings/operations/actions/`) {
+		t.Fatalf("an open group should come back open with its messages, without loading them again")
+	}
+	for _, want := range []string{"Lunch on Friday?", "sam@example.com", "A message Gofer no longer has",
+		`data-mail-operation-undo-url="/api/mail-operations/message_mutation:1/undo"`, `data-mail-operation-details="message_mutation:1"`,
+		"You · Move · "} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("open group lacks %q", want)
+		}
+	}
+	// Every change moves between the same folders, so the rows don't repeat
+	// them; the title already says.
+	if strings.Contains(html, "Inbox → Archive") {
+		t.Fatalf("rows repeat the folders every change shares")
+	}
+
+	out.Reset()
+	other := change("message_mutation:3", "Weekend plans", "sam@example.com", false)
+	other.Operation.DestinationFolderID, other.DestinationName, other.DestinationRole = "f-projects", "Projects", "custom"
+	if err := MailOperationGroupChanges([]models.MailOperationGroupMessage{change("message_mutation:1", "Lunch on Friday?", "sam@example.com", true), other}).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Inbox → Archive") || !strings.Contains(out.String(), "Inbox → Projects") {
+		t.Fatalf("changes to different folders should say where each goes:\n%s", out.String())
+	}
+}
+
+// groupRowHTML is the markup of one group row of the list.
+func groupRowHTML(t *testing.T, html, actionID string) string {
+	t.Helper()
+	start := strings.Index(html, `data-mail-operation-group-row="`+actionID+`"`)
+	if start < 0 {
+		t.Fatalf("group %s not rendered", actionID)
+	}
+	end := strings.Index(html[start+1:], `class="settings-item`)
+	if end < 0 {
+		return html[start:]
+	}
+	return html[start : start+1+end]
 }

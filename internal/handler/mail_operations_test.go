@@ -196,3 +196,48 @@ func TestRetryAllFailedMailOperationsIsUserScoped(t *testing.T) {
 		t.Fatalf("second retry all retried %d, want 0", retried)
 	}
 }
+
+func TestMailActionHandlersAreUserScoped(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	seedHandlerMailOperation(t, h, db)
+	if _, err := db.Write().Exec(`UPDATE message_mutations SET action_id = 'act-1', action_kind = 'mark_read', action_source = 'you' WHERE id = 'handler-mut'`); err != nil {
+		t.Fatal(err)
+	}
+	post := func(path, userID string, handle http.HandlerFunc) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.SetPathValue("id", "act-1")
+		rec := httptest.NewRecorder()
+		handle(rec, mailOperationsRequest(req, userID, false))
+		return rec
+	}
+	page := func(userID string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/settings/operations/actions/act-1", nil)
+		req.SetPathValue("id", "act-1")
+		rec := httptest.NewRecorder()
+		h.handleSettingsMailActionChanges(rec, mailOperationsRequest(req, userID, false))
+		return rec.Body.String()
+	}
+	if strings.Contains(page("attacker"), "Private operation") {
+		t.Fatal("another user sees the action's messages")
+	}
+	if !strings.Contains(page("owner"), "Private operation") {
+		t.Fatal("the owner doesn't see the action's messages")
+	}
+	if rec := post("/api/mail-operations/actions/act-1/retry", "attacker", h.handleRetryMailAction); rec.Code != http.StatusConflict {
+		t.Fatalf("attacker retry = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post("/api/mail-operations/actions/act-1/undo", "owner", h.handleUndoMailAction); rec.Code != http.StatusConflict {
+		t.Fatalf("undo of work that can still finish = %d %s", rec.Code, rec.Body.String())
+	}
+	rec := post("/api/mail-operations/actions/act-1/retry", "owner", h.handleRetryMailAction)
+	var result struct{ Changed int }
+	if rec.Code != http.StatusOK || json.NewDecoder(rec.Body).Decode(&result) != nil || result.Changed != 1 {
+		t.Fatalf("owner retry = %d %s", rec.Code, rec.Body.String())
+	}
+	var status string
+	if err := db.Read().QueryRow(`SELECT status FROM message_mutations WHERE id = 'handler-mut'`).Scan(&status); err != nil || status != storage.MessageMutationPending {
+		t.Fatalf("status after group retry = %q, %v", status, err)
+	}
+}

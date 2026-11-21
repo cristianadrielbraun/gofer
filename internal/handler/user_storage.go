@@ -144,6 +144,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 				pattern != "POST /api/mail/sync/accounts/{id}/repair" &&
 				pattern != "GET /api/mail-operations" &&
 				pattern != "GET /settings/operations/content" &&
+				pattern != "GET /settings/operations/actions/{id}" &&
+				pattern != "POST /api/mail-operations/actions/{id}/retry" &&
+				pattern != "POST /api/mail-operations/actions/{id}/undo" &&
 				pattern != "POST /api/mail-operations/{id}/retry" &&
 				pattern != "POST /api/mail-operations/{id}/undo" &&
 				pattern != "POST /api/mail-operations/retry-failed" &&
@@ -308,6 +311,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("POST /api/accounts/{id}/test-changes", routed.handleTestAccountChanges)
 	private("GET /api/mail-operations", routed.handleMailOperations)
 	private("GET /settings/operations/content", routed.handleSettingsMailOperationsContent)
+	private("GET /settings/operations/actions/{id}", routed.handleSettingsMailActionChanges)
 	private("GET /settings", routed.handleSettings)
 	private("GET /settings/{tab}", routed.handleSettingsTab)
 	// The About page's update check and license texts read nothing of the
@@ -438,6 +442,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/mail-operations/{id}/retry", routed.handleUserRetryMailOperation)
 		private("POST /api/mail-operations/{id}/undo", routed.handleUserUndoMailOperation)
 		private("POST /api/mail-operations/retry-failed", routed.handleUserRetryFailedMailOperations)
+		private("POST /api/mail-operations/actions/{id}/retry", routed.handleUserRetryMailAction)
+		private("POST /api/mail-operations/actions/{id}/undo", routed.handleUserUndoMailAction)
 		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)
 		private("POST /api/settings/accounts/{id}/outlook-push", routed.handleOutlookPushSetting)
 		private("POST /api/settings/accounts/{id}/outlook-push/check", routed.handleOutlookPushCheck)
