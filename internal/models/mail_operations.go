@@ -133,6 +133,17 @@ type MailOperationAdminTypeCount struct {
 	ActionRequired int    `json:"action_required"`
 }
 
+// MailOperationAdminOriginCount counts the work one kind of action queued,
+// such as Move or Empty folder, by who started it: a person ("you") or a mail
+// rule ("rule"). Work queued before Gofer recorded actions isn't counted.
+type MailOperationAdminOriginCount struct {
+	Source         string `json:"source"`
+	Kind           string `json:"kind"`
+	Total          int    `json:"total"`
+	ActionRequired int    `json:"action_required"`
+	Parked         int    `json:"parked"`
+}
+
 type MailOperationAdminAccountCount struct {
 	AccountID      string `json:"account_id"`
 	AccountLabel   string `json:"account_label"`
@@ -227,11 +238,16 @@ type MailOperationAdminHealth struct {
 	NextRetryAt         time.Time                          `json:"next_retry_at,omitempty"`
 }
 
+// MailOperationsAdminStatus is what the admin Operations page shows. Parked
+// counts the work that can't be completed, such as a change in a folder that
+// was deleted on the server.
 type MailOperationsAdminStatus struct {
 	Scope          AdminWebmailScope                `json:"scope"`
 	Total          int                              `json:"total"`
 	ActionRequired int                              `json:"action_required"`
+	Parked         int                              `json:"parked"`
 	ByType         []MailOperationAdminTypeCount    `json:"by_type"`
+	ByOrigin       []MailOperationAdminOriginCount  `json:"by_origin"`
 	ByAccount      []MailOperationAdminAccountCount `json:"by_account"`
 	Retention      MailRetentionDiagnostics         `json:"retention"`
 	Health         MailOperationAdminHealth         `json:"health"`

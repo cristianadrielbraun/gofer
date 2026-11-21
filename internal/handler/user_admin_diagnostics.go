@@ -146,10 +146,21 @@ func (h *Handler) ownedMailOperationsAdminStatus(ctx context.Context, scope mode
 	var result models.MailOperationsAdminStatus
 	typeKey := func(s models.MailOperationAdminTypeCount) string { return s.Type + "\x00" + s.Provider }
 	types := make(map[string]models.MailOperationAdminTypeCount)
+	origins := make(map[[2]string]models.MailOperationAdminOriginCount)
 	current, err := h.eachUserDiagnostic(ctx, scope.SelectedUserID, storage.UserDiagnosticsMail, func(operation context.Context, owner models.AdminWebmailUserOption, data storage.UserDiagnostics, actor storage.DiagnosticsActor) error {
 		s := data.Mail
 		result.Total += s.Total
 		result.ActionRequired += s.ActionRequired
+		result.Parked += s.Parked
+		for _, item := range s.ByOrigin {
+			key := [2]string{item.Source, item.Kind}
+			entry := origins[key]
+			entry.Source, entry.Kind = item.Source, item.Kind
+			entry.Total += item.Total
+			entry.ActionRequired += item.ActionRequired
+			entry.Parked += item.Parked
+			origins[key] = entry
+		}
 		for _, item := range s.ByType {
 			key := typeKey(item)
 			entry := types[key]
@@ -193,6 +204,10 @@ func (h *Handler) ownedMailOperationsAdminStatus(ctx context.Context, scope mode
 	for _, item := range types {
 		result.ByType = append(result.ByType, item)
 	}
+	for _, item := range origins {
+		result.ByOrigin = append(result.ByOrigin, item)
+	}
+	storage.SortMailOperationAdminOrigins(result.ByOrigin)
 	sort.Slice(result.ByType, func(i, j int) bool {
 		a, b := result.ByType[i], result.ByType[j]
 		if a.ActionRequired != b.ActionRequired {

@@ -360,6 +360,7 @@ ORDER BY updated_at DESC`, args...)
 	}
 	types := make(map[typeKey]*aggregate)
 	accounts := make(map[accountKey]*models.MailOperationAdminAccountCount)
+	origins := make(map[[2]string]*models.MailOperationAdminOriginCount)
 	for rows.Next() {
 		operation, err := scanMailOperation(rows)
 		if err != nil {
@@ -369,6 +370,22 @@ ORDER BY updated_at DESC`, args...)
 		actionRequired := operation.NeedsAttention()
 		if actionRequired {
 			status.ActionRequired++
+		}
+		if operation.Parked {
+			status.Parked++
+		}
+		if operation.ActionSource != "" && operation.ActionKind != "" {
+			origin := [2]string{operation.ActionSource, operation.ActionKind}
+			if origins[origin] == nil {
+				origins[origin] = &models.MailOperationAdminOriginCount{Source: origin[0], Kind: origin[1]}
+			}
+			origins[origin].Total++
+			if actionRequired {
+				origins[origin].ActionRequired++
+			}
+			if operation.Parked {
+				origins[origin].Parked++
+			}
 		}
 		key := typeKey{operation.Type, operation.Provider}
 		if types[key] == nil {
@@ -400,6 +417,10 @@ ORDER BY updated_at DESC`, args...)
 	for _, account := range accounts {
 		status.ByAccount = append(status.ByAccount, *account)
 	}
+	for _, origin := range origins {
+		status.ByOrigin = append(status.ByOrigin, *origin)
+	}
+	SortMailOperationAdminOrigins(status.ByOrigin)
 	sort.Slice(status.ByType, func(i, j int) bool {
 		if status.ByType[i].ActionRequired != status.ByType[j].ActionRequired {
 			return status.ByType[i].ActionRequired > status.ByType[j].ActionRequired
@@ -423,6 +444,21 @@ ORDER BY updated_at DESC`, args...)
 	}
 	status.Health = health
 	return status, nil
+}
+
+// SortMailOperationAdminOrigins puts the origins with the most work that
+// needs attention first, then people before mail rules, then by action.
+func SortMailOperationAdminOrigins(origins []models.MailOperationAdminOriginCount) {
+	sort.Slice(origins, func(i, j int) bool {
+		a, b := origins[i], origins[j]
+		if a.ActionRequired != b.ActionRequired {
+			return a.ActionRequired > b.ActionRequired
+		}
+		if a.Source != b.Source {
+			return a.Source > b.Source
+		}
+		return a.Kind < b.Kind
+	})
 }
 
 func maskMailOperationAccount(ctx context.Context, email string) string {

@@ -393,3 +393,60 @@ func TestRetryAllFailedRetriesOnlyRetryableWorkOfTheUser(t *testing.T) {
 		t.Fatalf("a refused retry all changed %d operations", n)
 	}
 }
+
+func TestMailOperationsAdminStatusCountsOriginsAndWorkThatCantBeCompleted(t *testing.T) {
+	ctx := context.Background()
+	db := seedUndoTest(t, "imap")
+	rule := withMailAction(ctx, MailAction{ID: "rule-action", Kind: MailActionMove, Source: MailActionSourceRule, RuleID: "rule-1"})
+	if err := db.MoveMessagesAndQueueForUser(rule, []int64{1}, "projects", "archive", "default"); err != nil {
+		t.Fatal(err)
+	}
+	// Projects is deleted on the server, so the rule's move can't be
+	// completed. Only that kind of work is waiting so far.
+	removeProjectsFolder(t, db)
+	status, err := db.ListMailOperationsAdminStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Parked != 1 || status.ActionRequired != 1 {
+		t.Fatalf("totals = %+v, want one change that can't be completed", status)
+	}
+	if !status.Health.NextRetryAt.IsZero() || !status.Health.OldestPendingAt.IsZero() {
+		t.Fatalf("health = %+v, work that can't be completed shows as waiting", status.Health)
+	}
+	if got := mailOperationKindStateCount(status.Health.MessageMutations, "move", "parked"); got != 1 {
+		t.Fatalf("move health = %+v, want it as can't be completed", status.Health.MessageMutations)
+	}
+	if got := mailOperationKindStateCount(status.Health.MessageMutations, "move", "failed"); got != 0 {
+		t.Fatalf("parked move counted as failed")
+	}
+
+	star := WithUserMailAction(ctx, MailActionStar)
+	if err := db.SetMessagesStarredAndQueueForUser(star, []int64{2}, true, "default"); err != nil {
+		t.Fatal(err)
+	}
+	// Queued before Gofer recorded actions: no origin.
+	if err := db.SetMessagesReadAndQueueForUser(ctx, []int64{2}, true, "default"); err != nil {
+		t.Fatal(err)
+	}
+	status, err = db.ListMailOperationsAdminStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Total != 3 || status.Parked != 1 {
+		t.Fatalf("totals = %+v", status)
+	}
+	want := []models.MailOperationAdminOriginCount{
+		{Source: MailActionSourceRule, Kind: MailActionMove, Total: 1, ActionRequired: 1, Parked: 1},
+		{Source: MailActionSourceYou, Kind: MailActionStar, Total: 1},
+	}
+	if len(status.ByOrigin) != len(want) || status.ByOrigin[0] != want[0] || status.ByOrigin[1] != want[1] {
+		t.Fatalf("origins = %+v, want %+v", status.ByOrigin, want)
+	}
+	if status.Health.NextRetryAt.IsZero() || status.Health.NextRetryAt.Year() == parkedRetryAt.Year() {
+		t.Fatalf("next retry = %v, want the queued star or read change", status.Health.NextRetryAt)
+	}
+	if others, err := db.ListMailOperationsAdminStatusForUser(ctx, "other"); err != nil || others.Parked != 0 || len(others.ByOrigin) != 0 {
+		t.Fatalf("another person's status = %+v, %v", others, err)
+	}
+}

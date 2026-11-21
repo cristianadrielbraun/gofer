@@ -56,7 +56,7 @@ func newOwnedAdminDiagnosticFixture(t *testing.T) *ownedAdminDiagnosticFixture {
 			if _, err := db.Write().Exec(`UPDATE messages SET subject=? WHERE id=1`, owner+" private subject"); err != nil {
 				return err
 			}
-			_, err := db.Write().Exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at) VALUES('same-operation',?,1,'inbox','imap','read',1,'failed',2,'access_token=private-diagnostic-secret',?)`, f.accounts[owner].ID, time.Now().Add(time.Hour))
+			_, err := db.Write().Exec(`INSERT INTO message_mutations(id,account_id,message_id,folder_id,provider_type,kind,target_value,status,attempt_count,last_error,next_attempt_at,action_id,action_kind,action_source,action_rule_id) VALUES('same-operation',?,1,'inbox','imap','read',1,'failed',2,'access_token=private-diagnostic-secret',?,'rule-action','mark_read','rule','rule-1')`, f.accounts[owner].ID, time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC))
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -128,8 +128,14 @@ func TestOwnedAdminDiagnosticsAggregateAndSelectOwners(t *testing.T) {
 		if operations.Code != 200 || json.Unmarshal(operations.Body.Bytes(), &operation) != nil || operation.Total != map[string]int{"": 2, "alice": 1, "bob": 1}[selected] || operation.ActionRequired != operation.Total {
 			t.Fatal("operation diagnostic totals", selected, operations.Code, operations.Body.String())
 		}
-		if len(operation.Health.MessageMutations) != 1 || operation.Health.MessageMutations[0].Count != operation.Total {
+		if len(operation.Health.MessageMutations) != 1 || operation.Health.MessageMutations[0].Count != operation.Total || operation.Health.MessageMutations[0].State != "parked" {
 			t.Fatal("operation health was not merged", operation.Health)
+		}
+		// Each person's rule queued work that can't be completed; the counts
+		// add up across people.
+		wantOrigin := models.MailOperationAdminOriginCount{Source: "rule", Kind: "mark_read", Total: operation.Total, ActionRequired: operation.Total, Parked: operation.Total}
+		if operation.Parked != operation.Total || len(operation.ByOrigin) != 1 || operation.ByOrigin[0] != wantOrigin {
+			t.Fatal("operation origins were not merged", operation.Parked, operation.ByOrigin)
 		}
 		for _, body := range []string{contacts.Body.String(), labels.Body.String(), operations.Body.String()} {
 			for _, forbidden := range []string{"central-sentinel", "Central secret", "central@invalid.test", "private-diagnostic-secret", "private subject"} {
