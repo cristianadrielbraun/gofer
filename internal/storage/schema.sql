@@ -297,7 +297,11 @@ CREATE TABLE IF NOT EXISTS label_mutation_queue (
     next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_error TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    action_id TEXT NOT NULL DEFAULT '',
+    action_kind TEXT NOT NULL DEFAULT '',
+    action_source TEXT NOT NULL DEFAULT '',
+    action_rule_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS gmail_message_fetch_queue (
@@ -329,6 +333,10 @@ CREATE TABLE IF NOT EXISTS message_mutations (
     next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    action_id TEXT NOT NULL DEFAULT '',
+    action_kind TEXT NOT NULL DEFAULT '',
+    action_source TEXT NOT NULL DEFAULT '',
+    action_rule_id TEXT NOT NULL DEFAULT '',
     UNIQUE(message_id, kind, folder_id)
 );
 
@@ -677,6 +685,12 @@ ON message_mutations(status, next_attempt_at, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_message_mutations_account
 ON message_mutations(account_id, status, next_attempt_at);
+
+CREATE INDEX IF NOT EXISTS idx_message_mutations_action
+ON message_mutations(action_id) WHERE action_id != '';
+
+CREATE INDEX IF NOT EXISTS idx_label_mutation_queue_action
+ON label_mutation_queue(action_id) WHERE action_id != '';
 
 CREATE INDEX IF NOT EXISTS idx_label_aliases_display
 ON label_aliases(account_id, provider_type, display_name COLLATE NOCASE);
@@ -2036,4 +2050,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (150);
+INSERT OR REPLACE INTO schema_version (version) VALUES (151);

@@ -88,3 +88,34 @@ func TestRetryAllFailedShowsOnlyWithFailedWork(t *testing.T) {
 		}
 	}
 }
+
+func TestMailOperationsSayWhoQueuedThem(t *testing.T) {
+	queued := time.Date(2026, time.November, 18, 14, 55, 0, 0, time.UTC)
+	row := func(id, source, kind, ruleName string) models.MailOperationSummary {
+		return models.MailOperationSummary{ID: id, Type: models.MailOperationMessageMutation, AccountEmail: "alex@example.com",
+			Operation: "delete", State: "pending", CreatedAt: queued, ActionID: "a-" + id, ActionKind: kind, ActionSource: source, ActionRuleName: ruleName}
+	}
+	status := models.MailOperationsStatus{Operations: []models.MailOperationSummary{
+		row("message_mutation:mine", "you", "empty_folder", ""),
+		row("message_mutation:rule", "rule", "move", "Newsletters"),
+		row("message_mutation:gone", "rule", "mark_read", ""),
+		row("message_mutation:old", "", "", ""),
+	}}
+	var out bytes.Buffer
+	if err := SettingsOperationsContent(status).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for id, want := range map[string]string{
+		"message_mutation:mine": "You · Empty folder · ",
+		"message_mutation:rule": "Rule “Newsletters” · Move · ",
+		"message_mutation:gone": "A rule that was deleted · Mark as read · ",
+	} {
+		if got := operationRowHTML(t, html, id); !strings.Contains(got, want) {
+			t.Fatalf("row %s lacks %q", id, want)
+		}
+	}
+	if strings.Contains(operationRowHTML(t, html, "message_mutation:old"), "data-mail-operation-origin") {
+		t.Fatalf("a change queued before origins were recorded shows one")
+	}
+}

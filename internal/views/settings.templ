@@ -6628,6 +6628,25 @@ func mailOperationUndoText(ctx context.Context, operation models.MailOperationSu
 	}
 }
 
+// mailOperationOrigin says who queued an operation, with what, and when:
+// "You · Empty folder · 18/11, 14:55". Operations queued before Gofer
+// recorded this have none.
+func mailOperationOrigin(ctx context.Context, operation models.MailOperationSummary) string {
+	if operation.ActionSource == "" || operation.ActionKind == "" {
+		return ""
+	}
+	action := i18n.T(ctx, "settings.operations.action."+operation.ActionKind)
+	at := mailOperationTimeLabel(ctx, operation.CreatedAt)
+	switch {
+	case operation.ActionSource == "rule" && operation.ActionRuleName != "":
+		return i18n.T(ctx, "settings.operations.origin.rule", "rule", operation.ActionRuleName, "action", action, "time", at)
+	case operation.ActionSource == "rule":
+		return i18n.T(ctx, "settings.operations.origin.rule_deleted", "action", action, "time", at)
+	default:
+		return i18n.T(ctx, "settings.operations.origin.you", "action", action, "time", at)
+	}
+}
+
 // mailOperationHasDetails reports whether a row offers Details: anything
 // that failed or can't be completed.
 func mailOperationHasDetails(operation models.MailOperationSummary) bool {
@@ -6671,6 +6690,9 @@ func mailOperationDetailsText(ctx context.Context, operation models.MailOperatio
 	}
 	if target := mailOperationTargetLabel(operation); target != "" {
 		lines = append(lines, i18n.T(ctx, "settings.operations.details.change")+": "+target)
+	}
+	if origin := mailOperationOrigin(ctx, operation); origin != "" {
+		lines = append(lines, origin)
 	}
 	if operation.Parked {
 		lines = append(lines, mailOperationParkedReason(ctx, operation))
@@ -6858,6 +6880,9 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 										<span> · { mailOperationTargetLabel(operation) }</span>
 									}
 								</div>
+								if origin := mailOperationOrigin(ctx, operation); origin != "" {
+									<div class="mt-0.5 text-xs text-muted-foreground" data-mail-operation-origin>{ origin }</div>
+								}
 								if operation.Parked {
 									<div class="mt-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground" data-mail-operation-parked-reason>
 										{ mailOperationParkedReason(ctx, operation) }

@@ -6811,6 +6811,7 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		targetRead = false
 	}
 
+	ctx = storage.WithUserMailAction(ctx, readMailAction(targetRead))
 	if err := h.db.SetMessageReadAndQueueForUser(ctx, msgID, targetRead, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -6844,6 +6845,7 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 		for _, info := range target.Infos {
 			messageIDs = append(messageIDs, info.MessageID)
 		}
+		ctx = storage.WithUserMailAction(ctx, readMailAction(targetRead))
 		if err := h.db.SetMessagesReadAndQueueForUser(ctx, messageIDs, targetRead, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -6886,6 +6888,7 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 		for _, info := range target.Infos {
 			messageIDs = append(messageIDs, info.MessageID)
 		}
+		ctx = storage.WithUserMailAction(ctx, starMailAction(targetStarred))
 		if err := h.db.SetMessagesStarredAndQueueForUser(ctx, messageIDs, targetStarred, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -6937,6 +6940,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		if err != nil || archiveFolderID == currentInfo.FolderID {
 			continue
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionArchive)
 		if err := h.queueMessageMoves(ctx, target.Infos, archiveFolderID); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -6982,6 +6986,7 @@ func (h *Handler) handleUnarchiveMessages(w http.ResponseWriter, r *http.Request
 		if err != nil || inboxFolderID == "" {
 			continue
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionUnarchive)
 		if err := h.queueMessageMoves(ctx, archived, inboxFolderID); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7018,6 +7023,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 	for _, target := range targets {
 		currentInfo := target.Infos[0].MessageMutationInfo
 		if payload.ForGood && currentInfo.FolderRole != "trash" {
+			ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
 				http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 				return
@@ -7027,6 +7033,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				keptTrash = append(keptTrash, target.Target)
 				continue
 			}
+			ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
 				http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 				return
@@ -7040,6 +7047,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				noTrash++
 				continue
 			}
+			ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 			if err := h.queueMessageMoves(ctx, target.Infos, trashFolderID); err != nil {
 				http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 				return
@@ -7137,6 +7145,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		if len(moving) == 0 {
 			continue
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionMove)
 		if err := h.queueMessageMoves(ctx, moving, destinations[i]); err != nil {
 			moveRefused(w, r, err.Error(), http.StatusInternalServerError)
 			return
@@ -7180,6 +7189,7 @@ func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetStarred := !info.IsStarred
+	ctx = storage.WithUserMailAction(ctx, starMailAction(targetStarred))
 	if err := h.db.SetMessageStarredAndQueueForUser(ctx, msgID, targetStarred, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7223,6 +7233,7 @@ func (h *Handler) handleToggleThreadRead(w http.ResponseWriter, r *http.Request)
 	for _, info := range infos {
 		messageIDs = append(messageIDs, info.MessageID)
 	}
+	ctx = storage.WithUserMailAction(ctx, readMailAction(targetRead))
 	if err := h.db.SetMessagesReadAndQueueForUser(ctx, messageIDs, targetRead, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7261,6 +7272,7 @@ func (h *Handler) handleToggleThreadStar(w http.ResponseWriter, r *http.Request)
 	for _, info := range infos {
 		messageIDs = append(messageIDs, info.MessageID)
 	}
+	ctx = storage.WithUserMailAction(ctx, starMailAction(targetStarred))
 	if err := h.db.SetMessagesStarredAndQueueForUser(ctx, messageIDs, targetStarred, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7304,6 +7316,7 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx = storage.WithUserMailAction(ctx, storage.MailActionArchive)
 	if err := h.queueMessageMoves(ctx, infos, archiveFolderID); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7330,6 +7343,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	// permanent=1 deletes for good without a Trash folder, as the page offers
 	// when the account has none.
 	if currentInfo.FolderRole == "trash" || r.URL.Query().Get("permanent") == "1" {
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.queuePermanentDeletes(ctx, infos); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7343,6 +7357,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
 			return
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7369,6 +7384,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	// permanent=1 deletes for good without a Trash folder, as the page offers
 	// when the account has none.
 	if info.FolderRole == "trash" || r.URL.Query().Get("permanent") == "1" {
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.db.PermanentlyDeleteMessageAndQueueForUser(ctx, msgID, info.FolderID, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7384,6 +7400,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.db.MoveMessageAndQueueForUser(ctx, msgID, info.FolderID, trashFolderID, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7432,6 +7449,7 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx = storage.WithUserMailAction(ctx, storage.MailActionMove)
 	if err := h.db.MoveMessageAndQueueForUser(ctx, msgID, info.FolderID, destFolderID, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return

@@ -38,6 +38,8 @@ func (h *Handler) handleMarkMessagesNotSpam(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Request, disposition spamDisposition) {
+	// Spam training and the move are one action, wherever each is queued.
+	r = r.WithContext(storage.WithUserMailAction(r.Context(), spamMailAction(disposition)))
 	payload, err := decodeMessageBulkRequest(r)
 	if err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)

@@ -35,7 +35,9 @@ const mailOperationProjection = `
 SELECT operation_id, operation_type, account_id, account_email, provider,
        message_id, folder_id, folder_name, destination_folder_id, destination_folder_name,
        label_name, operation, draft_key, state, attempts, last_error,
-       next_retry_at, created_at, updated_at, can_retry, can_reconcile, can_cancel, ambiguous
+       next_retry_at, created_at, updated_at, can_retry, can_reconcile, can_cancel, ambiguous,
+       action_id, action_kind, action_source, action_rule_id,
+       COALESCE((SELECT name FROM mail_rules WHERE id = operations.action_rule_id AND operations.action_rule_id != ''), '') AS action_rule_name
 FROM (
     SELECT
         'message_mutation:' || mm.id AS operation_id,
@@ -60,7 +62,8 @@ FROM (
         CASE WHEN mm.status = 'failed' THEN 1 ELSE 0 END AS can_retry,
         0 AS can_reconcile,
         0 AS can_cancel,
-        0 AS ambiguous
+        0 AS ambiguous,
+        mm.action_id, mm.action_kind, mm.action_source, mm.action_rule_id
     FROM message_mutations mm
     JOIN accounts a ON a.id = mm.account_id
     LEFT JOIN folders sf ON sf.id = mm.folder_id
@@ -92,7 +95,8 @@ FROM (
         CASE WHEN lm.attempts > 0 OR COALESCE(lm.last_error, '') != '' THEN 1 ELSE 0 END AS can_retry,
         0 AS can_reconcile,
         0 AS can_cancel,
-        0 AS ambiguous
+        0 AS ambiguous,
+        lm.action_id, lm.action_kind, lm.action_source, lm.action_rule_id
     FROM label_mutation_queue lm
     JOIN accounts a ON a.id = lm.account_id
     LEFT JOIN folders lf ON lf.id = lm.folder_id
@@ -122,7 +126,8 @@ FROM (
         CASE WHEN io.status = 'failed' THEN 1 ELSE 0 END AS can_retry,
         CASE WHEN io.status = 'ambiguous' THEN 1 ELSE 0 END AS can_reconcile,
         0 AS can_cancel,
-        CASE WHEN io.status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous
+        CASE WHEN io.status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous,
+        '' AS action_id, '' AS action_kind, '' AS action_source, '' AS action_rule_id
     FROM imap_draft_operations io
     JOIN accounts a ON a.id = io.account_id
     JOIN imap_draft_states s ON s.account_id = io.account_id AND s.draft_key = io.draft_key
@@ -154,7 +159,8 @@ FROM (
         CASE WHEN os.sent_copy_status = 'failed' THEN 1 ELSE 0 END AS can_retry,
         CASE WHEN os.sent_copy_status = 'ambiguous' THEN 1 ELSE 0 END AS can_reconcile,
         0 AS can_cancel,
-        CASE WHEN os.sent_copy_status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous
+        CASE WHEN os.sent_copy_status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous,
+        '' AS action_id, '' AS action_kind, '' AS action_source, '' AS action_rule_id
     FROM outgoing_sends os
     JOIN accounts a ON a.id = os.account_id
     WHERE os.status = 'sent'
@@ -187,7 +193,8 @@ const userProviderDraftOperationProjection = `
                 a.provider=s.provider AND a.auth_method='oauth2' AND
                 COALESCE(a.provider_account_id,'')=s.mailbox_subject AND
                 COALESCE(a.is_deleting,0)=0 THEN 1 ELSE 0 END,
-           0, CASE WHEN o.status='ambiguous' THEN 1 ELSE 0 END
+           0, CASE WHEN o.status='ambiguous' THEN 1 ELSE 0 END,
+           '', '', '', ''
     FROM gofer_provider_draft_operations o
     JOIN gofer_provider_draft_states s ON s.account_id=o.account_id AND s.draft_key=o.draft_key
     JOIN accounts a ON a.id=o.account_id
@@ -227,6 +234,7 @@ func scanMailOperation(row mailOperationRowScanner) (models.MailOperationSummary
 		&operation.LabelName, &operation.Operation, &operation.DraftKey, &operation.State,
 		&operation.Attempts, &operation.LastError, &nextRetry, &createdAt, &updatedAt,
 		&canRetry, &canReconcile, &canCancel, &ambiguous,
+		&operation.ActionID, &operation.ActionKind, &operation.ActionSource, &operation.ActionRuleID, &operation.ActionRuleName,
 	); err != nil {
 		return models.MailOperationSummary{}, err
 	}

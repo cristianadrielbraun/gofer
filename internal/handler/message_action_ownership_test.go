@@ -458,3 +458,70 @@ func TestOwnedRemoteContentApprovalFetchesAndPersists(t *testing.T) {
 			bodyPath, fixture.bodyPath, allowed, senderMarkers)
 	}
 }
+
+// Spam is left out: here it goes to the server at once, and per-user
+// storage queues it through QueueUserIMAPSpam, tested in storage.
+func TestMessageActionsRecordWhatQueuedThem(t *testing.T) {
+	cases := map[string]string{
+		"toggle read":        storage.MailActionMarkRead,
+		"toggle star":        storage.MailActionStar,
+		"toggle thread read": storage.MailActionMarkRead,
+		"archive thread":     storage.MailActionArchive,
+		"delete thread":      storage.MailActionDelete,
+		"delete message":     storage.MailActionDelete,
+		"move message":       storage.MailActionMove,
+		"bulk read":          storage.MailActionMarkRead,
+		"bulk star":          storage.MailActionStar,
+		"bulk archive":       storage.MailActionArchive,
+		"bulk delete":        storage.MailActionDelete,
+		"bulk move":          storage.MailActionMove,
+		"mark folder read":   storage.MailActionMarkFolderRead,
+	}
+	seen := 0
+	for _, request := range foreignMessageActionRequests(newMessageActionOwnershipFixture(t)) {
+		want, ok := cases[request.name]
+		if !ok {
+			continue
+		}
+		seen++
+		t.Run(request.name, func(t *testing.T) {
+			fixture := newMessageActionOwnershipFixture(t)
+			for _, candidate := range foreignMessageActionRequests(fixture) {
+				if candidate.name == request.name {
+					request = candidate
+				}
+			}
+			// Move into the owner's own Archive.
+			request.body = strings.ReplaceAll(request.body, "attacker-archive", "victim-archive")
+			if rec := executeMessageActionRequest(t, request, ownerRequest); rec.Code >= 300 {
+				t.Fatalf("status = %d body = %q", rec.Code, rec.Body.String())
+			}
+			rows, err := fixture.db.Read().QueryContext(t.Context(), `
+				SELECT action_id, action_kind, action_source FROM message_mutations
+				UNION ALL SELECT action_id, action_kind, action_source FROM label_mutation_queue`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rows.Close()
+			ids := map[string]bool{}
+			count := 0
+			for rows.Next() {
+				var id, kind, source string
+				if err := rows.Scan(&id, &kind, &source); err != nil {
+					t.Fatal(err)
+				}
+				count++
+				if kind != want || source != storage.MailActionSourceYou || id == "" {
+					t.Fatalf("queued change recorded %q by %q (id %q), want %q by you", kind, source, id, want)
+				}
+				ids[id] = true
+			}
+			if count == 0 || len(ids) != 1 {
+				t.Fatalf("%d queued changes under %d actions, want at least one under one action", count, len(ids))
+			}
+		})
+	}
+	if seen != len(cases) {
+		t.Fatalf("checked %d of %d actions; a request name changed", seen, len(cases))
+	}
+}

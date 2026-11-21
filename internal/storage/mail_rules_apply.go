@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"github.com/google/uuid"
+
 	"context"
 	"database/sql"
 	"errors"
@@ -136,6 +138,35 @@ type mailRuleRunner struct {
 	// records one summary instead.
 	quiet  bool
 	failed int
+	// actions are the actions this run queued changes under, one per rule
+	// and kind of action, so a rule's changes in one run stay together.
+	actions map[string]MailAction
+}
+
+// mailRuleActionKinds are the mail actions that rule actions queue changes
+// as.
+var mailRuleActionKinds = map[string]string{
+	models.MailRuleActionMove:     MailActionMove,
+	models.MailRuleActionArchive:  MailActionArchive,
+	models.MailRuleActionTrash:    MailActionDelete,
+	models.MailRuleActionSpam:     MailActionSpam,
+	models.MailRuleActionMarkRead: MailActionMarkRead,
+	models.MailRuleActionStar:     MailActionStar,
+	models.MailRuleActionLabel:    MailActionLabelAdd,
+}
+
+// ruleAction is the action a rule's action queues changes under in this run.
+func (r *mailRuleRunner) ruleAction(ruleID, kind string) MailAction {
+	key := ruleID + "\x00" + kind
+	if action, ok := r.actions[key]; ok {
+		return action
+	}
+	if r.actions == nil {
+		r.actions = map[string]MailAction{}
+	}
+	action := MailAction{ID: uuid.NewString(), Kind: mailRuleActionKinds[kind], Source: MailActionSourceRule, RuleID: ruleID}
+	r.actions[key] = action
+	return action
 }
 
 type mailRuleFolder struct {
@@ -380,7 +411,7 @@ func (r *mailRuleRunner) run(ctx context.Context, messageID int64, arrival, trig
 				skipped = append(skipped, mailrules.NewNote("already_moved_by", "rule", moved))
 				continue
 			}
-			note, err := r.apply(ctx, m, arrival, action, outcome)
+			note, err := r.apply(withMailAction(ctx, r.ruleAction(rule.ID, action.Kind)), m, arrival, action, outcome)
 			if ctx.Err() != nil {
 				return outcome, ctx.Err()
 			}

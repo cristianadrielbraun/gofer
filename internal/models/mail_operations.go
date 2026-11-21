@@ -47,6 +47,14 @@ type MailOperationSummary struct {
 	Parked       bool   `json:"parked"`
 	ParkedReason string `json:"parked_reason,omitempty"`
 	CanUndo      bool   `json:"can_undo"`
+	// The action that queued the operation, when it was recorded: its ID,
+	// what it did, who started it ("you" or "rule"), and for a mail rule
+	// its ID and current name. A rule deleted since has no name.
+	ActionID       string `json:"action_id,omitempty"`
+	ActionKind     string `json:"action_kind,omitempty"`
+	ActionSource   string `json:"action_source,omitempty"`
+	ActionRuleID   string `json:"action_rule_id,omitempty"`
+	ActionRuleName string `json:"action_rule_name,omitempty"`
 }
 
 // NeedsAttention reports whether the person has to act on the operation:

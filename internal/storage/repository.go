@@ -3233,16 +3233,21 @@ func (db *DB) EnqueueLabelMutation(ctx context.Context, accountID string, messag
 
 	_, err := db.Write().ExecContext(ctx, `
 		INSERT INTO label_mutation_queue (
-			account_id, message_id, folder_id, provider_type, operation, label_name, last_error, next_attempt_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			account_id, message_id, folder_id, provider_type, operation, label_name, last_error, next_attempt_at, updated_at,
+			action_id, action_kind, action_source, action_rule_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?, ?)
 		ON CONFLICT DO UPDATE SET
 			account_id = excluded.account_id,
 			folder_id = excluded.folder_id,
 			label_name = excluded.label_name,
 			last_error = excluded.last_error,
 			next_attempt_at = CURRENT_TIMESTAMP,
-			updated_at = CURRENT_TIMESTAMP`,
-		accountID, messageID, folderID, providerType, operation, labelName, strings.TrimSpace(lastError))
+			updated_at = CURRENT_TIMESTAMP,
+			action_id = excluded.action_id,
+			action_kind = excluded.action_kind,
+			action_source = excluded.action_source,
+			action_rule_id = excluded.action_rule_id`,
+		append([]any{accountID, messageID, folderID, providerType, operation, labelName, strings.TrimSpace(lastError)}, mailActionArgs(ctx)...)...)
 	return err
 }
 
@@ -3268,9 +3273,10 @@ func (db *DB) ReplaceLabelMutation(ctx context.Context, accountID string, messag
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO label_mutation_queue (
-			account_id, message_id, folder_id, provider_type, operation, label_name, next_attempt_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-		accountID, messageID, strings.TrimSpace(folderID), providerType, operation, labelName); err != nil {
+			account_id, message_id, folder_id, provider_type, operation, label_name, next_attempt_at, updated_at,
+			action_id, action_kind, action_source, action_rule_id
+		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+		append([]any{accountID, messageID, strings.TrimSpace(folderID), providerType, operation, labelName}, mailActionArgs(ctx)...)...); err != nil {
 		return err
 	}
 	return tx.Commit()
