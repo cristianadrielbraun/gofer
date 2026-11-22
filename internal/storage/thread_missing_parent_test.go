@@ -65,3 +65,26 @@ func TestMissingMessageArrivingJoinsItsReplies(t *testing.T) {
 		t.Fatalf("%d thread rows, want 1", n)
 	}
 }
+
+// Regroup joins mail that refers to the same missing message, saved apart
+// before Gofer grouped it, even without grouping by subject.
+func TestRegroupJoinsRepliesToMissingMessage(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	a := trackerNotice(1, "[Tracker] (ISSUE-7) Printer jams", "<ISSUE-7.1@node-a.example.test>", noticeDay)
+	b := trackerNotice(2, "[Tracker] (ISSUE-7) Printer jams", "<ISSUE-7.2@node-b.example.test>", noticeDay.Add(5*24*time.Hour))
+	syncNotices(t, db, a, b)
+	// As older versions saved them: each in a conversation of its own.
+	if _, err := db.Write().Exec(`INSERT INTO threads (id, account_id, subject, normalized_subject) SELECT 'apart', account_id, subject, normalized_subject FROM messages WHERE internet_message_id = ?`, b.MessageID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`UPDATE messages SET thread_id = 'apart' WHERE internet_message_id = ?`, b.MessageID); err != nil {
+		t.Fatal(err)
+	}
+	assertGroups(t, db, "ab", a, b)
+
+	regroup(t, db)
+	assertGroups(t, db, "aa", a, b)
+	if n := threadRowCount(t, db); n != 1 {
+		t.Fatalf("%d thread rows after regrouping, want 1", n)
+	}
+}
