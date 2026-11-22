@@ -35,17 +35,6 @@
     return typed
   }
 
-  // A row's tooltip names the whole path, but only when the row cuts its
-  // name or path short: otherwise its trigger is switched to "manual". This
-  // runs before the tooltip's own hover handling, which opens only "hover"
-  // triggers.
-  document.addEventListener("pointerover", function (event) {
-    var trigger = event.target.closest && event.target.closest("[data-folder-picker-tip]")
-    if (!trigger) return
-    var cut = Array.prototype.some.call(trigger.querySelectorAll(".truncate"), function (text) { return text.scrollWidth > text.clientWidth })
-    trigger.setAttribute("data-tui-popover-type", cut ? "hover" : "manual")
-  }, true)
-
   // startCreate names a new folder in the list, where it will be: at the
   // top of an account (data-folder-picker-create-parent "") or inside the
   // folder whose button was pressed. Once the server made it, made(folder)

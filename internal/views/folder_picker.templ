@@ -91,14 +91,13 @@ const folderPickerHeaderClass = "sticky -top-px z-10 flex items-center gap-2 bg-
 
 // folderPickerName is a row's folder: its icon and name, as the sidebar
 // shows them, and the folders above it. When the name or the path is cut
-// short, a tooltip names the whole path (folder-picker.js switches it off
-// for rows that fit).
+// short, a tooltip names the whole path (it stays off for rows that fit).
 templ folderPickerName(entry folderPickerEntry) {
 	<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 		@FolderAppearanceIcon(entry.Folder)
 	</span>
 	@tooltip.Tooltip() {
-		@tooltip.Trigger(tooltip.TriggerProps{Attributes: templ.Attributes{"data-folder-picker-tip": ""}}) {
+		@tooltip.Trigger(tooltip.TriggerProps{WhenCut: true}) {
 			<span class="min-w-0 flex-1 text-sm">
 				<span class="block truncate">{ i18n.FolderName(ctx, entry.Folder.Role, entry.Folder.Name) }</span>
 				if entry.Parent != "" {
@@ -312,11 +311,11 @@ templ folderFieldChoice(value string, selected, disabled, roomForButton bool, de
 
 // folderFieldShown is the chosen folder in its field: its icon, name and
 // the folders above it, then at the right its account with its color, or
-// a note. Cut short, a tooltip shows the whole place (folder-picker.js
-// switches it off when all of it fits).
+// a note. Cut short, a tooltip shows the whole place (it stays off when
+// all of it fits).
 templ folderFieldShown(chosen folderFieldChosen) {
 	@tooltip.Tooltip() {
-		@tooltip.Trigger(tooltip.TriggerProps{Attributes: templ.Attributes{"data-folder-picker-tip": ""}}) {
+		@tooltip.Trigger(tooltip.TriggerProps{WhenCut: true}) {
 			<span class="flex min-w-0 flex-1 items-center gap-2">
 				<span class="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
 					@chosen.Icon

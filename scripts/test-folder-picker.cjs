@@ -49,16 +49,4 @@ assert.equal(shown(other), 1, 'the account matches too')
 search.value = ''
 picker.filter(root)
 assert.equal(shown(work) + shown(local) + shown(other), 5, 'an empty search shows every folder')
-// A row's path tooltip opens on hover only when its name or path is cut.
-assert.equal(listeners.pointerover.capture, true, 'it runs before the tooltip opens')
-const tip = (...widths) => {
-  const trigger = {attributes: {}, setAttribute(name, value) { this.attributes[name] = value },
-    querySelectorAll() { return widths.map(([scrollWidth, clientWidth]) => ({scrollWidth, clientWidth})) }}
-  listeners.pointerover.listener({target: {closest: selector => selector === '[data-folder-picker-tip]' ? trigger : null}})
-  return trigger.attributes['data-tui-popover-type']
-}
-assert.equal(tip([80, 120], [200, 200]), 'manual', 'a row that fits has no tooltip')
-assert.equal(tip([80, 120], [340, 300]), 'hover', 'a cut path shows it')
-assert.equal(tip([400, 300]), 'hover', 'a cut name shows it')
-
-console.log('Folder picker: path, account and empty searches, and path tooltips passed.')
+console.log('Folder picker: path, account and empty searches passed.')

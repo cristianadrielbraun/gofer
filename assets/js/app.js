@@ -257,6 +257,17 @@ document.addEventListener("click", function (e) {
 document.addEventListener("DOMContentLoaded", syncContactHeaderOverflow)
 document.addEventListener("htmx:afterSettle", function () { syncContactHeaderOverflow() })
 
+// A tooltip that repeats a label in full (tooltip.TriggerProps.WhenCut)
+// opens only while the label is cut short: otherwise its trigger is
+// switched to "manual". This runs before the tooltip's own hover handling,
+// which opens only "hover" triggers.
+document.addEventListener("pointerover", function (event) {
+  var trigger = event.target.closest && event.target.closest("[data-tooltip-when-cut]")
+  if (!trigger) return
+  var cut = Array.prototype.some.call(trigger.querySelectorAll(".truncate"), function (text) { return text.scrollWidth > text.clientWidth })
+  trigger.setAttribute("data-tui-popover-type", cut ? "hover" : "manual")
+}, true)
+
 // collapseContactSection closes part of a contact form, padding and divider
 // included, and hides it once closed; the dialog follows as it shrinks.
 function collapseContactSection(section, done) {

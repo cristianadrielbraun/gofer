@@ -41,6 +41,9 @@ type TriggerProps struct {
 	ID         string
 	Class      string
 	Attributes templ.Attributes
+	// WhenCut opens the tooltip only while the trigger's .truncate text is
+	// cut short, for tooltips that repeat a label in full (app.js).
+	WhenCut bool
 }
 
 type ContentProps struct {
@@ -71,6 +74,13 @@ templ Trigger(props ...TriggerProps) {
 	{{ var p TriggerProps }}
 	if len(props) > 0 {
 		{{ p = props[0] }}
+	}
+	if p.WhenCut {
+		{{ attrs := templ.Attributes{"data-tooltip-when-cut": ""} }}
+		{{ for k, v := range p.Attributes {
+	attrs[k] = v
+} }}
+		{{ p.Attributes = attrs }}
 	}
 	@popover.Trigger(popover.TriggerProps{
 		ID:          p.ID,

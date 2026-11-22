@@ -369,8 +369,7 @@ const folderPickerHeaderClass = "sticky -top-px z-10 flex items-center gap-2 bg-
 
 // folderPickerName is a row's folder: its icon and name, as the sidebar
 // shows them, and the folders above it. When the name or the path is cut
-// short, a tooltip names the whole path (folder-picker.js switches it off
-// for rows that fit).
+// short, a tooltip names the whole path (it stays off for rows that fit).
 func folderPickerName(entry folderPickerEntry) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -435,7 +434,7 @@ func folderPickerName(entry folderPickerEntry) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.FolderName(ctx, entry.Folder.Role, entry.Folder.Name))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 103, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 102, Col: 93}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
@@ -453,7 +452,7 @@ func folderPickerName(entry folderPickerEntry) templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Parent)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 105, Col: 82}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 104, Col: 82}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 					if templ_7745c5c3_Err != nil {
@@ -470,7 +469,7 @@ func folderPickerName(entry folderPickerEntry) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tooltip.Trigger(tooltip.TriggerProps{Attributes: templ.Attributes{"data-folder-picker-tip": ""}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tooltip.Trigger(tooltip.TriggerProps{WhenCut: true}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -493,7 +492,7 @@ func folderPickerName(entry folderPickerEntry) templ.Component {
 				var templ_7745c5c3_Var22 string
 				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Path)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 112, Col: 15}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 111, Col: 15}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 				if templ_7745c5c3_Err != nil {
@@ -547,7 +546,7 @@ func folderPickerNewRow(account models.Account, attrs templ.Attributes) templ.Co
 		var templ_7745c5c3_Var24 string
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(folderPickerIndent(0))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 125, Col: 31}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 124, Col: 31}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 		if templ_7745c5c3_Err != nil {
@@ -560,7 +559,7 @@ func folderPickerNewRow(account models.Account, attrs templ.Attributes) templ.Co
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.move.new_folder_in", "folder", accountTitle(account)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 126, Col: 86}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 125, Col: 86}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -573,7 +572,7 @@ func folderPickerNewRow(account models.Account, attrs templ.Attributes) templ.Co
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(account.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 128, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 127, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {
@@ -602,7 +601,7 @@ func folderPickerNewRow(account models.Account, attrs templ.Attributes) templ.Co
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.folder_menu.new_folder"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 136, Col: 105}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 135, Col: 105}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
@@ -647,7 +646,7 @@ func folderPickerSubfolderButton(accountID string, entry folderPickerEntry, attr
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 147, Col: 15}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 146, Col: 15}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 		if templ_7745c5c3_Err != nil {
@@ -660,7 +659,7 @@ func folderPickerSubfolderButton(accountID string, entry folderPickerEntry, attr
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 148, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 147, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
@@ -673,7 +672,7 @@ func folderPickerSubfolderButton(accountID string, entry folderPickerEntry, attr
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 149, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 148, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -686,7 +685,7 @@ func folderPickerSubfolderButton(accountID string, entry folderPickerEntry, attr
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Folder.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 150, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 149, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {
@@ -699,7 +698,7 @@ func folderPickerSubfolderButton(accountID string, entry folderPickerEntry, attr
 		var templ_7745c5c3_Var33 string
 		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", entry.Depth+1))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 151, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 150, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 		if templ_7745c5c3_Err != nil {
@@ -803,7 +802,7 @@ func folderFieldView(f folderField) templ.Component {
 		var templ_7745c5c3_Var35 string
 		templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(f.IDPrefix)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 205, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 204, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 		if templ_7745c5c3_Err != nil {
@@ -816,7 +815,7 @@ func folderFieldView(f folderField) templ.Component {
 		var templ_7745c5c3_Var36 string
 		templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(f.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 206, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 205, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 		if templ_7745c5c3_Err != nil {
@@ -829,7 +828,7 @@ func folderFieldView(f folderField) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(f.Value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 206, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 205, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 		if templ_7745c5c3_Err != nil {
@@ -876,7 +875,7 @@ func folderFieldView(f folderField) templ.Component {
 				var templ_7745c5c3_Var39 string
 				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "transfer.choose_folder"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 221, Col: 89}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 220, Col: 89}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 				if templ_7745c5c3_Err != nil {
@@ -961,7 +960,7 @@ func folderFieldView(f folderField) templ.Component {
 						var templ_7745c5c3_Var44 string
 						templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(f.Title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 231, Col: 15}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 230, Col: 15}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 						if templ_7745c5c3_Err != nil {
@@ -1024,7 +1023,7 @@ func folderFieldView(f folderField) templ.Component {
 								var templ_7745c5c3_Var47 string
 								templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(strings.ToLower(extra.Label))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 239, Col: 83}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 238, Col: 83}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 								if templ_7745c5c3_Err != nil {
@@ -1095,7 +1094,7 @@ func folderFieldView(f folderField) templ.Component {
 								var templ_7745c5c3_Var49 string
 								templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Search)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 261, Col: 90}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 260, Col: 90}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 								if templ_7745c5c3_Err != nil {
@@ -1194,7 +1193,7 @@ func folderFieldView(f folderField) templ.Component {
 							var templ_7745c5c3_Var54 string
 							templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 276, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 275, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 							if templ_7745c5c3_Err != nil {
@@ -1286,7 +1285,7 @@ func folderFieldExtraChoice(f folderField, extra folderFieldExtra) templ.Compone
 			var templ_7745c5c3_Var57 string
 			templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(extra.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 290, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 289, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 			if templ_7745c5c3_Err != nil {
@@ -1341,7 +1340,7 @@ func folderFieldChoice(value string, selected, disabled, roomForButton bool, dep
 		var templ_7745c5c3_Var60 string
 		templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(selected))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 300, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 299, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 		if templ_7745c5c3_Err != nil {
@@ -1377,7 +1376,7 @@ func folderFieldChoice(value string, selected, disabled, roomForButton bool, dep
 		var templ_7745c5c3_Var62 string
 		templ_7745c5c3_Var62, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(folderPickerIndent(depth))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 303, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 302, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 		if templ_7745c5c3_Err != nil {
@@ -1390,7 +1389,7 @@ func folderFieldChoice(value string, selected, disabled, roomForButton bool, dep
 		var templ_7745c5c3_Var63 string
 		templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 304, Col: 34}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 303, Col: 34}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 		if templ_7745c5c3_Err != nil {
@@ -1422,8 +1421,8 @@ func folderFieldChoice(value string, selected, disabled, roomForButton bool, dep
 
 // folderFieldShown is the chosen folder in its field: its icon, name and
 // the folders above it, then at the right its account with its color, or
-// a note. Cut short, a tooltip shows the whole place (folder-picker.js
-// switches it off when all of it fits).
+// a note. Cut short, a tooltip shows the whole place (it stays off when
+// all of it fits).
 func folderFieldShown(chosen folderFieldChosen) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1484,7 +1483,7 @@ func folderFieldShown(chosen folderFieldChosen) templ.Component {
 				var templ_7745c5c3_Var67 string
 				templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(chosen.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 324, Col: 69}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 323, Col: 69}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 				if templ_7745c5c3_Err != nil {
@@ -1497,7 +1496,7 @@ func folderFieldShown(chosen folderFieldChosen) templ.Component {
 				var templ_7745c5c3_Var68 string
 				templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(chosen.Parent)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 325, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 324, Col: 79}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 				if templ_7745c5c3_Err != nil {
@@ -1515,7 +1514,7 @@ func folderFieldShown(chosen folderFieldChosen) templ.Component {
 					var templ_7745c5c3_Var69 string
 					templ_7745c5c3_Var69, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(accountColorStyle(chosen.AccountColor))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 328, Col: 103}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 327, Col: 103}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 					if templ_7745c5c3_Err != nil {
@@ -1528,7 +1527,7 @@ func folderFieldShown(chosen folderFieldChosen) templ.Component {
 					var templ_7745c5c3_Var70 string
 					templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(chosen.Account)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 329, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 328, Col: 53}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 					if templ_7745c5c3_Err != nil {
@@ -1546,7 +1545,7 @@ func folderFieldShown(chosen folderFieldChosen) templ.Component {
 					var templ_7745c5c3_Var71 string
 					templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(chosen.Note)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 332, Col: 83}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 331, Col: 83}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 					if templ_7745c5c3_Err != nil {
@@ -1563,7 +1562,7 @@ func folderFieldShown(chosen folderFieldChosen) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tooltip.Trigger(tooltip.TriggerProps{Attributes: templ.Attributes{"data-folder-picker-tip": ""}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var66), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tooltip.Trigger(tooltip.TriggerProps{WhenCut: true}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var66), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1586,7 +1585,7 @@ func folderFieldShown(chosen folderFieldChosen) templ.Component {
 				var templ_7745c5c3_Var73 string
 				templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(chosen.Full())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 337, Col: 18}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folder_picker.templ`, Line: 336, Col: 18}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 				if templ_7745c5c3_Err != nil {

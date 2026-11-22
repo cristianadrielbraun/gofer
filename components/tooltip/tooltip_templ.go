@@ -51,6 +51,9 @@ type TriggerProps struct {
 	ID         string
 	Class      string
 	Attributes templ.Attributes
+	// WhenCut opens the tooltip only while the trigger's .truncate text is
+	// cut short, for tooltips that repeat a label in full (app.js).
+	WhenCut bool
 }
 
 type ContentProps struct {
@@ -142,6 +145,13 @@ func Trigger(props ...TriggerProps) templ.Component {
 		var p TriggerProps
 		if len(props) > 0 {
 			p = props[0]
+		}
+		if p.WhenCut {
+			attrs := templ.Attributes{"data-tooltip-when-cut": ""}
+			for k, v := range p.Attributes {
+				attrs[k] = v
+			}
+			p.Attributes = attrs
 		}
 		templ_7745c5c3_Var4 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
