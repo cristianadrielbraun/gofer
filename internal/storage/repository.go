@@ -450,9 +450,10 @@ type messageThreadLink struct {
 
 // findMessageThreadTx finds the conversation of message msgID, or of a
 // message not saved yet when msgID is 0: the nearest referenced message's,
-// or for mail without references, when the user groups by subject, one
-// with the same subject as findSubjectThreadTx picks. Otherwise the message
-// starts a new conversation.
+// then that of other mail referring to the same missing message, or for
+// mail without references, when the user groups by subject, one with the
+// same subject as findSubjectThreadTx picks. Otherwise the message starts a
+// new conversation.
 func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, inReplyTo, normalizedSubject, subject string, refs []string, sentAt time.Time, olderOnly bool, participants func() messageParties) messageThreadLink {
 	for i := len(refs) - 1; i >= 0; i-- {
 		var candidateID int64
@@ -468,12 +469,39 @@ func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, 
 			return messageThreadLink{threadID: candidateThread.String, parentID: sql.NullInt64{Int64: candidateID, Valid: true}}
 		}
 	}
+	if threadID := db.findSiblingThreadTx(ctx, tx, msgID, accountID, inReplyTo, normalizedSubject, refs); threadID != "" {
+		return messageThreadLink{threadID: threadID}
+	}
 	if len(refs) == 0 {
 		if threadID := db.findSubjectThreadTx(ctx, tx, msgID, accountID, normalizedSubject, subject, sentAt, olderOnly, participants); threadID != "" {
 			return messageThreadLink{threadID: threadID}
 		}
 	}
 	return messageThreadLink{threadID: uuid.NewString(), newThread: true}
+}
+
+// findSiblingThreadTx finds the conversation of other mail that refers to a
+// message the mailbox does not have, for a message that refers to it too, or
+// "" when there is none. Some senders, such as Jira, make every notification
+// a reply to one message they never send, so without this each notification
+// would start its own conversation. As with references to saved mail, a
+// message other than the one this message replies to only counts when the
+// subjects match.
+func (db *DB) findSiblingThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, inReplyTo, normalizedSubject string, refs []string) string {
+	for i := len(refs) - 1; i >= 0; i-- {
+		var threadID string
+		err := tx.QueryRowContext(ctx,
+			`SELECT m.thread_id FROM message_references mr JOIN messages m ON m.id = mr.message_id
+			 WHERE mr.referenced_message_id = ? AND m.account_id = ? AND m.id != ? AND COALESCE(m.thread_id, '') != ''
+			 AND (? OR m.normalized_subject = ?)
+			 AND NOT EXISTS (SELECT 1 FROM messages p WHERE p.account_id = ? AND p.message_id_normalized = ?)
+			 ORDER BY m.date_received DESC, m.id DESC LIMIT 1`,
+			refs[i], accountID, msgID, refs[i] == inReplyTo, normalizedSubject, accountID, refs[i]).Scan(&threadID)
+		if err == nil {
+			return threadID
+		}
+	}
+	return ""
 }
 
 // linkMessageThreadTx records the rest of a message's threading once the
