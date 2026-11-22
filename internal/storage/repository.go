@@ -450,11 +450,13 @@ type messageThreadLink struct {
 
 // findMessageThreadTx finds the conversation of message msgID, or of a
 // message not saved yet when msgID is 0: the nearest referenced message's,
-// then that of other mail referring to the same missing message, or for
-// mail without references, when the user groups by subject, one with the
-// same subject as findSubjectThreadTx picks. Otherwise the message starts a
-// new conversation.
+// then that of other mail referring to the same missing message, then, for
+// mail whose references lead to no saved message, when the user groups by
+// subject, one with the same subject as findSubjectThreadTx picks. Otherwise
+// the message starts a new conversation.
 func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, inReplyTo, normalizedSubject, subject string, refs []string, sentAt time.Time, olderOnly bool, participants func() messageParties) messageThreadLink {
+	// referenced is whether any message this one refers to is saved.
+	referenced := false
 	for i := len(refs) - 1; i >= 0; i-- {
 		var candidateID int64
 		var candidateThread sql.NullString
@@ -462,6 +464,9 @@ func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, 
 		err := tx.QueryRowContext(ctx,
 			`SELECT id, thread_id, normalized_subject FROM messages WHERE account_id = ? AND message_id_normalized = ? AND id != ? LIMIT 1`,
 			accountID, refs[i], msgID).Scan(&candidateID, &candidateThread, &candidateSubject)
+		if err == nil {
+			referenced = true
+		}
 		if err == nil && candidateThread.Valid && candidateThread.String != "" {
 			if refs[i] != inReplyTo && candidateSubject != normalizedSubject {
 				continue
@@ -472,7 +477,10 @@ func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, 
 	if threadID := db.findSiblingThreadTx(ctx, tx, msgID, accountID, inReplyTo, normalizedSubject, refs); threadID != "" {
 		return messageThreadLink{threadID: threadID}
 	}
-	if len(refs) == 0 {
+	// Mail whose reply headers lead to no saved message is grouped by
+	// subject like mail without them, as some senders' headers point only
+	// to messages they never send.
+	if !referenced {
 		if threadID := db.findSubjectThreadTx(ctx, tx, msgID, accountID, normalizedSubject, subject, sentAt, olderOnly, participants); threadID != "" {
 			return messageThreadLink{threadID: threadID}
 		}

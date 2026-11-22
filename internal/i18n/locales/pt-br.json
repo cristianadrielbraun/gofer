@@ -6410,7 +6410,7 @@
   "settings.list.sender.email": "Só o e-mail",
   "settings.list.sender.name": "Só o nome",
   "settings.list.sender.title": "Exibição do remetente",
-  "settings.list.subject_threading.description": "Coloca o e-mail sem cabeçalhos de resposta em uma conversa com o mesmo assunto, como o Gmail faz: uma resposta (Re:, Fwd:) quando compartilha alguém com essa conversa, os demais e-mails quando vêm do mesmo remetente, como os avisos repetidos de um banco. Os cabeçalhos de resposta sempre têm prioridade.",
+  "settings.list.subject_threading.description": "Coloca o e-mail sem cabeçalhos de resposta, ou cujos cabeçalhos de resposta apontam só para e-mails que você não tem, em uma conversa com o mesmo assunto, como o Gmail faz: uma resposta (Re:, Fwd:) quando compartilha alguém com essa conversa, os demais e-mails quando vêm do mesmo remetente, como os avisos repetidos de um banco. Os cabeçalhos de resposta que apontam para e-mails que você tem sempre têm prioridade.",
   "settings.list.subject_threading.late_replies_description": "Uma resposta (Re:, Fwd:) entra na conversa que responde, não importa há quanto tempo ela foi. Os demais e-mails seguem a janela de tempo.",
   "settings.list.subject_threading.late_replies_title": "Agrupar respostas a qualquer momento",
   "settings.list.subject_threading.max_description": "Uma conversa agrupada assim não aceita mais mensagens quando chega a essa quantidade; a próxima começa uma conversa nova. 0 significa sem limite.",

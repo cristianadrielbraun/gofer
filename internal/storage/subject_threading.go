@@ -118,8 +118,8 @@ func (p messageParties) sharesOther(q messageParties) bool {
 }
 
 // findSubjectThreadTx finds the conversation a message without reply
-// headers joins when the user groups mail by subject, or "" when it starts
-// one. With olderOnly only older mail is looked at, as when every message is
+// headers, or whose reply headers lead to no saved message, joins when the
+// user groups mail by subject, or "" when it starts one. With olderOnly only older mail is looked at, as when every message is
 // relinked oldest first; otherwise mail on both sides of the window is, as
 // sync does not save mail in date order.
 func (db *DB) findSubjectThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, normalizedSubject, subject string, sentAt time.Time, olderOnly bool, messageParticipants func() messageParties) string {
@@ -200,13 +200,16 @@ func (db *DB) findSubjectThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, 
 	return ""
 }
 
-// SubjectRegroupMessageIDs lists, oldest first, owner's messages without
-// reply headers: those whose conversation grouping by subject decides.
+// SubjectRegroupMessageIDs lists, oldest first, owner's messages whose
+// conversation grouping by subject decides: those without reply headers and
+// those whose reply headers lead to no saved message.
 func (db *DB) SubjectRegroupMessageIDs(ctx context.Context, owner string) ([]int64, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT m.id, COALESCE(m.in_reply_to, ''), COALESCE(m."references", '')
-		 FROM messages m JOIN accounts a ON a.id = m.account_id
+		`SELECT m.id FROM messages m JOIN accounts a ON a.id = m.account_id
 		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(m.normalized_subject, '') != ''
+		 AND NOT EXISTS (SELECT 1 FROM message_references mr JOIN messages p
+		                 ON p.account_id = m.account_id AND p.message_id_normalized = mr.referenced_message_id
+		                 WHERE mr.message_id = m.id)
 		 ORDER BY m.date_received, m.id`, owner)
 	if err != nil {
 		return nil, err
@@ -215,13 +218,10 @@ func (db *DB) SubjectRegroupMessageIDs(ctx context.Context, owner string) ([]int
 	var ids []int64
 	for rows.Next() {
 		var id int64
-		var inReplyTo, refs string
-		if err := rows.Scan(&id, &inReplyTo, &refs); err != nil {
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		if len(mailmessage.ThreadReferences(refs, inReplyTo)) == 0 {
-			ids = append(ids, id)
-		}
+		ids = append(ids, id)
 	}
 	return ids, rows.Err()
 }

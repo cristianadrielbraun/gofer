@@ -227,3 +227,65 @@ func TestParseSubjectThreading(t *testing.T) {
 		}
 	}
 }
+
+// replyToMissing is a notice whose reply headers point only to a message
+// the mailbox does not have, a different one for each notice.
+func replyToMissing(uid uint32, from, subject string, sent time.Time) SyncMessage {
+	m := notice(uid, from, subject, sent)
+	m.InReplyTo = fmt.Sprintf("<missing-%d@example.test>", uid)
+	m.References = m.InReplyTo
+	return m
+}
+
+// Mail whose reply headers lead nowhere is grouped by subject like mail
+// without them, and only when the user groups by subject.
+func TestSubjectThreadingGroupsMailWithMissingReferences(t *testing.T) {
+	for _, tc := range []struct {
+		enabled bool
+		want    string
+	}{
+		{true, "aab"},
+		{false, "abc"},
+	} {
+		db := newFolderThreadTestDB(t)
+		setSubjectThreading(t, db, tc.enabled, "7", "100")
+		a := replyToMissing(1, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay)
+		b := replyToMissing(2, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay.Add(24*time.Hour))
+		other := replyToMissing(3, "news@shop.example.test", "Ticket 42: Printer jams", noticeDay.Add(48*time.Hour))
+		syncNotices(t, db, a, b, other)
+		assertGroups(t, db, tc.want, a, b, other)
+	}
+}
+
+// Reply headers that lead to saved mail still win over the subject.
+func TestSubjectThreadingKeepsReferencesToSavedMail(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	setSubjectThreading(t, db, true, "7", "100")
+	first := notice(1, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay)
+	saved := notice(2, "lena@example.test", "Toner order", noticeDay.Add(time.Hour))
+	answer := notice(3, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay.Add(2*time.Hour))
+	answer.InReplyTo, answer.References = saved.MessageID, saved.MessageID
+	syncNotices(t, db, first, saved, answer)
+	assertGroups(t, db, "abb", first, saved, answer)
+}
+
+// Regroup applies grouping by subject to saved mail whose reply headers
+// lead nowhere, and splits it again.
+func TestRegroupSubjectThreadsWithMissingReferences(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	a := replyToMissing(1, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay)
+	b := replyToMissing(2, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay.Add(24*time.Hour))
+	syncNotices(t, db, a, b)
+	assertGroups(t, db, "ab", a, b)
+
+	setSubjectThreading(t, db, true, "7", "100")
+	regroup(t, db)
+	assertGroups(t, db, "aa", a, b)
+
+	setSubjectThreading(t, db, false, "7", "100")
+	regroup(t, db)
+	assertGroups(t, db, "ab", a, b)
+	if n := threadRowCount(t, db); n != 2 {
+		t.Fatalf("%d thread rows after splitting, want 2", n)
+	}
+}

@@ -6410,7 +6410,7 @@
   "settings.list.sender.email": "Solo el correo",
   "settings.list.sender.name": "Solo el nombre",
   "settings.list.sender.title": "Mostrar el remitente",
-  "settings.list.subject_threading.description": "Pone el correo sin cabeceras de respuesta en una conversación con el mismo asunto, como hace Gmail: una respuesta (Re:, Fwd:) cuando comparte a alguien con esa conversación, el resto del correo cuando viene del mismo remitente, como los avisos repetidos de un banco. Las cabeceras de respuesta siempre mandan.",
+  "settings.list.subject_threading.description": "Pone el correo sin cabeceras de respuesta, o cuyas cabeceras de respuesta solo apuntan a correo que no tienes, en una conversación con el mismo asunto, como hace Gmail: una respuesta (Re:, Fwd:) cuando comparte a alguien con esa conversación, el resto del correo cuando viene del mismo remitente, como los avisos repetidos de un banco. Las cabeceras de respuesta que apuntan a correo que tienes siempre mandan.",
   "settings.list.subject_threading.late_replies_description": "Una respuesta (Re:, Fwd:) se une a la conversación que responde, sin importar cuánto tiempo haya pasado. El resto del correo sigue la ventana de tiempo.",
   "settings.list.subject_threading.late_replies_title": "Agrupar respuestas en cualquier momento",
   "settings.list.subject_threading.max_description": "Una conversación agrupada así no acepta más mensajes cuando llega a esta cantidad; el siguiente empieza una conversación nueva. 0 significa sin límite.",
