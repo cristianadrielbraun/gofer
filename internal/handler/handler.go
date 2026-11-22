@@ -3476,7 +3476,9 @@ func (h *Handler) handleManageSignaturesSettings(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	w.Header().Set("Content-Type", "text/html")
-	views.ComposeSignaturesManager(h.buildAccountSignatureData(ctx, accounts)).Render(ctx, w)
+	// The dialog refreshes itself after a signature is added or renamed; it
+	// names the account it was showing so the Accounts tab stays on it.
+	views.ComposeSignaturesManager(h.buildAccountSignatureData(ctx, accounts), r.URL.Query().Get("account")).Render(ctx, w)
 }
 
 func (h *Handler) handleSaveSignature(w http.ResponseWriter, r *http.Request) {
@@ -3545,14 +3547,16 @@ func (h *Handler) handleSaveAccountSignatureSettings(w http.ResponseWriter, r *h
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
 		return
 	}
+	// Picking a signature turns it on and "No signature" turns it off, so
+	// whether one is used follows the choice.
 	settings := models.AccountSignatureSettings{
 		AccountID:          r.PathValue("id"),
 		NewSignatureID:     r.FormValue("new_signature_id"),
 		ReplySignatureID:   r.FormValue("reply_signature_id"),
 		ForwardSignatureID: r.FormValue("forward_signature_id"),
-		NewEnabled:         formBool(r, "new_enabled"),
-		ReplyEnabled:       formBool(r, "reply_enabled"),
-		ForwardEnabled:     formBool(r, "forward_enabled"),
+		NewEnabled:         strings.TrimSpace(r.FormValue("new_signature_id")) != "",
+		ReplyEnabled:       strings.TrimSpace(r.FormValue("reply_signature_id")) != "",
+		ForwardEnabled:     strings.TrimSpace(r.FormValue("forward_signature_id")) != "",
 		ReplyPlacement:     r.FormValue("reply_placement"),
 		ForwardPlacement:   r.FormValue("forward_placement"),
 	}
@@ -3568,11 +3572,6 @@ func (h *Handler) handleSaveAccountSignatureSettings(w http.ResponseWriter, r *h
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
-}
-
-func formBool(r *http.Request, name string) bool {
-	v := strings.ToLower(strings.TrimSpace(r.FormValue(name)))
-	return v == "1" || v == "true" || v == "on" || v == "yes"
 }
 
 func plainTextToSignatureHTML(text string) string {

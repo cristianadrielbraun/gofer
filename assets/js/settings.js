@@ -1329,7 +1329,9 @@ function applySignatureSource(form) {
   return sanitized
 }
 
-function setSignatureEditorMode(form, mode) {
+// setSignatureEditorMode shows the rendered editor or the HTML source. It
+// moves focus to the one shown unless noFocus is set.
+function setSignatureEditorMode(form, mode, noFocus) {
   var editor = form && form.querySelector("[data-signature-editor]")
   var source = form && form.querySelector("[data-signature-source]")
   var html = form && form.querySelector("[data-signature-html]")
@@ -1340,20 +1342,20 @@ function setSignatureEditorMode(form, mode) {
     editor.classList.add("hidden")
     source.classList.remove("hidden")
     setSignatureModeButtonState(form, "source")
-    source.focus()
+    if (!noFocus) source.focus()
     return
   }
   applySignatureSource(form)
   source.classList.add("hidden")
   editor.classList.remove("hidden")
   setSignatureModeButtonState(form, "visual")
-  editor.focus()
+  if (!noFocus) editor.focus()
 }
 
-function resetSignatureEditorMode(form) {
+function resetSignatureEditorMode(form, noFocus) {
   var source = form && form.querySelector("[data-signature-source]")
   if (source) source.value = ""
-  setSignatureEditorMode(form, "visual")
+  setSignatureEditorMode(form, "visual", noFocus)
 }
 
 function syncSignatureEditor(editor) {
@@ -1369,6 +1371,11 @@ function setupAccountSignaturesDialog(root) {
   for (var m = 0; m < managers.length; m++) setupAccountSignaturesManager(managers[m])
 }
 
+// setupAccountSignaturesManager wires a signatures dialog. Everything saves
+// by itself: the signature being edited a moment after typing stops, and an
+// account's choices as soon as one changes. The footer's status line says
+// "Changes save automatically" until a save succeeds or fails. A save takes
+// a moment, so there's no "Saving…" to flicker before "Saved".
 function setupAccountSignaturesManager(manager) {
   if (!manager || manager.dataset.signatureManagerReady === "1") return
   manager.dataset.signatureManagerReady = "1"
@@ -1378,43 +1385,215 @@ function setupAccountSignaturesManager(manager) {
   var refreshTarget = manager.getAttribute("data-refresh-target") || "#edit-account-container"
   var refreshSwap = manager.getAttribute("data-refresh-swap") || (refreshTarget === "#edit-account-container" ? "innerHTML" : "outerHTML")
   var form = manager.querySelector("[data-signature-form]")
-  var settingsForms = manager.querySelectorAll("[data-account-signature-settings]")
-  var accountSelect = manager.querySelector("input[data-signature-account-select]")
-  var signatureSelect = manager.querySelector("input[data-signature-select]")
   var editor = manager.querySelector("[data-signature-editor]")
+  var deleteButton = manager.querySelector("[data-signature-delete-current]")
+  var dialogStatus = manager.querySelector("[data-signatures-status]")
+  var idleStatus = dialogStatus ? dialogStatus.textContent : ""
+  var statusTimer = null
 
-  function selectedSignatureOption() {
-    if (!signatureSelect || !signatureSelect.value) return null
-    var signatureSelectRoot = signatureSelect.closest ? signatureSelect.closest(".select-container") : null
-    var signatureItems = signatureSelectRoot ? signatureSelectRoot.querySelectorAll("[data-signature-option]") : []
-    for (var signatureIndex = 0; signatureIndex < signatureItems.length; signatureIndex++) {
-      if (signatureItems[signatureIndex].getAttribute("data-tui-selectbox-value") === signatureSelect.value) return signatureItems[signatureIndex]
+  // A signature saves this long after the last keystroke, so typing doesn't
+  // send a request per key.
+  var SAVE_DELAY_MS = 600
+  // How long the status line's old text takes to slide out; matches the
+  // transition in input.css.
+  var STATUS_SWAP_MS = 150
+
+  // Shows text in the footer's status line in place of the note. The old
+  // text slides out and the new one in; a "success" tone colors it, and
+  // settle brings the note back after a moment, sliding the same way.
+  var swapTimer = null
+  function showStatus(text, settle, tone) {
+    if (!dialogStatus) return
+    text = text || idleStatus
+    tone = tone || ""
+    if (statusTimer) clearTimeout(statusTimer)
+    statusTimer = null
+    if (swapTimer) clearTimeout(swapTimer)
+    swapTimer = null
+    var settleLater = function () {
+      if (settle) statusTimer = setTimeout(function () { showStatus(idleStatus) }, 2000)
+    }
+    if (dialogStatus.textContent === text && (dialogStatus.getAttribute("data-status-tone") || "") === tone) {
+      dialogStatus.removeAttribute("data-status-swap")
+      settleLater()
+      return
+    }
+    dialogStatus.setAttribute("data-status-swap", "out")
+    swapTimer = setTimeout(function () {
+      swapTimer = null
+      dialogStatus.textContent = text
+      if (tone) dialogStatus.setAttribute("data-status-tone", tone)
+      else dialogStatus.removeAttribute("data-status-tone")
+      // Starts below, then moves up into place.
+      dialogStatus.setAttribute("data-status-swap", "in")
+      void dialogStatus.offsetWidth
+      dialogStatus.removeAttribute("data-status-swap")
+      settleLater()
+    }, STATUS_SWAP_MS)
+  }
+
+  function field(selector) {
+    return form ? form.querySelector(selector) : null
+  }
+
+  function signatureRowByID(id) {
+    var rows = manager.querySelectorAll("[data-signature-row]")
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute("data-signature-row") === id) return rows[i]
     }
     return null
   }
 
-  function resetSignatureSelect() {
-    if (!signatureSelect) return
-    signatureSelect.value = ""
+  // Marks the list row of the signature in the editor, or "New signature"
+  // while it has no id yet, and lets Delete act only on a saved signature.
+  function markCurrentSignature() {
+    var items = manager.querySelectorAll("[data-signature-row], [data-signature-new]")
+    for (var i = 0; i < items.length; i++) {
+      var isCurrent = draft.id ? items[i].getAttribute("data-signature-row") === draft.id : items[i].hasAttribute("data-signature-new")
+      items[i].setAttribute("aria-current", isCurrent ? "true" : "false")
+    }
+    if (deleteButton) deleteButton.disabled = !draft.id
   }
 
-  function loadSignatureOption(option) {
-    if (!form || !option) return
-    var id = form.querySelector("[data-signature-id]")
-    var name = form.querySelector("[data-signature-name]")
-    var html = form.querySelector("[data-signature-html]")
-    var source = form.querySelector("[data-signature-source]")
-    var nextHTML = option.getAttribute("data-signature-html") || ""
-    if (id) id.value = option.getAttribute("data-tui-selectbox-value") || ""
-    if (name) name.value = option.getAttribute("data-signature-name") || ""
+  // The signature in the editor. A new one has no id until its first save;
+  // later saves of it use the id that save got, even if they were queued
+  // before it came back.
+  var draft = { id: "", name: "" }
+  var saveTimer = null
+  var signatureDirty = false
+  var saveChain = Promise.resolve()
+
+  function loadSignatureRow(row, focus) {
+    if (!form || !row) return
+    var nextHTML = row.getAttribute("data-signature-row-html") || ""
+    draft = { id: row.getAttribute("data-signature-row") || "", name: row.getAttribute("data-signature-row-name") || "" }
+    if (field("[data-signature-id]")) field("[data-signature-id]").value = draft.id
+    if (field("[data-signature-name]")) field("[data-signature-name]").value = draft.name
     if (editor) editor.innerHTML = nextHTML
-    if (html) html.value = nextHTML
-    if (source) source.value = nextHTML
-    setSignatureEditorMode(form, "visual")
-    if (editor) editor.focus()
+    if (field("[data-signature-html]")) field("[data-signature-html]").value = nextHTML
+    if (field("[data-signature-source]")) field("[data-signature-source]").value = nextHTML
+    setSignatureEditorMode(form, "visual", !focus)
+    markCurrentSignature()
+  }
+
+  function resetSignatureForm(focus) {
+    if (!form) return
+    draft = { id: "", name: "" }
+    if (field("[data-signature-id]")) field("[data-signature-id]").value = ""
+    if (field("[data-signature-name]")) field("[data-signature-name]").value = ""
+    if (field("[data-signature-html]")) field("[data-signature-html]").value = ""
+    if (editor) editor.innerHTML = ""
+    resetSignatureEditorMode(form, true)
+    markCurrentSignature()
+    if (focus && field("[data-signature-name]")) field("[data-signature-name]").focus()
+  }
+
+  // What the editor holds right now. HTML typed in the source view is
+  // cleaned for sending without being written back, so the cursor stays put.
+  function signaturePayload() {
+    var source = field("[data-signature-source]")
+    var html = ""
+    if (source && !source.classList.contains("hidden")) html = sanitizeSignatureHTML(source.value || "")
+    else if (editor) {
+      syncSignatureEditor(editor)
+      html = editor.innerHTML || ""
+    }
+    var name = field("[data-signature-name]")
+    return { draft: draft, name: name ? name.value : "", html: html }
+  }
+
+  function signatureIsComplete(payload) {
+    var text = payload.html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim()
+    return payload.name.trim() !== "" && (text !== "" || /<img\b/i.test(payload.html))
+  }
+
+  function postForm(url, params, failText) {
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      body: params.toString()
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {} }).then(function (body) { throw new Error(body.error || failText) })
+      return r.json()
+    })
+  }
+
+  function sendSignature(payload) {
+    var target = payload.draft
+    var params = new URLSearchParams()
+    params.set("id", target.id)
+    params.set("name", payload.name)
+    params.set("html_body", payload.html)
+    return postForm("/api/signatures", params, goferT("js.settings.signature.save_failed")).then(function (saved) {
+      saved = saved || {}
+      var added = !target.id
+      var renamed = !added && target.name !== saved.name
+      target.id = saved.id || target.id
+      target.name = saved.name || payload.name
+      if (target === draft) {
+        if (field("[data-signature-id]")) field("[data-signature-id]").value = target.id
+        markCurrentSignature()
+      }
+      var row = signatureRowByID(target.id)
+      if (row) {
+        row.setAttribute("data-signature-row-name", target.name)
+        row.setAttribute("data-signature-row-html", saved.html_body != null ? saved.html_body : payload.html)
+      }
+      showStatus(goferT("js.settings.status.saved"), true, "success")
+      if (added || renamed) return refreshRegions()
+    }).catch(function (err) {
+      showStatus(err && err.message ? err.message : goferT("js.settings.signature.save_failed"), false, "error")
+    })
+  }
+
+  // Saves what's in the editor now, if it changed: right away when called,
+  // after the delay when typing schedules it. Saves go out one at a time.
+  function flushSignatureSave() {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = null
+    if (!signatureDirty) return saveChain
+    signatureDirty = false
+    var payload = signaturePayload()
+    if (!signatureIsComplete(payload)) {
+      showStatus(goferT("js.settings.signature.incomplete"))
+      return saveChain
+    }
+    saveChain = saveChain.then(function () { return sendSignature(payload) })
+    return saveChain
+  }
+
+  function scheduleSignatureSave() {
+    signatureDirty = true
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(flushSignatureSave, SAVE_DELAY_MS)
+  }
+
+  // A signature added or renamed shows up in the list and in the accounts'
+  // choices. Only those two parts are swapped for the server's, so the
+  // editor being typed in is left alone and the Accounts tab stays on the
+  // account it was showing.
+  function refreshRegions() {
+    var accountInput = manager.querySelector("input[data-signature-account-select]")
+    var url = refreshURL + (refreshURL.indexOf("?") >= 0 ? "&" : "?") + "account=" + encodeURIComponent(accountInput ? accountInput.value : "")
+    return fetch(url, { headers: { "Accept": "text/html" } }).then(function (r) {
+      if (!r.ok) throw new Error(goferT("js.settings.signature.save_failed"))
+      return r.text()
+    }).then(function (html) {
+      var doc = new DOMParser().parseFromString(html, "text/html")
+      var regions = ["[data-signature-list-region]", "[data-signature-accounts-region]"]
+      for (var i = 0; i < regions.length; i++) {
+        var from = doc.querySelector(regions[i])
+        var to = manager.querySelector(regions[i])
+        if (from && to) to.innerHTML = from.innerHTML
+      }
+      markCurrentSignature()
+      syncAccountSignaturePanels()
+    })
   }
 
   function syncAccountSignaturePanels() {
+    var accountSelect = manager.querySelector("input[data-signature-account-select]")
+    var settingsForms = manager.querySelectorAll("[data-account-signature-settings]")
     if (!accountSelect) return
     var selected = accountSelect.value || (settingsForms[0] && settingsForms[0].getAttribute("data-account-id")) || ""
     var accountSelectRoot = accountSelect.closest ? accountSelect.closest(".select-container") : null
@@ -1434,43 +1613,42 @@ function setupAccountSignaturesManager(manager) {
       settingsForms[i].classList.toggle("invisible", !isActive)
       settingsForms[i].classList.toggle("pointer-events-none", !isActive)
       settingsForms[i].setAttribute("aria-hidden", isActive ? "false" : "true")
+      if (isActive) settingsForms[i].removeAttribute("inert")
+      else settingsForms[i].setAttribute("inert", "")
     }
   }
 
-  if (accountSelect) {
-    accountSelect.addEventListener("change", syncAccountSignaturePanels)
-    syncAccountSignaturePanels()
+  // An account's choices save as soon as one changes. The place for replies
+  // and forwards shows only while a signature is picked.
+  function saveAccountChoices(settingsForm) {
+    var rows = settingsForm.querySelectorAll("[data-signature-assignment]")
+    for (var i = 0; i < rows.length; i++) {
+      var choice = rows[i].querySelector("input[data-signature-assignment-select]")
+      var placement = rows[i].querySelector("[data-signature-placement]")
+      if (placement) placement.classList.toggle("hidden", !(choice && choice.value))
+    }
+    var formAccountId = settingsForm.getAttribute("data-account-id") || accountId
+    postForm("/api/accounts/" + encodeURIComponent(formAccountId) + "/signature-settings", new URLSearchParams(new FormData(settingsForm)), goferT("js.settings.signature.assign_failed"))
+      .then(function () { showStatus(goferT("js.settings.status.saved"), true, "success") })
+      .catch(function (err) { showStatus(err && err.message ? err.message : goferT("js.settings.signature.assign_failed"), false, "error") })
   }
 
-  if (signatureSelect) {
-    signatureSelect.addEventListener("change", function () {
-      var option = selectedSignatureOption()
-      if (option) loadSignatureOption(option)
-      else resetSignatureForm()
-    })
-  }
+  manager.addEventListener("change", function (e) {
+    if (e.target.matches && e.target.matches("input[data-signature-account-select]")) {
+      syncAccountSignaturePanels()
+      return
+    }
+    var settingsForm = e.target.closest && e.target.closest("[data-account-signature-settings]")
+    if (settingsForm) saveAccountChoices(settingsForm)
+  })
+
+  manager.addEventListener("submit", function (e) { e.preventDefault() })
 
   function reloadDialog() {
     if (typeof htmx !== "undefined") {
       window.__goferReopenSignaturesDialog = manager.closest("#account-signatures-dialog") ? "account-signatures-dialog" : "compose-signatures-dialog"
       htmx.ajax("GET", refreshURL, { target: refreshTarget, swap: refreshSwap })
     }
-  }
-
-  function resetSignatureForm() {
-    if (!form) return
-    var id = form.querySelector("[data-signature-id]")
-    var name = form.querySelector("[data-signature-name]")
-    var html = form.querySelector("[data-signature-html]")
-    if (id) id.value = ""
-    if (name) name.value = ""
-    if (html) html.value = ""
-    if (editor) editor.innerHTML = ""
-    resetSignatureEditorMode(form)
-    resetSignatureSelect()
-    var status = form.querySelector("[data-signature-save-status]")
-    if (status) status.textContent = ""
-    if (name) name.focus()
   }
 
   manager.addEventListener("click", function (e) {
@@ -1481,111 +1659,55 @@ function setupAccountSignaturesManager(manager) {
       return
     }
 
-    var newBtn = e.target.closest("[data-signature-new]")
-    if (newBtn) {
-      resetSignatureForm()
+    // Moving to another signature first saves the one being left.
+    if (e.target.closest("[data-signature-new]")) {
+      flushSignatureSave()
+      resetSignatureForm(true)
       return
     }
 
     var row = e.target.closest("[data-signature-row]")
-    if (!row) return
-
-    if (e.target.closest("[data-signature-edit]")) {
-      var id = form.querySelector("[data-signature-id]")
-      var name = form.querySelector("[data-signature-name]")
-      var html = form.querySelector("[data-signature-html]")
-      if (id) id.value = row.getAttribute("data-signature-id") || ""
-      if (name) name.value = row.getAttribute("data-signature-name") || ""
-      if (editor) editor.innerHTML = row.getAttribute("data-signature-html") || ""
-      if (html) html.value = editor ? editor.innerHTML : (row.getAttribute("data-signature-html") || "")
-      var source = form.querySelector("[data-signature-source]")
-      if (source) source.value = html ? html.value : (row.getAttribute("data-signature-html") || "")
-      setSignatureEditorMode(form, "visual")
-      if (editor) editor.focus()
+    if (row) {
+      flushSignatureSave()
+      loadSignatureRow(row, true)
       return
     }
 
-    if (e.target.closest("[data-signature-delete]")) {
-      var signatureName = row.getAttribute("data-signature-name") || goferT("js.settings.signature.this")
-      var signatureID = row.getAttribute("data-signature-id") || ""
-      confirmSignatureDelete(signatureName).then(function (confirmed) {
-        if (!confirmed) return
-        fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
-          .then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
-          .then(reloadDialog)
-          .catch(function (err) {
-            var status = form && form.querySelector("[data-signature-save-status]")
-            if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.delete_failed")
-          })
-      })
-    }
-  })
-
-  manager.addEventListener("click", function (e) {
-    var deleteCurrent = e.target.closest("[data-signature-delete-current]")
-    if (!deleteCurrent) return
-    var id = form && form.querySelector("[data-signature-id]")
-    var name = form && form.querySelector("[data-signature-name]")
-    var status = form && form.querySelector("[data-signature-save-status]")
-    var signatureID = (id && id.value) || ""
+    if (!e.target.closest("[data-signature-delete-current]")) return
+    var signatureID = draft.id
     if (!signatureID) {
-      if (status) status.textContent = goferT("js.settings.signature.choose")
+      showStatus(goferT("js.settings.signature.choose"))
       return
     }
+    var name = field("[data-signature-name]")
     var signatureName = (name && name.value) || goferT("js.settings.signature.this")
     confirmSignatureDelete(signatureName).then(function (confirmed) {
       if (!confirmed) return
-      fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
-        .then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = null
+      signatureDirty = false
+      saveChain.then(function () {
+        return fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
+      }).then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
         .then(reloadDialog)
         .catch(function (err) {
-          if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.delete_failed")
+          showStatus(err && err.message ? err.message : goferT("js.settings.signature.delete_failed"), false, "error")
         })
     })
   })
 
   if (form) {
-    form.addEventListener("submit", function (e) {
-      e.preventDefault()
-      var source = form.querySelector("[data-signature-source]")
-      if (source && !source.classList.contains("hidden")) applySignatureSource(form)
-      else if (editor) syncSignatureEditor(editor)
-      var status = form.querySelector("[data-signature-save-status]")
-      if (status) status.textContent = goferT("js.settings.status.saving_dots")
-      fetch("/api/signatures", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
-        body: new URLSearchParams(new FormData(form)).toString()
-      }).then(function (r) {
-        if (!r.ok) return r.json().catch(function () { return {} }).then(function (data) { throw new Error(data.error || goferT("js.settings.signature.save_failed")) })
-        return r.json()
-      }).then(reloadDialog).catch(function (err) {
-        if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.save_failed")
-      })
-    })
+    form.addEventListener("input", scheduleSignatureSave)
+    // Leaving the editor (for the Close button, another tab or anywhere
+    // else) saves without waiting.
+    form.addEventListener("focusout", function () { flushSignatureSave() })
+
+    var openRow = manager.querySelector("[data-signature-row]")
+    if (openRow) loadSignatureRow(openRow, false)
+    else resetSignatureForm(false)
   }
 
-  for (var sf = 0; sf < settingsForms.length; sf++) {
-    ;(function (settingsForm) {
-    settingsForm.addEventListener("submit", function (e) {
-      e.preventDefault()
-      var formAccountId = settingsForm.getAttribute("data-account-id") || accountId
-      var status = settingsForm.querySelector("[data-signature-settings-status]")
-      if (status) status.textContent = goferT("js.settings.status.saving_dots")
-      fetch("/api/accounts/" + encodeURIComponent(formAccountId) + "/signature-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
-        body: new URLSearchParams(new FormData(settingsForm)).toString()
-      }).then(function (r) {
-        if (!r.ok) throw new Error(goferT("js.settings.signature.assign_failed"))
-        if (status) status.textContent = goferT("js.settings.status.saved")
-        setTimeout(function () { if (status) status.textContent = "" }, 2000)
-      }).catch(function (err) {
-        if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.assign_failed")
-      })
-    })
-    })(settingsForms[sf])
-  }
+  syncAccountSignaturePanels()
 
   if (manager.closest("#account-signatures-dialog") && window.tui && window.tui.dialog) {
     setTimeout(function () { window.tui.dialog.open("account-signatures-dialog") }, 20)

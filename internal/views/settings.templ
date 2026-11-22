@@ -3512,284 +3512,267 @@ templ AccountSignaturesSettings(accounts []models.AccountSignatureData) {
 	</div>
 }
 
+// ComposeSignaturesDialog is the Signatures dialog that Settings opens: one
+// tab to write signatures, one to choose which ones each account uses.
 templ ComposeSignaturesDialog(accounts []models.AccountSignatureData) {
-	@dialog.Dialog(dialog.Props{ID: "compose-signatures-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "signatures-dialog mobile-page-dialog sm:max-w-5xl max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden"}) {
-			@dialog.Header() {
+	@signaturesDialog("compose-signatures-dialog", i18n.T(ctx, "settings.signatures.title"), i18n.T(ctx, "settings.signatures.dialog_description")) {
+		@ComposeSignaturesManager(accounts, "")
+	}
+}
+
+// signaturesDialog is the frame of a signatures dialog: the title stays at
+// the top, the open tab's footer at the bottom, and only what's between them
+// scrolls.
+templ signaturesDialog(id, title, description string) {
+	@dialog.Dialog(dialog.Props{ID: id}) {
+		@dialog.Content(dialog.ContentProps{Class: dataDialogContentClass + "signatures-dialog mobile-page-dialog sm:max-w-4xl"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
 				@dialog.Title() {
-					{ i18n.T(ctx, "settings.signatures.title") }
+					{ title }
 				}
 				@dialog.Description() {
-					{ i18n.T(ctx, "settings.signatures.dialog_description") }
+					{ description }
 				}
 			}
-			@ComposeSignaturesManager(accounts)
+			{ children... }
 		}
 	}
 }
 
-templ ComposeSignaturesManager(accounts []models.AccountSignatureData) {
-	<div id="compose-signatures-manager" class="min-w-0" data-account-signatures-manager data-refresh-url="/api/settings/signatures/manage" data-refresh-target="#compose-signatures-manager" data-refresh-swap="outerHTML">
-		@SignatureManagerGrid(accounts)
+// ComposeSignaturesManager is the Settings signatures dialog's body. The
+// Accounts tab opens on selectedAccountID, or the first account when it's
+// empty or unknown.
+templ ComposeSignaturesManager(accounts []models.AccountSignatureData, selectedAccountID string) {
+	<div id="compose-signatures-manager" class="flex min-h-0 min-w-0 flex-1 flex-col" data-account-signatures-manager data-refresh-url="/api/settings/signatures/manage" data-refresh-target="#compose-signatures-manager" data-refresh-swap="outerHTML">
+		@SignatureManagerTabs(accounts, selectedAccountID)
 	</div>
 }
 
-templ SignatureManagerGrid(accounts []models.AccountSignatureData) {
+// SignatureManagerTabs is the body of a signatures dialog. Signatures belong
+// to the person, not to an account, so the list comes from the first
+// account's data; each account has its own choices on the Accounts tab.
+// The tabs only swap what's in the scrolling part: the header and the
+// footer stay the same. Both tabs share one grid cell, the closed one hidden
+// but still laid out, so the dialog is as tall as the taller tab and doesn't
+// resize when the tabs switch.
+templ SignatureManagerTabs(accounts []models.AccountSignatureData, selectedAccountID string) {
 	if len(accounts) == 0 {
-		<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "settings.signatures.no_accounts") }</div>
+		@dataDialogScroll("pb-6") {
+			<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "settings.signatures.no_accounts") }</div>
+		}
 	} else {
-		{{ first := accounts[0] }}
-		<div class="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-			<div class="min-w-0 space-y-4">
-				@SignatureLibrary(first)
+		@tabs.Tabs(tabs.Props{Class: "min-h-0 min-w-0 flex-1 gap-0", Attributes: templ.Attributes{"data-tui-tabs-local": "", "aria-label": i18n.T(ctx, "settings.signatures.tabs_label")}}) {
+			<div class="shrink-0 px-6 pb-4" data-signature-tabs>
+				// The dialog is the card color, which is also muted in some
+				// themes, so the bar takes the next step, as other bars stand a
+				// step off the page.
+				@tabs.List(tabs.ListProps{Class: "bg-secondary"}) {
+					@tabs.Trigger(tabs.TriggerProps{Value: "signatures", IsActive: true, Class: "px-3 text-xs"}) {
+						@icon.Signature(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "settings.signatures.tab_signatures") }
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "accounts", Class: "px-3 text-xs"}) {
+						@icon.UserRound(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "settings.signatures.tab_accounts") }
+					}
+				}
 			</div>
-			<div class="min-w-0 rounded-lg border border-border bg-background/60 p-4 space-y-4">
-				<div class="space-y-2">
-					<label class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.account") }</label>
-					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_account_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-account-select": ""}}) {
-							<span class="flex min-w-0 flex-1 items-center gap-2">
-								<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(first.Account.Color) } data-signature-account-marker data-account-marker={ first.Account.ID }></span>
-								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.choose_account"), Class: "min-w-0 text-left"}) {
-									{ first.Account.Name } &lt;{ first.Account.Email }&gt;
+			@dataDialogScroll("pb-4") {
+				<div class="grid min-w-0 grid-cols-[minmax(0,1fr)]" data-signature-tab-panels>
+					@tabs.Content(tabs.ContentProps{Value: "signatures", IsActive: true, Class: "col-start-1 row-start-1 min-w-0"}) {
+						@SignatureLibrary(accounts[0].Signatures)
+					}
+					@tabs.Content(tabs.ContentProps{Value: "accounts", Class: "col-start-1 row-start-1 min-w-0"}) {
+						@signatureAccountsTab(accounts, selectedAccountID)
+					}
+				</div>
+			}
+			@dataDialogFooter() {
+				<span class="mr-auto min-w-0 self-center truncate text-xs text-muted-foreground" aria-live="polite" data-signatures-status>{ i18n.T(ctx, "settings.signatures.autosave") }</span>
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						{ i18n.T(ctx, "common.close") }
+					}
+				}
+			}
+		}
+	}
+}
+
+// SignatureLibrary lists the person's signatures next to the editor for the
+// one picked. "New signature" empties the editor for a new one. Edits save
+// by themselves; Delete, next to the name, removes the one open. The list is
+// its own region, so a save that adds or renames a signature refreshes just
+// the list, never the editor being typed in.
+templ SignatureLibrary(signatures []models.Signature) {
+	<form data-signature-form>
+		<input type="hidden" name="id" value="" data-signature-id/>
+		<div class="grid min-w-0 gap-5 md:grid-cols-[13rem_minmax(0,1fr)]">
+			<div class="flex min-w-0 flex-col gap-2">
+				<button type="button" class="inline-flex h-9 w-full items-center gap-2 rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground hover:border-solid hover:bg-accent hover:text-foreground aria-[current=true]:border-solid aria-[current=true]:bg-accent aria-[current=true]:text-foreground" aria-current="false" data-signature-new>
+					@icon.Plus(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "settings.signatures.new_signature") }
+				</button>
+				<div class="min-w-0" data-signature-list-region>
+					if len(signatures) == 0 {
+						<p class="px-1 py-2 text-xs text-muted-foreground">{ i18n.T(ctx, "settings.signatures.empty") }</p>
+					} else {
+						<div class="flex max-h-44 min-w-0 flex-col gap-0.5 overflow-y-auto md:max-h-[22rem]" aria-label={ i18n.T(ctx, "settings.signatures.saved") } data-signature-list>
+							for _, sig := range signatures {
+								// A name too long for the list shows in full on hover.
+								@tooltip.Tooltip() {
+									@tooltip.Trigger(tooltip.TriggerProps{WhenCut: true}) {
+										<button type="button" class="flex h-9 w-full min-w-0 shrink-0 items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground aria-[current=true]:bg-accent aria-[current=true]:font-medium aria-[current=true]:text-foreground" aria-current="false" data-signature-row={ sig.ID } data-signature-row-name={ sig.Name } data-signature-row-html={ sig.HTMLBody }>
+											@icon.Signature(icon.Props{Class: "size-3.5 shrink-0"})
+											<span class="truncate">{ sig.Name }</span>
+										</button>
+									}
+									@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "pointer-events-none max-w-80 px-3 py-1.5 text-xs break-words"}) {
+										{ sig.Name }
+									}
 								}
-							</span>
+							}
+						</div>
+					}
+				</div>
+			</div>
+			<div class="min-w-0 space-y-4">
+				<div>
+					<div class="mb-1.5 flex items-center justify-between gap-3">
+						<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.theme.name") }</label>
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Disabled: true, Class: "h-6 px-2 text-xs text-muted-foreground hover:text-destructive", Attributes: templ.Attributes{"data-signature-delete-current": ""}}) {
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "settings.account.delete") }
+						}
+					</div>
+					@input.Input(input.Props{Name: "name", Type: input.TypeText, Placeholder: i18n.T(ctx, "settings.signatures.name_placeholder"), Attributes: templ.Attributes{"data-signature-name": ""}})
+				</div>
+				<div>
+					<div class="mb-1.5 flex items-center justify-between gap-3">
+						<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.signature") }</label>
+						<div class="inline-flex shrink-0 rounded-[var(--radius)] border border-border bg-background p-0.5 text-[11px]" data-signature-editor-mode>
+							<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-foreground bg-card shadow-sm" data-signature-mode-button="visual">{ i18n.T(ctx, "settings.signatures.rendered") }</button>
+							<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground" data-signature-mode-button="source">HTML</button>
+						</div>
+					</div>
+					<textarea name="html_body" class="hidden" data-signature-html></textarea>
+					<div class="min-h-60 max-w-full overflow-x-auto rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" contenteditable="true" role="textbox" aria-multiline="true" data-signature-editor data-placeholder={ i18n.T(ctx, "settings.signatures.editor_placeholder") } data-on-input='["syncSignatureEditor","$this"]'></div>
+					<textarea class="hidden min-h-60 w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-ring" spellcheck="false" placeholder={ i18n.T(ctx, "settings.signatures.source_placeholder") } data-signature-source></textarea>
+					<p class="text-[11px] text-muted-foreground mt-1.5">{ i18n.T(ctx, "settings.signatures.mode_hint") }</p>
+				</div>
+			</div>
+		</div>
+	</form>
+}
+
+// signatureAccountsTab picks an account and shows which signature it adds to
+// new messages, replies and forwards. Every account's choices are rendered,
+// stacked in one grid cell, and only the picked one is shown, so switching
+// accounts doesn't move the rows. A choice saves as soon as it changes. The
+// tab is its own region, refreshed when a signature is added or renamed so
+// the choices list it.
+templ signatureAccountsTab(accounts []models.AccountSignatureData, selectedAccountID string) {
+	{{ first := accounts[0] }}
+	for _, data := range accounts {
+		if data.Account.ID == selectedAccountID {
+			{{ first = data }}
+		}
+	}
+	<div class="min-w-0" data-signature-accounts-region>
+		<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+			<div class="min-w-0">
+				<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.signatures.account") }</h4>
+				<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.account_hint") }</p>
+			</div>
+			<div class="w-full min-w-0 sm:w-[28rem] shrink-0">
+				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+					@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_account_id", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-signature-account-select": "", "aria-label": i18n.T(ctx, "settings.signatures.account")}}) {
+						<span class="flex min-w-0 flex-1 items-center gap-2">
+							<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(first.Account.Color) } data-signature-account-marker data-account-marker={ first.Account.ID }></span>
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.choose_account"), Class: "min-w-0 truncate text-left"}) {
+								{ first.Account.Name } &lt;{ first.Account.Email }&gt;
+							}
+						</span>
+					}
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+						for _, data := range accounts {
+							@selectbox.Item(selectbox.ItemProps{Value: data.Account.ID, Selected: data.Account.ID == first.Account.ID}) {
+								<span class="inline-flex min-w-0 items-center gap-2">
+									<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(data.Account.Color) } data-signature-account-marker-source data-account-marker={ data.Account.ID }></span>
+									<span class="min-w-0 truncate">{ data.Account.Name } &lt;{ data.Account.Email }&gt;</span>
+								</span>
+							}
+						}
+					}
+				}
+			</div>
+		</div>
+		<div class="mt-5 grid grid-cols-[minmax(0,1fr)]" data-signature-account-panels>
+			for _, data := range accounts {
+				<form class={ "col-start-1 row-start-1 min-w-0 space-y-5", templ.KV("invisible pointer-events-none", data.Account.ID != first.Account.ID) } data-account-signature-settings data-account-id={ data.Account.ID } aria-hidden={ strconv.FormatBool(data.Account.ID != first.Account.ID) }>
+					@AccountSignatureAssignmentRow("new", i18n.T(ctx, "settings.signatures.new"), i18n.T(ctx, "settings.signatures.new_description"), data.Settings.NewSignatureID, "", data.Signatures)
+					@AccountSignatureAssignmentRow("reply", i18n.T(ctx, "settings.signatures.replies"), i18n.T(ctx, "settings.signatures.replies_description"), data.Settings.ReplySignatureID, data.Settings.ReplyPlacement, data.Signatures)
+					@AccountSignatureAssignmentRow("forward", i18n.T(ctx, "settings.signatures.forwards"), i18n.T(ctx, "settings.signatures.forwards_description"), data.Settings.ForwardSignatureID, data.Settings.ForwardPlacement, data.Signatures)
+				</form>
+			}
+		</div>
+	</div>
+}
+
+// AccountSignaturesDialog is one account's signatures dialog. It is the
+// Settings dialog with only that account on the Accounts tab.
+templ AccountSignaturesDialog(data models.AccountSignatureData) {
+	@signaturesDialog("account-signatures-dialog", i18n.T(ctx, "settings.signatures.account_title"), i18n.T(ctx, "settings.signatures.account_description", "account", data.Account.Email)) {
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col" data-account-signatures-manager data-account-id={ data.Account.ID }>
+			@SignatureManagerTabs([]models.AccountSignatureData{data}, data.Account.ID)
+		</div>
+	}
+}
+
+// AccountSignatureAssignmentRow is one settings row on the Accounts tab: the
+// signature for new messages, replies or forwards, and for replies and
+// forwards where it goes. Picking "No signature" turns it off, so the place
+// is hidden until a signature is picked.
+templ AccountSignatureAssignmentRow(kind string, label string, description string, selectedID string, placement string, signatures []models.Signature) {
+	<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" data-signature-assignment={ kind }>
+		<div class="min-w-0">
+			<h4 class="text-sm font-medium text-foreground">{ label }</h4>
+			<p class="text-xs text-muted-foreground mt-1">{ description }</p>
+		</div>
+		<div class="w-full min-w-0 sm:w-96 shrink-0 space-y-2">
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_signature_id", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-label": label, "data-signature-assignment-select": ""}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.none"), Class: "min-w-0 truncate"}) {
+						{ signatureLabel(ctx, signatures, selectedID) }
+					}
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+					@selectbox.Item(selectbox.ItemProps{Value: "", Selected: selectedID == ""}) { { i18n.T(ctx, "settings.signatures.none") } }
+					for _, sig := range signatures {
+						@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Selected: selectedID == sig.ID}) { { sig.Name } }
+					}
+				}
+			}
+			if kind != "new" {
+				<div class={ templ.KV("hidden", selectedID == "") } data-signature-placement>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_placement", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "settings.signatures.place")}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.before")}) {
+								if placement == "after" {
+									{ i18n.T(ctx, "settings.signatures.after") }
+								} else {
+									{ i18n.T(ctx, "settings.signatures.before") }
+								}
+							}
 						}
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-							for _, data := range accounts {
-								@selectbox.Item(selectbox.ItemProps{Value: data.Account.ID, Selected: data.Account.ID == first.Account.ID}) {
-									<span class="inline-flex min-w-0 items-center gap-2">
-										<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(data.Account.Color) } data-signature-account-marker-source data-account-marker={ data.Account.ID }></span>
-										<span class="truncate">{ data.Account.Name } &lt;{ data.Account.Email }&gt;</span>
-									</span>
-								}
-							}
+							@selectbox.Item(selectbox.ItemProps{Value: "before", Selected: placement != "after"}) { { i18n.T(ctx, "settings.signatures.before") } }
+							@selectbox.Item(selectbox.ItemProps{Value: "after", Selected: placement == "after"}) { { i18n.T(ctx, "settings.signatures.after") } }
 						}
 					}
 				</div>
-				<div class="grid" data-signature-account-panels>
-					for _, data := range accounts {
-						<form class={ "col-start-1 row-start-1 space-y-4", templ.KV("invisible pointer-events-none", data.Account.ID != first.Account.ID) } data-account-signature-settings data-account-id={ data.Account.ID } aria-hidden={ strconv.FormatBool(data.Account.ID != first.Account.ID) }>
-							@AccountSignatureAssignmentRow("new", i18n.T(ctx, "settings.signatures.new"), data.Settings.NewEnabled, data.Settings.NewSignatureID, "", data.Signatures)
-							@AccountSignatureAssignmentRow("reply", i18n.T(ctx, "settings.signatures.replies"), data.Settings.ReplyEnabled, data.Settings.ReplySignatureID, data.Settings.ReplyPlacement, data.Signatures)
-							@AccountSignatureAssignmentRow("forward", i18n.T(ctx, "settings.signatures.forwards"), data.Settings.ForwardEnabled, data.Settings.ForwardSignatureID, data.Settings.ForwardPlacement, data.Signatures)
-							<div class="flex items-center justify-between gap-3 pt-1">
-								<span class="text-xs text-muted-foreground" data-signature-settings-status></span>
-								<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-									@icon.Check(icon.Props{Class: "size-3.5"})
-									{ i18n.T(ctx, "common.save") }
-								</button>
-							</div>
-						</form>
-					}
-				</div>
-			</div>
-		</div>
-	}
-}
-
-templ SignatureLibrary(data models.AccountSignatureData) {
-	<div class="min-w-0 rounded-lg border border-border bg-background/60 p-4 space-y-3">
-		<div class="flex items-center justify-between gap-3">
-			<div>
-				<h4 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.library") }</h4>
-				<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.library_description") }</p>
-			</div>
-		</div>
-		<div class="flex items-end gap-2">
-			<div class="min-w-0 flex-1 space-y-1.5">
-				<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.saved") }</label>
-				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-					@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_picker_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-select": ""}}) {
-						@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.select")})
-					}
-					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-						if len(data.Signatures) == 0 {
-							@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true, Disabled: true}) { { i18n.T(ctx, "settings.signatures.empty") } }
-						} else {
-							@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true}) { { i18n.T(ctx, "settings.signatures.select") } }
-							for _, sig := range data.Signatures {
-								@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Attributes: templ.Attributes{"data-signature-option": "", "data-signature-name": sig.Name, "data-signature-html": sig.HTMLBody}}) { { sig.Name } }
-							}
-						}
-					}
-				}
-			</div>
-			<button type="button" class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" data-signature-new>
-				@icon.Plus(icon.Props{Class: "size-3.5"})
-				{ i18n.T(ctx, "settings.signatures.new_button") }
-			</button>
-		</div>
-		<form data-signature-form class="space-y-3">
-			<input type="hidden" name="id" value="" data-signature-id/>
-			<div>
-				<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.theme.name") }</label>
-				@input.Input(input.Props{Name: "name", Type: input.TypeText, Placeholder: i18n.T(ctx, "settings.signatures.name_placeholder"), Attributes: templ.Attributes{"data-signature-name": ""}})
-			</div>
-			<div>
-				<div class="mb-1.5 flex items-center justify-between gap-3">
-					<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.signature") }</label>
-					<div class="inline-flex shrink-0 rounded-[var(--radius)] border border-border bg-background p-0.5 text-[11px]" data-signature-editor-mode>
-						<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-foreground bg-card shadow-sm" data-signature-mode-button="visual">{ i18n.T(ctx, "settings.signatures.rendered") }</button>
-						<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground" data-signature-mode-button="source">HTML</button>
-					</div>
-				</div>
-				<textarea name="html_body" class="hidden" data-signature-html></textarea>
-				<div class="min-h-28 max-w-full overflow-x-auto rounded-md border border-border bg-card px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" contenteditable="true" role="textbox" data-signature-editor data-placeholder={ i18n.T(ctx, "settings.signatures.editor_placeholder") } data-on-input='["syncSignatureEditor","$this"]'></div>
-				<textarea class="hidden min-h-28 w-full resize-y rounded-md border border-border bg-card px-3 py-2 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-ring" spellcheck="false" placeholder={ i18n.T(ctx, "settings.signatures.source_placeholder") } data-signature-source></textarea>
-				<p class="text-[11px] text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.mode_hint") }</p>
-			</div>
-			<div class="flex items-center justify-between gap-3">
-				<span class="text-xs text-muted-foreground" data-signature-save-status></span>
-				<div class="flex items-center gap-2">
-					<button type="button" class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:border-destructive/30 hover:text-destructive" data-signature-delete-current>{ i18n.T(ctx, "settings.account.delete") }</button>
-					<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-						@icon.Save(icon.Props{Class: "size-3.5"})
-						{ i18n.T(ctx, "settings.signatures.save") }
-					</button>
-				</div>
-			</div>
-		</form>
-	</div>
-}
-
-templ AccountSignaturesDialog(data models.AccountSignatureData) {
-	@dialog.Dialog(dialog.Props{ID: "account-signatures-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "signatures-dialog mobile-page-dialog sm:max-w-3xl"}) {
-			@dialog.Header() {
-				@dialog.Title() {
-					{ i18n.T(ctx, "settings.signatures.account_title") }
-				}
-				@dialog.Description() {
-					{ i18n.T(ctx, "settings.signatures.account_description", "account", data.Account.Email) }
-				}
 			}
-			<div class="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]" data-account-signatures-manager data-account-id={ data.Account.ID }>
-				<div class="min-w-0 space-y-4">
-					<div class="min-w-0 rounded-lg border border-border bg-background/60 p-4 space-y-3">
-						<div class="flex items-center justify-between gap-3">
-							<div>
-								<h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.library") }</h3>
-								<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.library_description_any") }</p>
-							</div>
-						</div>
-						<div class="flex items-end gap-2">
-							<div class="min-w-0 flex-1 space-y-1.5">
-								<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.saved") }</label>
-								@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-									@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_picker_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-select": ""}}) {
-										@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.select")})
-									}
-									@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-										if len(data.Signatures) == 0 {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true, Disabled: true}) { { i18n.T(ctx, "settings.signatures.empty") } }
-										} else {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true}) { { i18n.T(ctx, "settings.signatures.select") } }
-											for _, sig := range data.Signatures {
-												@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Attributes: templ.Attributes{"data-signature-option": "", "data-signature-name": sig.Name, "data-signature-html": sig.HTMLBody}}) { { sig.Name } }
-											}
-										}
-									}
-								}
-							</div>
-							<button type="button" class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" data-signature-new>
-								@icon.Plus(icon.Props{Class: "size-3.5"})
-								{ i18n.T(ctx, "settings.signatures.new_button") }
-							</button>
-						</div>
-						<form data-signature-form class="space-y-3">
-							<input type="hidden" name="id" value="" data-signature-id/>
-							<div>
-								<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.theme.name") }</label>
-								@input.Input(input.Props{Name: "name", Type: input.TypeText, Placeholder: i18n.T(ctx, "settings.signatures.name_placeholder"), Attributes: templ.Attributes{"data-signature-name": ""}})
-							</div>
-							<div>
-								<div class="mb-1.5 flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.signature") }</label>
-									<div class="inline-flex shrink-0 rounded-[var(--radius)] border border-border bg-background p-0.5 text-[11px]" data-signature-editor-mode>
-										<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-foreground bg-card shadow-sm" data-signature-mode-button="visual">{ i18n.T(ctx, "settings.signatures.rendered") }</button>
-										<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground" data-signature-mode-button="source">HTML</button>
-									</div>
-								</div>
-								<textarea name="html_body" class="hidden" data-signature-html></textarea>
-								<div class="min-h-28 max-w-full overflow-x-auto rounded-md border border-border bg-card px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" contenteditable="true" role="textbox" data-signature-editor data-placeholder={ i18n.T(ctx, "settings.signatures.editor_placeholder") } data-on-input='["syncSignatureEditor","$this"]'></div>
-								<textarea class="hidden min-h-28 w-full resize-y rounded-md border border-border bg-card px-3 py-2 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-ring" spellcheck="false" placeholder={ i18n.T(ctx, "settings.signatures.source_placeholder") } data-signature-source></textarea>
-								<p class="text-[11px] text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.mode_hint") }</p>
-							</div>
-							<div class="flex items-center justify-between gap-3">
-								<span class="text-xs text-muted-foreground" data-signature-save-status></span>
-								<div class="flex items-center gap-2">
-									<button type="button" class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:border-destructive/30 hover:text-destructive" data-signature-delete-current>{ i18n.T(ctx, "settings.account.delete") }</button>
-									<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-										@icon.Save(icon.Props{Class: "size-3.5"})
-										{ i18n.T(ctx, "settings.signatures.save") }
-									</button>
-								</div>
-							</div>
-						</form>
-					</div>
-				</div>
-
-				<form class="rounded-lg border border-border bg-background/60 p-4 space-y-4" data-account-signature-settings>
-					<div>
-						<h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.use_title") }</h3>
-						<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.use_description") }</p>
-					</div>
-					@AccountSignatureAssignmentRow("new", i18n.T(ctx, "settings.signatures.new"), data.Settings.NewEnabled, data.Settings.NewSignatureID, "", data.Signatures)
-					@AccountSignatureAssignmentRow("reply", i18n.T(ctx, "settings.signatures.replies"), data.Settings.ReplyEnabled, data.Settings.ReplySignatureID, data.Settings.ReplyPlacement, data.Signatures)
-					@AccountSignatureAssignmentRow("forward", i18n.T(ctx, "settings.signatures.forwards"), data.Settings.ForwardEnabled, data.Settings.ForwardSignatureID, data.Settings.ForwardPlacement, data.Signatures)
-					<div class="flex items-center justify-between gap-3 pt-2">
-						<span class="text-xs text-muted-foreground" data-signature-settings-status></span>
-						<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-							@icon.Check(icon.Props{Class: "size-3.5"})
-							{ i18n.T(ctx, "settings.signatures.save_assignments") }
-						</button>
-					</div>
-				</form>
-			</div>
-		}
-	}
-}
-
-templ AccountSignatureAssignmentRow(kind string, label string, enabled bool, selectedID string, placement string, signatures []models.Signature) {
-	<div class="rounded-md border border-border/70 bg-card/60 p-3 space-y-2">
-		<label class="flex items-center gap-2 text-sm font-medium text-foreground">
-			@checkbox.Checkbox(checkbox.Props{Name: kind + "_enabled", Value: "true", Checked: enabled})
-			{ label }
-		</label>
-		@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_signature_id", Class: "bg-background"}) {
-				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.none")}) {
-					{ signatureLabel(ctx, signatures, selectedID) }
-				}
-			}
-			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-				@selectbox.Item(selectbox.ItemProps{Value: "", Selected: selectedID == ""}) { { i18n.T(ctx, "settings.signatures.none") } }
-				for _, sig := range signatures {
-					@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Selected: selectedID == sig.ID}) { { sig.Name } }
-				}
-			}
-		}
-		if kind != "new" {
-			<div class="grid gap-1.5">
-				<label class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.place") }</label>
-				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-					@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_placement", Class: "bg-background", DisableClear: true}) {
-						@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.before")}) {
-							if placement == "after" {
-								{ i18n.T(ctx, "settings.signatures.after") }
-							} else {
-								{ i18n.T(ctx, "settings.signatures.before") }
-							}
-						}
-					}
-					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-						@selectbox.Item(selectbox.ItemProps{Value: "before", Selected: placement != "after"}) { { i18n.T(ctx, "settings.signatures.before") } }
-						@selectbox.Item(selectbox.ItemProps{Value: "after", Selected: placement == "after"}) { { i18n.T(ctx, "settings.signatures.after") } }
-					}
-				}
-			</div>
-		}
+		</div>
 	</div>
 }
 
