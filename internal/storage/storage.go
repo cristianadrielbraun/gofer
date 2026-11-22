@@ -44,6 +44,9 @@ type DB struct {
 	// changed (contact_changes.go).
 	contactChangeHook func(userID string)
 	contactWatch      *contactChangeWatch
+	// mailOperationsChangeHook tells open pages whose background mail work
+	// changed (mail_operation_changes.go).
+	mailOperationsChangeHook func(userID string)
 }
 
 type ContactActivityNotification struct {

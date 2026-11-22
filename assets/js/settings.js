@@ -2081,44 +2081,58 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
-// The Mail operations list counts down to reloading itself. Each reload, or
-// a press of Refresh, replaces the whole list, which starts a new countdown.
-// While the tab is hidden the countdown waits at zero, and reloads once the
-// tab is shown again.
-// A reload that fails leaves the list as it was and counts down again.
-goferOnContent("#mail-operations-content[data-mail-operations-refresh]", function (content) {
-  var label = content.querySelector("[data-mail-operations-countdown]")
-  var seconds = parseInt(content.getAttribute("data-mail-operations-refresh"), 10) || 15
-  var timer = null
-  function countDown(failed) {
-    var left = seconds
-    var show = function () {
-      if (label) label.textContent = goferT(failed ? "js.settings.operations.refresh_failed_in" : "js.settings.operations.refresh_in", { seconds: left })
-    }
-    show()
-    timer = setInterval(function () {
-      if (!content.isConnected) {
-        clearInterval(timer)
-        return
-      }
-      if (left > 0) left--
-      if (left > 0) {
-        show()
-        return
-      }
-      if (document.hidden) return
-      clearInterval(timer)
-      if (window.htmx) htmx.trigger(content, "mail-operations-refresh")
-    }, 1000)
+// The Mail operations list reloads when the person's background mail work
+// changes: app.js passes on the server's mail-operations-changed event as
+// gofer:mail-operations-changed, and again after the event stream
+// reconnects, since changes may have been missed meanwhile. A change while a
+// reload is running reloads once more after it; one while the tab is hidden
+// reloads when it's shown. A reload that fails leaves the list as it was and
+// says so; the next change, or Refresh, tries again.
+function mailOperationsLiveState() {
+  if (!mailOperationsLiveState.state) mailOperationsLiveState.state = { loading: false, again: false }
+  return mailOperationsLiveState.state
+}
+
+function reloadMailOperationsList() {
+  var content = document.getElementById("mail-operations-content")
+  if (!content || !window.htmx) return
+  var state = mailOperationsLiveState()
+  if (document.hidden || state.loading) {
+    state.again = true
+    return
   }
-  content.addEventListener("htmx:beforeRequest", function () {
-    clearInterval(timer)
-    if (label) label.textContent = goferT("js.settings.calendar.refreshing")
-  })
-  content.addEventListener("htmx:afterRequest", function (event) {
-    if (event.detail && !event.detail.successful && content.isConnected) countDown(true)
-  })
-  countDown(false)
+  state.again = false
+  htmx.trigger(content, "mail-operations-refresh")
+}
+
+// mailOperationsListLoaded runs once a reload of the list has finished, with
+// whether it worked.
+function mailOperationsListLoaded(content, successful) {
+  var state = mailOperationsLiveState()
+  state.loading = false
+  if (!successful && content && content.isConnected) {
+    var label = content.querySelector("[data-mail-operations-status]")
+    if (label) label.textContent = goferT("js.settings.operations.refresh_failed")
+  }
+  if (state.again) reloadMailOperationsList()
+}
+
+document.addEventListener("gofer:mail-operations-changed", reloadMailOperationsList)
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && mailOperationsLiveState().again) reloadMailOperationsList()
+})
+document.addEventListener("htmx:beforeRequest", function (event) {
+  var detail = event.detail || {}
+  if (!detail.target || detail.target.id !== "mail-operations-content") return
+  mailOperationsLiveState().loading = true
+  var label = detail.target.querySelector("[data-mail-operations-status]")
+  if (label) label.textContent = goferT("js.settings.calendar.refreshing")
+})
+document.addEventListener("htmx:afterRequest", function (event) {
+  var detail = event.detail || {}
+  if (!detail.target || detail.target.id !== "mail-operations-content") return
+  // A list that worked is finished once it is swapped in, below.
+  if (!detail.successful) mailOperationsListLoaded(detail.target, false)
 })
 
 // Details and groups opened in the Mail operations list stay open when the
@@ -2142,6 +2156,7 @@ document.addEventListener("htmx:configRequest", function (event) {
 goferOnContent("#mail-operations-content", function (content) {
   reopenMailOperations(content, "data-mail-operation-details", openMailOperationDetails)
   reopenMailOperations(content, "data-mail-operation-group", openMailOperationGroups)
+  mailOperationsListLoaded(content, true)
 })
 
 // A group's messages load the first time it is opened, by mouse or keyboard.

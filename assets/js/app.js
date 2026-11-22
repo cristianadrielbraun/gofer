@@ -8689,10 +8689,13 @@ document.addEventListener("DOMContentLoaded", function () {
       showComposeSendResult(data)
     })
 
-    // Mail changes and finished syncs may have left work that needs
-    // attention, or cleared it.
-    ;["mutation", "manual-sync-complete", "scheduled-sync-complete"].forEach(function (type) {
-      source.addEventListener(type, function () { refreshMailOperationsAttention(false) })
+    // The person's background mail work changed: the attention mark and an
+    // open Mail operations list (settings.js) read it again. After a
+    // reconnect they do so once, since changes may have been missed.
+    source.addEventListener("mail-operations-changed", mailOperationsChanged)
+    source.addEventListener("connected", function () {
+      if (setupSSE.reconnecting) mailOperationsChanged()
+      setupSSE.reconnecting = false
     })
 
     source.addEventListener("mutation", function (e) {
@@ -8853,6 +8856,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     source.onerror = function () {
       // Updates sent while reconnecting are lost.
+      setupSSE.reconnecting = true
       markKeptStale("mail", "all")
       markKeptStale("calendar", "all")
       markKeptStale("contacts", "sidebar")
@@ -12474,6 +12478,13 @@ function setupMailOperationsAttention() {
 
 // refreshMailOperationsAttention asks again, at most once every few seconds
 // unless now is set; a request held back runs when the wait is over.
+// mailOperationsChanged tells what follows background mail work that it
+// changed.
+function mailOperationsChanged() {
+  refreshMailOperationsAttention(false)
+  document.dispatchEvent(new CustomEvent("gofer:mail-operations-changed"))
+}
+
 function refreshMailOperationsAttention(now) {
   var state = mailOperationsAttentionState()
   var wait = 5000 - (Date.now() - state.last)

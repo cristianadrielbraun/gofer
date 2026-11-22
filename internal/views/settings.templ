@@ -7004,13 +7004,9 @@ templ mailOperationUndoDialog() {
 	}
 }
 
-// mailOperationsRefreshSeconds is how often the list reloads itself; the page
-// counts down to it.
-const mailOperationsRefreshSeconds = 15
-
 // SettingsOperationsContent is the list of mail operations. It reloads itself
-// when the countdown in settings.js reaches zero, or when Refresh is pressed;
-// either way the whole block is replaced and the countdown starts again.
+// whenever the person's background mail work changes (settings.js), or when
+// Refresh is pressed; either way the whole block is replaced.
 templ SettingsOperationsContent(status models.MailOperationsList) {
 	<div
 		id="mail-operations-content"
@@ -7018,20 +7014,17 @@ templ SettingsOperationsContent(status models.MailOperationsList) {
 		hx-trigger="mail-operations-refresh"
 		hx-swap="outerHTML"
 		class="settings-card rounded-lg border bg-card p-6 space-y-4"
-		data-mail-operations-refresh={ strconv.Itoa(mailOperationsRefreshSeconds) }
 	>
-		// Row one is always the title and Refresh; the countdown sits in the
-		// subtitle so Refresh fits beside the title on any screen. Row two
-		// appears only when something needs attention.
+		// Row one is always the title and Refresh; whether the list is live
+		// sits in the subtitle so Refresh fits beside the title on any
+		// screen. Row two appears only when something needs attention.
 		<div class="flex items-start justify-between gap-3">
 			<div class="min-w-0">
 				<h3 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.operations.background") }</h3>
 				<p class="mt-1 text-xs text-muted-foreground">
 					{ i18n.N(ctx, "settings.operations.total", status.Total()) }
 					<span aria-hidden="true">·</span>
-					<span class="tabular-nums" aria-live="off" data-mail-operations-countdown>
-						{ i18n.T(ctx, "settings.operations.countdown", "seconds", mailOperationsRefreshSeconds) }
-					</span>
+					<span data-mail-operations-status>{ i18n.T(ctx, "settings.operations.live") }</span>
 				</p>
 			</div>
 			@button.Button(button.Props{

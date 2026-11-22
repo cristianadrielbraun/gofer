@@ -59,6 +59,13 @@ type contactChangeWatch struct {
 	pendingMail map[string]struct{}
 	readyMail   map[string]struct{}
 	recount     func(addresses []string)
+	// operationColumns, pendingOperations and readyOperations do the same
+	// for the accounts whose background mail work changed, which
+	// operationsChanged is told about (mail_operation_changes.go).
+	operationColumns  map[string]int
+	pendingOperations map[string]struct{}
+	readyOperations   map[string]struct{}
+	operationsChanged func(accountIDs []string)
 }
 
 // contactWatches holds the watch of each open database by path. The driver
@@ -66,7 +73,11 @@ type contactChangeWatch struct {
 var contactWatches sync.Map // string → *contactChangeWatch
 
 func watchContactChanges(path string) *contactChangeWatch {
-	watch := &contactChangeWatch{pending: map[string]struct{}{}, ready: map[string]struct{}{}, pendingMail: map[string]struct{}{}, readyMail: map[string]struct{}{}}
+	watch := &contactChangeWatch{
+		pending: map[string]struct{}{}, ready: map[string]struct{}{},
+		pendingMail: map[string]struct{}{}, readyMail: map[string]struct{}{},
+		pendingOperations: map[string]struct{}{}, readyOperations: map[string]struct{}{},
+	}
 	contactWatches.Store(path, watch)
 	return watch
 }
@@ -83,6 +94,7 @@ func unwatchContactChanges(path string, watch *contactChangeWatch) {
 	}
 	watch.notify = nil
 	watch.recount = nil
+	watch.operationsChanged = nil
 	watch.mu.Unlock()
 }
 
@@ -116,6 +128,10 @@ func (w *contactChangeWatch) changed(data sqlite.SQLitePreUpdateData) {
 	}
 	if _, ok := contactMailColumns[data.TableName]; ok {
 		w.mailChanged(data)
+		return
+	}
+	if mailOperationTables[data.TableName] {
+		w.operationChanged(data)
 		return
 	}
 	if !contactChangeTables[data.TableName] {
@@ -187,7 +203,12 @@ func (w *contactChangeWatch) committed() int32 {
 		w.readyMail[address] = struct{}{}
 	}
 	clear(w.pendingMail)
-	if ((len(w.ready) > 0 && w.notify != nil) || (len(w.readyMail) > 0 && w.recount != nil)) && w.timer == nil {
+	for account := range w.pendingOperations {
+		w.readyOperations[account] = struct{}{}
+	}
+	clear(w.pendingOperations)
+	if ((len(w.ready) > 0 && w.notify != nil) || (len(w.readyMail) > 0 && w.recount != nil) ||
+		(len(w.readyOperations) > 0 && w.operationsChanged != nil)) && w.timer == nil {
 		w.timer = time.AfterFunc(contactChangeDelay, w.flush)
 	}
 	// Zero lets the commit go ahead.
@@ -198,6 +219,7 @@ func (w *contactChangeWatch) rolledBack() {
 	w.mu.Lock()
 	clear(w.pending)
 	clear(w.pendingMail)
+	clear(w.pendingOperations)
 	w.mu.Unlock()
 }
 
@@ -213,12 +235,21 @@ func (w *contactChangeWatch) flush() {
 		addresses = append(addresses, address)
 	}
 	clear(w.readyMail)
+	accounts := make([]string, 0, len(w.readyOperations))
+	for account := range w.readyOperations {
+		accounts = append(accounts, account)
+	}
+	clear(w.readyOperations)
 	w.timer = nil
-	notify, recount := w.notify, w.recount
+	notify, recount, operationsChanged := w.notify, w.recount, w.operationsChanged
 	w.mu.Unlock()
 	if recount != nil && len(addresses) > 0 {
 		sort.Strings(addresses)
 		recount(addresses)
+	}
+	if operationsChanged != nil && len(accounts) > 0 {
+		sort.Strings(accounts)
+		operationsChanged(accounts)
 	}
 	if notify == nil {
 		return
@@ -256,8 +287,17 @@ func (db *DB) watchContactTables() {
 			mailColumns[table] = cid
 		}
 	}
+	operationColumns := make(map[string]int, len(mailOperationTables))
+	for table := range mailOperationTables {
+		var cid int
+		if db.read.QueryRow(`SELECT cid FROM pragma_table_info(?) WHERE name = 'account_id'`, table).Scan(&cid) == nil {
+			operationColumns[table] = cid
+		}
+	}
 	watch := db.contactWatch
 	watch.mu.Lock()
+	watch.operationColumns = operationColumns
+	watch.operationsChanged = db.notifyMailOperationsChange
 	watch.columns = columns
 	watch.notify = db.notifyContactChange
 	watch.mailColumns = mailColumns

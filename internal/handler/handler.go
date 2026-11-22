@@ -245,6 +245,12 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		}
 		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactsChanged, UserID: userID})
 	})
+	db.SetMailOperationsChangeHook(func(userID string) {
+		if h.syncer == nil {
+			return
+		}
+		h.syncer.Events().Publish(mail.Event{Type: mail.EventMailOperationsChanged, UserID: userID})
+	})
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
 			return

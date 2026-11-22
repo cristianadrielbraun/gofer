@@ -180,7 +180,7 @@ func TestMailOperationsAttentionCountsAsTheList(t *testing.T) {
 	// One action with a parked and a failed change counts once; a failed
 	// change with no action counts on its own.
 	removeProjectsFolder(t, db)
-	if _, err := db.Write().Exec(`UPDATE message_mutations SET status = 'failed', attempt_count = 1, last_error = 'timeout', updated_at = '2026-11-20 10:00:00' WHERE message_id = 2`); err != nil {
+	if _, err := db.Write().Exec(`UPDATE message_mutations SET status = 'failed', attempt_count = 1, last_error = 'timeout', updated_at = '2100-01-01 10:00:00' WHERE message_id = 2`); err != nil {
 		t.Fatal(err)
 	}
 	count, first, err := db.MailOperationsAttentionForUser(ctx, "default")
@@ -195,7 +195,7 @@ func TestMailOperationsAttentionCountsAsTheList(t *testing.T) {
 		t.Fatalf("another user's count = %d %v", others, err)
 	}
 	// A newer failure changes the fingerprint even when the count doesn't.
-	if _, err := db.Write().Exec(`UPDATE message_mutations SET updated_at = '2026-11-21 09:00:00' WHERE message_id = 2 AND kind = 'read'`); err != nil {
+	if _, err := db.Write().Exec(`UPDATE message_mutations SET updated_at = '2100-01-02 09:00:00' WHERE message_id = 2 AND kind = 'read'`); err != nil {
 		t.Fatal(err)
 	}
 	if count, second, _ := db.MailOperationsAttentionForUser(ctx, "default"); count != 2 || second == first {
