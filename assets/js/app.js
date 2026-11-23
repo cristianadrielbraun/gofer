@@ -1991,6 +1991,9 @@ document.addEventListener("DOMContentLoaded", function () {
     document.body.addEventListener("htmx:afterSwap", function (event) {
       syncTranslationControls(event.target || document)
     })
+    document.body.addEventListener("gofer:thread-body-added", function (event) {
+      syncTranslationControls(event.target || document)
+    })
     document.body.addEventListener("htmx:oobAfterSwap", function (event) {
       syncTranslationControls(event.target || document)
     })
@@ -27156,6 +27159,17 @@ function collapseComposeFullWidth() {
     return el.querySelector('.thread-details-content')
   }
 
+  // A collapsed message's body waits in a template (see MailViewThreadContent)
+  // and is filled in when the message first opens.
+  function fillThreadBody(el) {
+    var ct = contentOf(el)
+    var template = ct && ct.querySelector(':scope > template[data-thread-body]')
+    if (!template) return
+    template.replaceWith(template.content.cloneNode(true))
+    if (window.htmx) htmx.process(ct)
+    ct.dispatchEvent(new CustomEvent('gofer:thread-body-added', { bubbles: true }))
+  }
+
   function measure(cards) {
     return cards.map(function (card) {
       var rect = card.getBoundingClientRect()
@@ -27175,6 +27189,7 @@ function collapseComposeFullWidth() {
     var waiting = 0
     var finished = false
     var timer = null
+    var loading = false
     function finish() {
       if (finished) return
       finished = true
@@ -27184,6 +27199,7 @@ function collapseComposeFullWidth() {
     cts.forEach(function (ct) {
       var iframe = ct.querySelector('[data-email-body-frame]')
       if (!iframe || iframe._bodyMeasuredWidth === iframe.clientWidth) return
+      if (!iframe._bodyReported) loading = true
       waiting++
       function onMeasured() {
         if (iframe._bodyMeasuredWidth !== iframe.clientWidth) return
@@ -27196,7 +27212,10 @@ function collapseComposeFullWidth() {
       finish()
       return
     }
-    timer = setTimeout(finish, 150)
+    // A body opened for the first time still has to load. It gets longer, so
+    // it usually opens at its real height, but a slow one opens on its loading
+    // lines rather than holding the click up.
+    timer = setTimeout(finish, loading ? 500 : 150)
   }
 
   // clipSlot makes a slot clip its sheet for the animation. The clip reaches
@@ -27234,6 +27253,7 @@ function collapseComposeFullWidth() {
     list._threadBusy = true
     opening.forEach(function (el, i) {
       var ct = openingContent[i]
+      fillThreadBody(el)
       ct.style.height = '1px'
       ct.style.overflow = 'hidden'
       el.open = true
