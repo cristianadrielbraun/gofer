@@ -1,0 +1,115 @@
+package views
+
+import "github.com/cristianadrielbraun/gofer/internal/i18n"
+
+// Read-only desktop sidebar using synchronized calendar cache.
+templ MailCalendarSidebar() {
+	<div
+		id="mail-calendar-sidebar-slot"
+		class="mail-calendar-shell"
+		data-mail-calendar-shell
+		data-open="true"
+		data-mail-calendar-hide-label={ i18n.T(ctx, "calendar.mail_sidebar.hide") }
+		data-mail-calendar-show-label={ i18n.T(ctx, "calendar.mail_sidebar.show") }
+	>
+		<button
+			type="button"
+			class="mail-calendar-toggle"
+			data-mail-calendar-toggle
+			aria-label={ i18n.T(ctx, "calendar.mail_sidebar.hide") }
+			aria-expanded="true"
+			aria-controls="mail-calendar-sidebar-content"
+			title={ i18n.T(ctx, "calendar.mail_sidebar.toggle") }
+		>‹</button>
+		<div
+			class="mail-calendar-grip"
+			data-mail-calendar-grip
+			role="separator"
+			tabindex="0"
+			aria-label={ i18n.T(ctx, "calendar.mail_sidebar.resize") }
+			aria-orientation="vertical"
+			aria-valuemin="260"
+			aria-valuemax="450"
+			aria-valuenow="300"
+		></div>
+		<aside
+			class="mail-calendar-aside flex min-h-0 flex-col border-l border-border bg-background"
+			aria-label={ i18n.T(ctx, "calendar.mail_sidebar.label") }
+			data-mail-calendar-sidebar
+		>
+			<div
+				id="mail-calendar-sidebar-content"
+				class="min-h-0 flex-1 flex items-center justify-center text-sm text-muted-foreground"
+				hx-get="/calendar?view=month&cache=1"
+				hx-trigger="load"
+				hx-target="this"
+				hx-swap="outerHTML"
+			>
+				{ i18n.T(ctx, "calendar.loading") }
+			</div>
+		</aside>
+	</div>
+}
+
+templ MailCalendarSidebarContent(month CalendarMonthData) {
+	{{ selected := mailSidebarSelectedDay(month) }}
+	{{ events := mailSidebarDayEvents(selected, month.Events) }}
+	<div id="mail-calendar-sidebar-content" class="min-h-0 flex-1 flex flex-col overflow-hidden">
+		<div class="shrink-0 border-b border-border p-3">
+			<div class="mb-2 flex items-center justify-between gap-1">
+				<a href={ mailSidebarURL(month.PreviousMonthKey + "-01") } hx-get={ mailSidebarURL(month.PreviousMonthKey + "-01") } hx-target="#mail-calendar-sidebar-content" hx-swap="outerHTML" class="rounded-md border border-border px-2 py-1 text-sm hover:bg-accent" aria-label={ i18n.T(ctx, "calendar.nav.previous_month") }>‹</a>
+				<strong class="text-xs">{ calendarPeriodLabel(ctx, month) }</strong>
+				<a href={ mailSidebarURL(month.NextMonthKey + "-01") } hx-get={ mailSidebarURL(month.NextMonthKey + "-01") } hx-target="#mail-calendar-sidebar-content" hx-swap="outerHTML" class="rounded-md border border-border px-2 py-1 text-sm hover:bg-accent" aria-label={ i18n.T(ctx, "calendar.nav.next_month") }>›</a>
+			</div>
+			<div class="grid grid-cols-7 gap-1 text-center text-[11px] text-muted-foreground">
+				if len(month.Weeks) > 0 {
+					for _, day := range month.Weeks[0].Days {
+						<span>{ i18n.Dates(ctx).WeekdayShortName(day.Date.Weekday()) }</span>
+					}
+				}
+			</div>
+			<div class="mt-1 grid grid-cols-7 gap-1 text-center">
+				for _, week := range month.Weeks {
+					for _, day := range week.Days {
+						{{ busy := len(mailSidebarDayEvents(day, month.Events)) > 0 }}
+						<a href={ mailSidebarURL(day.ISODate) } hx-get={ mailSidebarURL(day.ISODate) } hx-target="#mail-calendar-sidebar-content" hx-swap="outerHTML" class="relative flex h-9 items-center justify-center rounded-md text-xs hover:bg-accent" style={ mailSidebarDayStyle(day, selected.ISODate) } aria-label={ calendarDayLabel(ctx, day) }>
+							{ day.DayNumber }
+							if busy {
+								<span aria-hidden="true" class="absolute bottom-0.5 size-1 rounded-full bg-primary"></span>
+							}
+						</a>
+					}
+				}
+			</div>
+			<div class="mt-2 text-right">
+				<a href={ mailSidebarURL(month.TodayDateKey) } hx-get={ mailSidebarURL(month.TodayDateKey) } hx-target="#mail-calendar-sidebar-content" hx-swap="outerHTML" class="text-xs text-primary hover:underline">{ i18n.T(ctx, "calendar.today") }</a>
+			</div>
+		</div>
+		<div class="min-h-0 flex-1 overflow-y-auto p-3">
+			<h2 class="mb-3 text-sm font-semibold">{ i18n.Dates(ctx).LongDate(selected.Date) }</h2>
+			if len(events) == 0 {
+				<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "calendar.agenda.no_events") }</p>
+			} else {
+				<div class="space-y-2">
+					for _, event := range events {
+						<button type="button" class="w-full rounded-md border border-border bg-card p-2 text-left hover:bg-accent/50" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" aria-haspopup="dialog" data-calendar-event-trigger>
+							<span class="flex items-center gap-2">
+								<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
+								<span class="truncate text-xs font-semibold">{ calendarEventSummary(ctx, event) }</span>
+							</span>
+							<span class="mt-1 block text-[11px] text-muted-foreground">{ calendarEventAgendaTimeLabel(ctx, event, month.Month.Location()) }</span>
+						</button>
+					}
+				</div>
+			}
+		</div>
+	</div>
+}
+
+templ mailCalendarSidebarSlot(enabled bool) {
+	if enabled {
+		@MailCalendarSidebar()
+	} else {
+		<div id="mail-calendar-sidebar-slot" hidden></div>
+	}
+}

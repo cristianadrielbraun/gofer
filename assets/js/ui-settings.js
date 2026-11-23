@@ -156,12 +156,33 @@ var GoferSettings;
     }
   }
 
-  function persistSettingsNow() {
-    return fetch("/api/settings/ui", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(_cache),
+  var _settingsSaveQueue = Promise.resolve();
+  var _mailCalendarSidebarSave = null;
+
+  function persistSettingsNow(updates, onSaved) {
+    // Read the cache when this write starts, after earlier writes finish.
+    _settingsSaveQueue = _settingsSaveQueue.then(function () {
+      return fetch("/api/settings/ui", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates || _cache),
+      });
+    }).then(function (response) {
+      if (response.ok && onSaved) onSaved();
+      return response;
     }).catch(function () {});
+    return _settingsSaveQueue;
+  }
+
+  function updateCachedSetting(key, value) {
+    var oldValue = _cache[key] || null;
+    _cache[key] = value;
+    writeCache();
+    applySetting(key, value);
+    document.body.dispatchEvent(new CustomEvent("gofer:settings-changed", {
+      detail: { key: key, value: value, oldValue: oldValue },
+    }));
+    return oldValue;
   }
 
   // Card layouts and table columns of the mail and contacts lists. Each list
@@ -1142,19 +1163,31 @@ var GoferSettings;
       return persistSettingsNow();
     },
 
+    // Mail and Appearance render the sidebar preference from the saved value.
+    pendingMailCalendarSidebarSave: function () {
+      return _mailCalendarSidebarSave;
+    },
+
     // The light or dark mode actually shown, which Express forces to light.
     effectiveTheme: function () {
       return effectiveTheme(_cache.theme || "dark", _cache.theme_style || "classic");
     },
 
     set: function (key, value) {
-      var oldValue = _cache[key] || null;
-      _cache[key] = value;
-      writeCache();
-      applySetting(key, value);
-      document.body.dispatchEvent(new CustomEvent("gofer:settings-changed", {
-        detail: { key: key, value: value, oldValue: oldValue },
-      }));
+      if (key === "mail_calendar_sidebar_enabled") {
+        var updates = {};
+        updates[key] = value;
+        var save = persistSettingsNow(updates, function () {
+          updateCachedSetting(key, value);
+        });
+        _mailCalendarSidebarSave = save;
+        save.then(function () {
+          if (_mailCalendarSidebarSave === save) _mailCalendarSidebarSave = null;
+        });
+        return save;
+      }
+
+      var oldValue = updateCachedSetting(key, value);
 
       // The page is drawn in the time zone, language, date formats and week
       // start, so reload it.
@@ -1170,12 +1203,8 @@ var GoferSettings;
 
       if (_saveTimer) clearTimeout(_saveTimer);
       _saveTimer = setTimeout(function () {
-        fetch("/api/settings/ui", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(_cache),
-        }).catch(function () {});
         _saveTimer = null;
+        persistSettingsNow();
       }, 300);
     },
   };

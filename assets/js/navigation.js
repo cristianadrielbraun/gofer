@@ -249,6 +249,11 @@
     var dialogs = document.getElementById("app-pane-dialogs")
     if (dialogs) dialogs.replaceChildren()
     window.GoferAppNavigation.prepare(destination.mode)
+    var calendarSlot = main.querySelector("#mail-calendar-sidebar-slot")
+    if (destination.mode === "mail" && !calendarSlot) {
+      main.appendChild(content.querySelector("#mail-calendar-sidebar-slot").cloneNode(true))
+    }
+    if (destination.mode !== "mail" && calendarSlot) calendarSlot.remove()
     window.GoferAppNavigation.bindSidebar()
     if (destination.mode === "settings" && typeof animateSectionContent === "function") animateSectionContent(document.getElementById("settings-content"))
     if (typeof initResizeHandles === "function") initResizeHandles()
@@ -338,11 +343,22 @@
       // With nothing to open, the reader already shows its empty state from the
       // template; swapping in the same content would replay its fade-in.
       var keepReader = destination.mode !== "calendar" && !opensItem(destination) && document.querySelector("#mail-view [data-mail-view-empty]")
-      trigger.setAttribute("hx-select-oob", "#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML," + (keepReader ? "" : "#mail-view:outerHTML,") + "#app-pane-dialogs:outerHTML,#compose-account-data:outerHTML")
+      var calendarOOB = destination.mode === "mail" ? ",#mail-calendar-sidebar-slot:outerHTML" : ""
+      trigger.setAttribute("hx-select-oob", "#sidebar-app-body:outerHTML,#sidebar-sync-controls:outerHTML," + (keepReader ? "" : "#mail-view:outerHTML,") + "#app-pane-dialogs:outerHTML,#compose-account-data:outerHTML" + calendarOOB)
     }
-    htmx.ajax("GET", settings ? destination.address : window.GoferAppNavigation.requestURL(destination.mode, destination.address), {
-      source: trigger, target: settings ? "#settings-content" : "#mail-list", swap: "outerHTML",
-    }).catch(function () { failed(id) })
+    function requestDestination() {
+      if (!pending || pending.serial !== id) return
+      htmx.ajax("GET", settings ? destination.address : window.GoferAppNavigation.requestURL(destination.mode, destination.address), {
+        source: trigger, target: settings ? "#settings-content" : "#mail-list", swap: "outerHTML",
+      }).catch(function () { failed(id) })
+    }
+    var readsSidebarSetting = destination.mode === "mail" || (settings && destination.tab === "appearance")
+    var sidebarSave = readsSidebarSetting && window.GoferSettings && GoferSettings.pendingMailCalendarSidebarSave()
+    if (sidebarSave) {
+      sidebarSave.then(requestDestination)
+    } else {
+      requestDestination()
+    }
     return true
   }
 

@@ -13,6 +13,7 @@ templ AppNavigationScripts() {
 	@MailCardLayoutScript()
 	<script src={ assetver.URL("/assets/js/passkey-registration.js") }></script>
 	<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
+	<script src={ assetver.URL("/assets/js/mail-calendar-sidebar.js") }></script>
 	<script src={ assetver.URL("/assets/js/navigation.js") }></script>
 }
 
@@ -56,6 +57,7 @@ templ AppNavigationTemplates(uiSettings map[string]string) {
 				<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>
 					@MailViewEmpty()
 				</div>
+				@mailCalendarSidebarSlot(false)
 			</div>
 		</template>
 		<template id={ "app-navigation-contacts-" + mode }>

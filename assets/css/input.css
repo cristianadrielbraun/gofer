@@ -3,6 +3,7 @@
 @import "./themes/minimal.css";
 @import "./themes/express.css";
 @import "./wolf.css";
+@import "./mail-calendar-sidebar.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
