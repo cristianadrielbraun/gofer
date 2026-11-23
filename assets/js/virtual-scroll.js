@@ -477,10 +477,29 @@ class VirtualMailList {
     this.expandedThreads.forEach(function (thread) { thread.measuredHeight = 0 })
   }
 
+  // threadShellHeight is the height an open thread's shell needs: its row,
+  // its messages and the gap before the next row. The messages are measured
+  // by their content, which their opening animation doesn't cut short, and
+  // not through the shell: that is drawn at the guessed height, and
+  // scrollHeight never reads less than it, so a guess that was too tall
+  // stayed. Each message is a little shorter than the guess, so the space
+  // under an open thread grew with every message in it.
+  threadShellHeight(shell) {
+    var main = shell.firstElementChild
+    var sub = shell.querySelector(":scope > .thread-sub-items")
+    if (!main || !sub) return Math.ceil(shell.scrollHeight || 0)
+    var style = window.getComputedStyle(sub)
+    var subHeight = sub.scrollHeight +
+      (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0) +
+      (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0)
+    var gap = this.viewMode === "table" ? 0 : this.expandedThreadGap
+    return Math.ceil(main.getBoundingClientRect().height + subHeight + gap)
+  }
+
   updateExpandedThreadMeasuredHeight(emailId, shell) {
     var expanded = this.expandedThreads.get(emailId)
     if (!expanded || !shell) return
-    var measured = Math.ceil(shell.scrollHeight || 0)
+    var measured = this.threadShellHeight(shell)
     if (measured <= 0) return
     if (Math.abs((expanded.measuredHeight || 0) - measured) <= 1) return
     expanded.measuredHeight = measured
