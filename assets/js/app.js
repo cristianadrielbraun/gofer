@@ -10361,8 +10361,29 @@ document.addEventListener("DOMContentLoaded", function () {
           evt.detail.pathInfo.requestPath.match(/^\/email\/[^/?]+(?:\?.*)?$/)
       ) {
         showMailViewLoading(evt.detail.elt)
+        selectOpeningEmail(evt)
       }
     })
+
+    // The list marks the message as soon as it starts loading, together with
+    // the reader's loading sheet. Marking it once the reader arrived left the
+    // previous message marked for as long as a long conversation took.
+    function selectOpeningEmail(evt) {
+      if (!virtualMailList) return
+      var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
+      var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
+      if (preserveMailListSelectionFor === emailId) {
+        preserveMailListSelectionFor = null
+        virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+      } else if (suppressEmailUrlPushFor === emailId) {
+        suppressEmailUrlPushFor = null
+        virtualMailList.selectedEmailId = emailId
+        virtualMailList.selectedInThread = inThread
+        virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+      } else {
+        virtualMailList.onEmailSelected(emailId, { inThread: inThread })
+      }
+    }
 
 	document.body.addEventListener("htmx:afterRequest", function (evt) {
 	  if (
@@ -10371,20 +10392,6 @@ document.addEventListener("DOMContentLoaded", function () {
 		evt.detail.pathInfo.requestPath.startsWith("/email/")
 	  ) {
 		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
-		var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
-		if (virtualMailList) {
-		  if (preserveMailListSelectionFor === emailId) {
-		    preserveMailListSelectionFor = null
-		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
-		  } else if (suppressEmailUrlPushFor === emailId) {
-		    suppressEmailUrlPushFor = null
-		    virtualMailList.selectedEmailId = emailId
-		    virtualMailList.selectedInThread = inThread
-		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
-		  } else {
-		    virtualMailList.onEmailSelected(emailId, { inThread: inThread })
-		  }
-		}
 		scheduleAutoMarkRead(emailId, evt.detail.elt)
 	  }
 	})
