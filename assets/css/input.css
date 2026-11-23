@@ -4468,9 +4468,29 @@ body.mail-list-column-resizing {
   will-change: transform;
 }
 
+/* Collapsed sheets out of view aren't styled, laid out or drawn until they
+   scroll near, so a long conversation opens without doing that work for every
+   message. Until then a sheet counts as about a collapsed sheet's height, or
+   the height it had when last drawn. An open message is always drawn: the
+   reader scrolls to it as the conversation arrives, which needs its real
+   height, and its body only loads and measures itself while drawn. */
+.mail-thread-card {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 11rem;
+}
+
+.mail-thread-card:has(details[open]) {
+  content-visibility: visible;
+}
+
 @container (max-width: 560px) {
   .mail-view-scroll-top-button {
     right: 0;
+  }
+
+  /* A collapsed sheet's buttons wrap under its sender here, so it's taller. */
+  .mail-thread-card {
+    contain-intrinsic-block-size: auto 14rem;
   }
 
   .mail-view-frame {
