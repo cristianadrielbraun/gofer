@@ -1789,8 +1789,20 @@ func (h *Handler) handleContactSearch(w http.ResponseWriter, r *http.Request) {
 // collapsed thread message opens and its body is laid out for the first time.
 // It sends its width too, so the page knows the width the height is for
 // without measuring the frame, which laid the page out for every report.
+//
+// Some emails size themselves to the frame, with height:100% on a table or
+// min-height:100vh, so a taller frame makes their content taller too, and
+// every report asked for 16px more without end. When the frame grows and the
+// content's end keeps the same distance from the frame's bottom, the content
+// is following the frame: the script goes back to the height before that step
+// and asks for no more while the distance holds. Content that moves on its
+// own, such as an image that loads, changes the distance and is measured as
+// usual again. The hold lasts across width changes, so dragging the reader
+// wider or narrower doesn't add a step for each width, and a reload starts
+// with the frame's last height and settles on it, so switching the message's
+// colors doesn't add one either.
 func emailResizeScript(emailID string) []byte {
-	return []byte(fmt.Sprintf(`<script>(function(){var id=%q,last=-1;function r(){var b=document.body;if(!b)return;var rg=document.createRange();rg.selectNodeContents(b);var cs=getComputedStyle(b);var h=Math.ceil(rg.getBoundingClientRect().bottom+(window.scrollY||0)+(parseFloat(cs.paddingBottom)||0)+(parseFloat(cs.borderBottomWidth)||0)+(parseFloat(cs.marginBottom)||0))+16;var w=window.innerWidth,k=h+'x'+w;if(k===last)return;last=k;parent.postMessage({type:'emailBodyResize',emailId:id,height:h,width:w},'*')}requestAnimationFrame(function(){requestAnimationFrame(r)});window.addEventListener('load',r);document.querySelectorAll('img').forEach(function(i){i.onload=r});if(document.fonts&&document.fonts.ready)document.fonts.ready.then(r);if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(r,0)}).observe(document.body,{childList:true,subtree:true,attributes:true})}if(typeof ResizeObserver!=='undefined'){var ro=new ResizeObserver(function(){r()});ro.observe(document.documentElement);ro.observe(document.body)}setTimeout(r,300)})();</script>`, emailID))
+	return []byte(fmt.Sprintf(`<script>(function(){var id=%q,last=-1,sent=-1,pf=-1,pg=0,hold=null;function r(){var b=document.body;if(!b)return;var rg=document.createRange();rg.selectNodeContents(b);var cs=getComputedStyle(b);var end=Math.ceil(rg.getBoundingClientRect().bottom+(window.scrollY||0)+(parseFloat(cs.paddingBottom)||0)+(parseFloat(cs.borderBottomWidth)||0)+(parseFloat(cs.marginBottom)||0));var w=window.innerWidth,f=window.innerHeight,g=f-end,h=end+16;if(pf>0&&f-pf>1&&Math.abs(g-pg)<=1){hold=g;h=pf}else if(hold!==null&&Math.abs(g-hold)>1)hold=null;else if(hold!==null&&h>sent)h=sent;pf=f;pg=g;var k=h+'x'+w;if(k===last)return;last=k;sent=h;parent.postMessage({type:'emailBodyResize',emailId:id,height:h,width:w},'*')}requestAnimationFrame(function(){requestAnimationFrame(r)});window.addEventListener('load',r);document.querySelectorAll('img').forEach(function(i){i.onload=r});if(document.fonts&&document.fonts.ready)document.fonts.ready.then(r);if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(r,0)}).observe(document.body,{childList:true,subtree:true,attributes:true})}if(typeof ResizeObserver!=='undefined'){var ro=new ResizeObserver(function(){r()});ro.observe(document.documentElement);ro.observe(document.body)}setTimeout(r,300)})();</script>`, emailID))
 }
 
 func remoteImagesDetectScript(emailID string) []byte {
