@@ -380,3 +380,59 @@ func TestStopMailRuleCount(t *testing.T) {
 		t.Fatalf("started a stopped count: %+v", run)
 	}
 }
+
+// Rules selected in the list are turned on or off, or deleted, together,
+// and the list says how many changed. Another person's selection changes
+// none of the owner's rules.
+func TestChangeSelectedMailRules(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+	var ids []string
+	for _, name := range []string{"Offers", "Orders", "Lunch on Friday"} {
+		rule, err := db.SaveMailRuleGuarded(ctx, "owner", models.MailRule{Name: name, Enabled: true,
+			Conditions: []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}},
+			Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionStar}}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, rule.ID)
+	}
+	selected := url.Values{"rule_ids": {ids[0] + "," + ids[1]}}
+	enabledRules := func() (on []string) {
+		t.Helper()
+		rules, err := db.ListMailRules(ctx, "owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rule := range rules {
+			if rule.Enabled {
+				on = append(on, rule.Name)
+			}
+		}
+		return on
+	}
+
+	rec := identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": selected["rule_ids"], "enabled": {""}}, false)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "Offers") || len(enabledRules()) != 3 {
+		t.Fatalf("someone else's selection = %d %q, on %v", rec.Code, rec.Body.String(), enabledRules())
+	}
+	rec = identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": selected["rule_ids"], "enabled": {""}}, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "2 rules turned off.") || strings.Join(enabledRules(), ",") != "Lunch on Friday" {
+		t.Fatalf("turn off = %d %q, on %v", rec.Code, body, enabledRules())
+	}
+	rec = identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": {ids[0]}, "enabled": {"1"}}, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "1 rule turned on.") || len(enabledRules()) != 2 {
+		t.Fatalf("turn on = %d %q", rec.Code, body)
+	}
+
+	rec = identityRequest(t, h, h.handleDeleteMailRules, http.MethodPost, "/api/settings/rules/selected/delete", nil, selected, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "2 rules deleted.") || !strings.Contains(body, "Lunch on Friday") || strings.Contains(body, ">Offers<") {
+		t.Fatalf("delete = %d %q", rec.Code, body)
+	}
+	if rules, err := db.ListMailRules(ctx, "owner"); err != nil || len(rules) != 1 || rules[0].ID != ids[2] {
+		t.Fatalf("rules left = %+v, %v", rules, err)
+	}
+	if rec = identityRequest(t, h, h.handleDeleteMailRules, http.MethodPost, "/api/settings/rules/selected/delete", nil, url.Values{"rule_ids": {""}}, true); rec.Code != http.StatusBadRequest {
+		t.Fatalf("nothing selected = %d", rec.Code)
+	}
+}

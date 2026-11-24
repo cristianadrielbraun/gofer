@@ -426,6 +426,74 @@ func (h *Handler) handleMailRuleEnabled(w http.ResponseWriter, r *http.Request) 
 	h.renderMailRulesPanel(w, r, data)
 }
 
+// mailRuleSelection reads the rules a change to several of them names: the
+// IDs in rule_ids, separated by commas.
+func mailRuleSelection(r *http.Request) []string {
+	var ids []string
+	for _, id := range strings.Split(r.FormValue("rule_ids"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// handleMailRulesEnabled turns the rules selected in the list on, or off
+// when enabled is empty, and shows the list again saying how many changed.
+func (h *Handler) handleMailRulesEnabled(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	enabled := r.FormValue("enabled") != ""
+	changed, err := h.db.SetMailRulesEnabledGuarded(r.Context(), h.userID(r.Context()), ids, enabled, h.signatureGuard)
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	switch {
+	case err != nil:
+		log.Printf("make %d mail rules active or inactive: %v", len(ids), err)
+		data.Error = i18n.T(r.Context(), "rules.bulk.failed")
+	case enabled:
+		data.Notice = i18n.N(r.Context(), "rules.bulk.turned_on", changed)
+	default:
+		data.Notice = i18n.N(r.Context(), "rules.bulk.turned_off", changed)
+	}
+	h.renderMailRulesPanel(w, r, data)
+}
+
+// handleDeleteMailRules removes the rules selected in the list, and shows
+// the list again saying how many went.
+func (h *Handler) handleDeleteMailRules(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	deleted, err := h.db.DeleteMailRulesGuarded(r.Context(), h.userID(r.Context()), ids, h.signatureGuard)
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	if err != nil {
+		log.Printf("delete %d mail rules: %v", len(ids), err)
+		data.Error = i18n.T(r.Context(), "rules.bulk.failed")
+	} else {
+		data.Notice = i18n.N(r.Context(), "rules.bulk.deleted", deleted)
+	}
+	h.renderMailRulesPanel(w, r, data)
+}
+
 // handleMailRuleOrder puts the rules in the order given, one rule_id value
 // per rule. It refuses a list that doesn't name each rule once, so the page
 // can reload the rules and try again.
@@ -472,6 +540,8 @@ var mailRuleLocalRoutes = []mailRuleRoute{
 	{"POST /api/settings/rules/form", func(h *Handler) http.HandlerFunc { return h.handleMailRuleForm }},
 	{"POST /api/settings/rules", func(h *Handler) http.HandlerFunc { return h.handleSaveMailRule }},
 	{"POST /api/settings/rules/order", func(h *Handler) http.HandlerFunc { return h.handleMailRuleOrder }},
+	{"POST /api/settings/rules/selected/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRulesEnabled }},
+	{"POST /api/settings/rules/selected/delete", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRules }},
 	{"DELETE /api/settings/rules/{id}", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRule }},
 	{"POST /api/settings/rules/{id}/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRuleEnabled }},
 	{"GET /api/settings/rules/activity", func(h *Handler) http.HandlerFunc { return h.handleMailRuleActivity }},

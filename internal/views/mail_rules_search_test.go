@@ -69,3 +69,39 @@ func TestMailRulesSearchLooksAtNamesConditionsAndFolders(t *testing.T) {
 		t.Error("search shown with no rules to search")
 	}
 }
+
+// Each rule can be selected, and the bar over the list, hidden until one is,
+// selects every rule shown and offers what can be done to them all.
+func TestMailRulesPanelSelectsRules(t *testing.T) {
+	ctx := i18n.WithLocale(context.Background(), "en")
+	rules := []models.MailRule{
+		{ID: "r1", Name: "Shop receipts", Enabled: true, Actions: []models.MailRuleAction{{Kind: models.MailRuleActionArchive}}},
+		{ID: "r2", Name: "Weekly digest", Actions: []models.MailRuleAction{{Kind: models.MailRuleActionStar}}},
+	}
+	var out bytes.Buffer
+	if err := MailRulesPanel(models.MailRulesData{Rules: rules}).Render(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`aria-label="Select all rules shown"`, "data-mail-rules-select-all", "data-mail-rules-selection hidden",
+		`aria-label="Select Shop receipts"`, `value="r1"`, `aria-label="Select Weekly digest"`,
+		`data-mail-rules-selection-action="on"`, `data-mail-rules-selection-action="off"`, `data-mail-rules-selection-action="up"`,
+		`data-mail-rules-selection-action="down"`, `data-mail-rules-selection-action="delete"`, ">Clear selection<",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("rules panel lacks %s", want)
+		}
+	}
+	if n := strings.Count(html, "data-mail-rule-select"); n != 2 {
+		t.Errorf("rules with a box to select them = %d, want 2", n)
+	}
+
+	out.Reset()
+	if err := MailRulesPanel(models.MailRulesData{}).Render(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "data-mail-rules-selection") {
+		t.Error("selection bar shown with no rules")
+	}
+}

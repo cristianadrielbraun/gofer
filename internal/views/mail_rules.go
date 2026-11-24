@@ -215,6 +215,15 @@ func mailRuleSearchText(ctx context.Context, rule models.MailRule, accounts []mo
 	return strings.ToLower(strings.Join(parts, " "))
 }
 
+// mailRulesSelectionItemClass is an item of the selected rules' menu, in the
+// destructive color for Delete.
+func mailRulesSelectionItemClass(destructive bool) string {
+	if destructive {
+		return "justify-start gap-2 text-destructive hover:text-destructive focus:text-destructive"
+	}
+	return "justify-start gap-2 disabled:pointer-events-none disabled:opacity-50"
+}
+
 // mailRuleConditionsCount counts a rule's conditions, and its groups when
 // it has more than one: "1 condition", "3 conditions in 2 groups".
 func mailRuleConditionsCount(ctx context.Context, rule models.MailRule) string {

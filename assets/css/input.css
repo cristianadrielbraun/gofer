@@ -7337,6 +7337,25 @@ body.mail-list-column-resizing {
   transition: none;
 }
 
+/* A rule dragged with others selected carries them, and says how many go. */
+[data-mail-rule-row][data-order-group]::after {
+  content: attr(data-order-group);
+  position: absolute;
+  top: -0.5rem;
+  right: -0.5rem;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 [data-settings-account-card] > .settings-account-card,
 [data-mail-rule-row] > .mail-rule-card {
   transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;

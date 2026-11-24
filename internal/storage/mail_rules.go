@@ -300,6 +300,55 @@ func (db *DB) DeleteMailRuleGuarded(ctx context.Context, userID, ruleID string, 
 	})
 }
 
+// SetMailRulesEnabledGuarded turns the owner's rules named by ids on or off,
+// all in one change, and reports how many it turned on or off. An ID that
+// names none of the owner's rules, such as one deleted meanwhile, is
+// skipped.
+func (db *DB) SetMailRulesEnabledGuarded(ctx context.Context, userID string, ids []string, enabled bool, guard func(*sql.Tx) error) (int, error) {
+	return db.mailRulesWrite(ctx, guard, ids, func(tx *sql.Tx, id string) (sql.Result, error) {
+		return tx.ExecContext(ctx, `UPDATE mail_rules SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`, enabled, id, userID)
+	})
+}
+
+// DeleteMailRulesGuarded removes the owner's rules named by ids, all in one
+// change, and reports how many it removed. An ID that names none of the
+// owner's rules is skipped. What the rules did stays in the activity.
+func (db *DB) DeleteMailRulesGuarded(ctx context.Context, userID string, ids []string, guard func(*sql.Tx) error) (int, error) {
+	return db.mailRulesWrite(ctx, guard, ids, func(tx *sql.Tx, id string) (sql.Result, error) {
+		return tx.ExecContext(ctx, `DELETE FROM mail_rules WHERE id = ? AND user_id = ?`, id, userID)
+	})
+}
+
+// mailRulesWrite runs write for each of ids, once each, in one transaction,
+// and counts the rules it changed.
+func (db *DB) mailRulesWrite(ctx context.Context, guard func(*sql.Tx) error, ids []string, write func(*sql.Tx, string) (sql.Result, error)) (int, error) {
+	changed := 0
+	err := db.mailRuleWrite(ctx, guard, func(tx *sql.Tx) error {
+		changed = 0
+		seen := map[string]bool{}
+		for _, id := range ids {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			result, err := write(tx, id)
+			if err != nil {
+				return err
+			}
+			n, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			changed += int(n)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return changed, nil
+}
+
 // SetMailRuleOrderGuarded puts the owner's rules in the order of ids, which
 // must name each of them once; otherwise it is ErrMailRuleOrderChanged.
 func (db *DB) SetMailRuleOrderGuarded(ctx context.Context, userID string, ids []string, guard func(*sql.Tx) error) error {

@@ -645,6 +645,12 @@ var mailRuleOrder = {
   handle: "[data-mail-rule-order-handle]",
   id: function (item) { return item.getAttribute("data-mail-rule-id") },
   movable: function () { return true },
+  // Selected rules move together: dragging one of them takes the others
+  // along, and the arrow keys move them all.
+  selected: function (item) {
+    var box = item.querySelector("[data-mail-rule-select]")
+    return !!(box && box.checked)
+  },
   save: function (list, previous) { saveMailRuleOrder(list, previous) }
 }
 
@@ -762,6 +768,42 @@ function restoreOrder(kind, list, ids) {
   })
 }
 
+// orderStepSelected moves each selected ID one place up (step -1) or down
+// (step 1), past the unselected one beside it, keeping their order. Those
+// already at that end of the list stay, and so do the ones right behind
+// them.
+function orderStepSelected(ids, selected, step) {
+  var out = ids.slice()
+  for (var i = step < 0 ? 0 : out.length - 1; i >= 0 && i < out.length; i -= step) {
+    var j = i + step
+    if (!selected[out[i]] || j < 0 || j >= out.length || selected[out[j]]) continue
+    var moved = out[i]
+    out[i] = out[j]
+    out[j] = moved
+  }
+  return out
+}
+
+// moveOrderSelected moves the list's selected items one place, as
+// orderStepSelected does, and saves the new order.
+function moveOrderSelected(kind, list, step) {
+  var previous = orderIDs(kind, list)
+  var selected = {}
+  orderItems(kind, list).forEach(function (item) {
+    if (kind.selected(item)) selected[kind.id(item)] = true
+  })
+  var next = orderStepSelected(previous, selected, step)
+  if (next.join("\n") === previous.join("\n")) return
+  restoreOrder(kind, list, next)
+  kind.save(list, previous)
+}
+
+// orderSelectedCount counts the list's selected items, for kinds that can
+// select them.
+function orderSelectedCount(kind, list) {
+  return kind.selected ? orderItems(kind, list).filter(kind.selected).length : 0
+}
+
 function saveAccountOrder(list, previous) {
   var ids = accountOrderIDs(list)
   syncAccountOrderControls()
@@ -873,7 +915,11 @@ function setupAccountOrder() {
     var found = orderHandle(e.target)
     if (!found || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return
     e.preventDefault()
-    moveOrderItemBy(found.kind, found.handle.closest(found.kind.item), e.key === "ArrowUp" ? -1 : 1)
+    var item = found.handle.closest(found.kind.item)
+    var list = item && item.closest(found.kind.list)
+    var step = e.key === "ArrowUp" ? -1 : 1
+    if (list && found.kind.selected && found.kind.selected(item) && orderSelectedCount(found.kind, list) > 1) moveOrderSelected(found.kind, list, step)
+    else moveOrderItemBy(found.kind, item, step)
     found.handle.focus()
   })
 
@@ -887,7 +933,22 @@ function setupAccountOrder() {
     if (!list) return
     e.preventDefault()
     handle.setPointerCapture(e.pointerId)
-    drag = { kind: kind, list: list, card: card, handle: handle, pointerId: e.pointerId, previous: orderIDs(kind, list), grabY: e.clientY - card.getBoundingClientRect().top }
+    drag = { kind: kind, list: list, card: card, handle: handle, pointerId: e.pointerId, previous: orderIDs(kind, list), grabY: e.clientY - card.getBoundingClientRect().top, before: [], after: [] }
+    // A selected item carries the other selected ones: they leave the list
+    // while it moves, and it shows how many go, until they land beside it.
+    if (kind.selected && kind.selected(card)) {
+      var items = orderItems(kind, list)
+      var at = items.indexOf(card)
+      items.forEach(function (item, i) {
+        if (item === card || !kind.selected(item)) return
+        ;(i < at ? drag.before : drag.after).push(item)
+      })
+      var carried = drag.before.concat(drag.after)
+      if (carried.length) {
+        carried.forEach(function (item) { item.remove() })
+        card.setAttribute("data-order-group", String(carried.length + 1))
+      }
+    }
     card.setAttribute("data-order-dragging", "")
     list.setAttribute("data-order-active", "")
     drag.placeholder = document.createElement("div")
@@ -940,6 +1001,11 @@ function setupAccountOrder() {
     done.placeholder.remove()
     done.card.style.transform = ""
     if (done.handle.hasPointerCapture(e.pointerId)) done.handle.releasePointerCapture(e.pointerId)
+    // The ones it carried land around it, in the order they had.
+    done.before.forEach(function (item) { done.list.insertBefore(item, done.card) })
+    var next = done.card.nextSibling
+    done.after.forEach(function (item) { done.list.insertBefore(item, next) })
+    done.card.removeAttribute("data-order-group")
     done.kind.save(done.list, done.previous)
   }
   document.addEventListener("pointerup", endDrag)
@@ -976,12 +1042,14 @@ function mailRuleStill() {
 function mailRuleFold(el, out) {
   if (!el || mailRuleStill()) return null
   var style = getComputedStyle(el)
+  // A minimum height folds too: left alone, it would hold the element open
+  // at that height while the rest folds.
   var open = {
-    height: el.offsetHeight + "px", opacity: 1,
+    height: el.offsetHeight + "px", minHeight: style.minHeight, opacity: 1,
     marginTop: style.marginTop, marginBottom: style.marginBottom, paddingTop: style.paddingTop, paddingBottom: style.paddingBottom,
     borderTopWidth: style.borderTopWidth, borderBottomWidth: style.borderBottomWidth,
   }
-  var closed = { height: "0px", opacity: 0, marginTop: "0px", marginBottom: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px" }
+  var closed = { height: "0px", minHeight: "0px", opacity: 0, marginTop: "0px", marginBottom: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px" }
   var overflow = el.style.overflow
   el.style.overflow = "hidden"
   var animation = el.animate(out ? [open, closed] : [closed, open], { duration: mailRuleMotion.duration, easing: mailRuleMotion.easing, fill: out ? "forwards" : "none" })
@@ -1022,12 +1090,153 @@ document.addEventListener("htmx:afterRequest", function (e) {
 // filterMailRules shows the rules the rules search finds, with the folder
 // picker's search (mailRulesList). While it holds text, rules can't be
 // dragged, since some are hidden.
-function filterMailRules() {
+function filterMailRules(still) {
   var panel = document.getElementById("mail-rules-panel")
   if (!panel || !window.goferFolderPicker) return
   var typed = window.goferFolderPicker.filter(panel)
   var list = panel.querySelector("[data-mail-rule-order-list]")
   if (list) list.toggleAttribute("data-searching", typed !== "")
+  // Only rules in view stay selected, so nothing hidden is changed.
+  Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) {
+    var box = row.hidden && row.querySelector("[data-mail-rule-select]")
+    if (box) box.checked = false
+  })
+  updateMailRuleSelection(still)
+}
+
+// mailRuleRowsShown are the rules the search shows.
+function mailRuleRowsShown(panel) {
+  return Array.prototype.filter.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) { return !row.hidden })
+}
+
+function mailRuleRowsSelected(panel) {
+  return mailRuleRowsShown(panel).filter(function (row) { return mailRuleOrder.selected(row) })
+}
+
+// updateMailRuleSelection shows how many rules are selected, with the box
+// that selects them all checked, partly checked or not, and offers what
+// can be done to them. The bar opens with the first rule selected and
+// closes with the last, unless still, as when the list is drawn again with
+// rules already selected. Moving them is off while searching, since where
+// they would go among the hidden rules can't be seen.
+function updateMailRuleSelection(still) {
+  var panel = document.getElementById("mail-rules-panel")
+  var bar = panel && panel.querySelector("[data-mail-rules-selection]")
+  if (!bar) return
+  var shown = mailRuleRowsShown(panel)
+  var selected = shown.filter(function (row) { return mailRuleOrder.selected(row) }).length
+  var all = bar.querySelector("[data-mail-rules-select-all]")
+  if (all) {
+    all.checked = shown.length > 0 && selected === shown.length
+    all.indeterminate = selected > 0 && selected < shown.length
+  }
+  var count = bar.querySelector("[data-mail-rules-selected-count]")
+  if (count && selected) count.textContent = goferTn("js.settings.rules.selected", selected)
+  showMailRuleSelection(bar, selected > 0, still)
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  var searching = !!(list && list.hasAttribute("data-searching"))
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mail-rules-selection-action="up"], [data-mail-rules-selection-action="down"]'), function (item) {
+    item.disabled = searching
+  })
+}
+
+document.addEventListener("change", function (e) {
+  var box = e.target
+  if (!box.matches) return
+  if (box.matches("[data-mail-rules-select-all]")) {
+    var panel = document.getElementById("mail-rules-panel")
+    if (panel) mailRuleRowsShown(panel).forEach(function (row) {
+      var each = row.querySelector("[data-mail-rule-select]")
+      if (each) each.checked = box.checked
+    })
+    updateMailRuleSelection()
+  } else if (box.matches("[data-mail-rule-select]")) {
+    updateMailRuleSelection()
+  }
+})
+
+document.addEventListener("click", function (e) {
+  var target = e.target && e.target.closest ? e.target : null
+  var panel = document.getElementById("mail-rules-panel")
+  if (!target || !panel) return
+  if (target.closest("[data-mail-rules-selection-clear]")) {
+    Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-select]"), function (box) { box.checked = false })
+    updateMailRuleSelection()
+    return
+  }
+  var item = target.closest("[data-mail-rules-selection-action]")
+  if (!item || item.disabled) return
+  var rows = mailRuleRowsSelected(panel)
+  if (!rows.length) return
+  var action = item.getAttribute("data-mail-rules-selection-action")
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  if (action === "up" || action === "down") {
+    if (list) moveOrderSelected(mailRuleOrder, list, action === "up" ? -1 : 1)
+  } else if (action === "on" || action === "off") {
+    changeSelectedMailRules("enabled", rows, { enabled: action === "on" ? "1" : "" })
+  } else if (action === "delete") {
+    deleteSelectedMailRules(rows)
+  }
+})
+
+// showMailRuleSelection opens or closes the selection bar, folding it as
+// the list's rules fold in and out. Changing course midway goes straight
+// to where it was headed.
+function showMailRuleSelection(bar, open, still) {
+  var closing = bar._mailRuleClosing
+  if (open) {
+    if (closing) {
+      bar._mailRuleClosing = null
+      closing.cancel()
+      bar.style.overflow = ""
+    }
+    if (!bar.hidden) return
+    bar.hidden = false
+    if (!still) mailRuleFold(bar, false)
+    return
+  }
+  if (bar.hidden || closing) return
+  var fold = still ? null : mailRuleFold(bar, true)
+  if (!fold) {
+    bar.hidden = true
+    return
+  }
+  bar._mailRuleClosing = fold
+  fold.onfinish = function () {
+    if (bar._mailRuleClosing !== fold) return
+    bar._mailRuleClosing = null
+    bar.hidden = true
+    fold.cancel()
+    bar.style.overflow = ""
+  }
+}
+
+// changeSelectedMailRules sends a change to the selected rules, which
+// shows the list again.
+function changeSelectedMailRules(change, rows, values) {
+  if (!window.htmx) return
+  values = Object.assign({ rule_ids: rows.map(mailRuleOrder.id).join(",") }, values || {})
+  window.htmx.ajax("POST", "/api/settings/rules/selected/" + change, { target: "#mail-rules-panel", swap: "outerHTML", values: values })
+}
+
+// deleteSelectedMailRules asks first, as deleting one rule does, naming it
+// when only one is selected.
+function deleteSelectedMailRules(rows) {
+  if (typeof window.goferConfirm !== "function") return
+  var one = rows.length === 1
+  var name = one ? (rows[0].querySelector("[data-mail-rule-name]") || { getAttribute: function () { return "" } }).getAttribute("data-mail-rule-name") : ""
+  window.goferConfirm({
+    title: one ? goferT("js.settings.rules.delete_title") : goferTn("js.settings.rules.delete_selected_title", rows.length),
+    message: one ? goferT("js.settings.rules.delete_message", { rule: name }) : goferT("js.settings.rules.delete_selected_message"),
+    confirmLabel: one ? goferT("js.settings.rules.delete") : goferT("js.settings.rules.delete_selected"),
+    destructive: true,
+  }).then(function (accepted) {
+    if (!accepted || !document.getElementById("mail-rules-panel")) return
+    var send = function () { changeSelectedMailRules("delete", rows) }
+    var folds = rows.map(function (row) { return mailRuleFold(row, true) }).filter(Boolean)
+    if (folds.length) folds[folds.length - 1].onfinish = send
+    else send()
+  })
 }
 
 document.addEventListener("input", function (e) {
@@ -1038,6 +1247,11 @@ document.addEventListener("input", function (e) {
 // it finds, unless a rule was just added: the search is cleared, so the new
 // rule shows even when it doesn't match.
 function searchMailRulesAgain(swap) {
+  // The rules selected before stay selected, those still there.
+  ;(swap.selected || []).forEach(function (id) {
+    var box = document.querySelector('#mail-rules-panel [data-mail-rule-row][data-mail-rule-id="' + cssEscapeSettings(id) + '"] [data-mail-rule-select]')
+    if (box) box.checked = true
+  })
   var search = document.querySelector("#mail-rules-panel [data-mail-rules-search]")
   if (search && search.value && swap.loaded) {
     var added = Array.prototype.some.call(document.querySelectorAll("#mail-rules-panel [data-mail-rule-row]"), function (row) {
@@ -1045,7 +1259,7 @@ function searchMailRulesAgain(swap) {
     })
     if (added) search.value = ""
   }
-  filterMailRules()
+  filterMailRules(true)
 }
 
 document.body.addEventListener("htmx:beforeSwap", function (e) {
@@ -1065,7 +1279,12 @@ document.body.addEventListener("htmx:beforeSwap", function (e) {
       removed: op === "remove_condition" || op === "remove_action",
     }
   } else if (target.id === "mail-rules-panel") {
-    mailRuleSwap = { list: true, loaded: target.hasAttribute("data-mail-rules-panel"), height: target.offsetHeight, rules: Array.prototype.map.call(target.querySelectorAll("[data-mail-rule-row]"), function (row) { return row.getAttribute("data-mail-rule-id") }) }
+    var rows = Array.prototype.slice.call(target.querySelectorAll("[data-mail-rule-row]"))
+    mailRuleSwap = {
+      list: true, loaded: target.hasAttribute("data-mail-rules-panel"), height: target.offsetHeight,
+      rules: rows.map(mailRuleOrder.id),
+      selected: rows.filter(mailRuleOrder.selected).map(mailRuleOrder.id),
+    }
   }
 })
 

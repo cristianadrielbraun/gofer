@@ -6,7 +6,7 @@ const vm = require('node:vm')
 // The rules search in Settings → Rules uses the folder picker's filter
 // (folder-picker.js) through filterMailRules in settings.js.
 const settings = fs.readFileSync(path.join(__dirname, '../assets/js/settings.js'), 'utf8')
-const start = settings.indexOf('function filterMailRules() {')
+const start = settings.indexOf('function filterMailRules(still) {')
 const end = settings.indexOf('document.body.addEventListener("htmx:beforeSwap"', start)
 assert(start >= 0 && end > start)
 

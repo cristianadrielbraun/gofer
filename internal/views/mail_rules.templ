@@ -12,8 +12,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/badge"
+	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/progress"
@@ -151,8 +153,11 @@ templ MailRuleDialogPanel(data models.MailRulesData) {
 templ mailRulesList(data models.MailRulesData) {
 	<div class="space-y-5">
 		if len(data.Rules) > 0 {
-			<div id="mail-rules-search" hx-preserve="true">
-				@folderPickerSearch(i18n.T(ctx, "rules.search"), templ.Attributes{"data-mail-rules-search": ""})
+			<div>
+				<div id="mail-rules-search" hx-preserve="true">
+					@folderPickerSearch(i18n.T(ctx, "rules.search"), templ.Attributes{"data-mail-rules-search": ""})
+				</div>
+				@mailRulesSelection()
 			</div>
 		}
 		if data.Notice != "" {
@@ -185,9 +190,68 @@ templ mailRulesList(data models.MailRulesData) {
 	</div>
 }
 
+// mailRulesSelection is the bar over the rules, which opens once a rule is
+// selected (settings.js): a box that selects every rule the search shows,
+// how many are selected, and a menu of what can be done to them all. The
+// menu is one stop for Tab, as the account menus are. The box lines up
+// with the rules' own, inside their cards' padding and border. Its space
+// above is a margin, so it opens and closes with the bar.
+templ mailRulesSelection() {
+	<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border border-transparent px-3" role="region" aria-label={ i18n.T(ctx, "rules.bulk.region") } data-mail-rules-selection hidden>
+		<label class="flex min-w-0 items-center gap-3 text-sm text-muted-foreground">
+			@checkbox.Checkbox(checkbox.Props{Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "rules.bulk.select_all_label"), "data-mail-rules-select-all": ""}})
+			<span class="truncate" aria-live="polite" data-mail-rules-selected-count></span>
+		</label>
+		<div class="ml-auto flex items-center gap-4">
+			<button type="button" class="text-sm text-muted-foreground hover:text-foreground hover:underline" data-mail-rules-selection-clear>{ i18n.T(ctx, "rules.bulk.clear") }</button>
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}) {
+						{ i18n.T(ctx, "rules.bulk.change") }
+						@icon.ChevronDown(icon.Props{Class: "size-4"})
+					}
+				}
+				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-48 normal-case tracking-normal"}) {
+					@mailRulesSelectionItem("on", false) {
+						@icon.ToggleRight(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.turn_on") }
+					}
+					@mailRulesSelectionItem("off", false) {
+						@icon.ToggleLeft(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.turn_off") }
+					}
+					@mailRulesSelectionItem("up", false) {
+						@icon.ArrowUp(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.move_up") }
+					}
+					@mailRulesSelectionItem("down", false) {
+						@icon.ArrowDown(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.move_down") }
+					}
+					@dropdown.Separator()
+					@mailRulesSelectionItem("delete", true) {
+						@icon.Trash2(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.delete") }
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+templ mailRulesSelectionItem(action string, destructive bool) {
+	@dropdown.Item(dropdown.ItemProps{
+		Class:      mailRulesSelectionItemClass(destructive),
+		Attributes: templ.Attributes{"type": "button", "data-mail-rules-selection-action": action},
+	}) {
+		{ children... }
+	}
+}
+
 templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
 	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) }>
 		<div class="mail-rule-card flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
+			@checkbox.Checkbox(checkbox.Props{Value: rule.ID, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "rules.select_named", "name", rule.Name), "data-mail-rule-select": ""}})
 			<button
 				type="button"
 				data-mail-rule-order-handle
