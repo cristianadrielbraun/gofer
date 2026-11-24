@@ -1087,21 +1087,63 @@ document.addEventListener("htmx:afterRequest", function (e) {
   })
 })
 
+// /settings/rules?folder=<folder> opens the list showing only the rules
+// that move mail into that folder, as a folder's menu in the sidebar
+// offers.
+document.body.addEventListener("htmx:configRequest", function (e) {
+  if (!e.detail || e.detail.path !== "/api/settings/rules/panel") return
+  var folder = new URLSearchParams(window.location.search).get("folder")
+  if (folder) e.detail.parameters.folder = folder
+})
+
 // filterMailRules shows the rules the rules search finds, with the folder
-// picker's search (mailRulesList). While it holds text, rules can't be
-// dragged, since some are hidden.
+// picker's search (mailRulesList), and of those, when the list was opened
+// for a folder, only the ones that move mail into it. While either hides
+// rules, rules can't be dragged.
 function filterMailRules(still) {
   var panel = document.getElementById("mail-rules-panel")
   if (!panel || !window.goferFolderPicker) return
+  var folder = mailRulesFolderFilter(panel)
+  Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) {
+    row.toggleAttribute("data-folder-picker-out", folder !== "" && mailRuleFolders(row).indexOf(folder) < 0)
+  })
   var typed = window.goferFolderPicker.filter(panel)
   var list = panel.querySelector("[data-mail-rule-order-list]")
-  if (list) list.toggleAttribute("data-searching", typed !== "")
+  if (list) list.toggleAttribute("data-searching", typed !== "" || folder !== "")
   // Only rules in view stay selected, so nothing hidden is changed.
   Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) {
     var box = row.hidden && row.querySelector("[data-mail-rule-select]")
     if (box) box.checked = false
   })
   updateMailRuleSelection(still)
+}
+
+// mailRulesFolderFilter is the folder whose rules the list shows, or "".
+function mailRulesFolderFilter(panel) {
+  var filter = panel.querySelector("[data-mail-rules-folder-filter]")
+  return filter ? filter.getAttribute("data-mail-rules-folder-filter") || "" : ""
+}
+
+// mailRuleFolders are the folders a rule moves mail into.
+function mailRuleFolders(row) {
+  try {
+    var folders = JSON.parse(row.getAttribute("data-mail-rule-folders") || "[]")
+    return Array.isArray(folders) ? folders : []
+  } catch (err) {
+    return []
+  }
+}
+
+// clearMailRulesFolderFilter shows the rules of every folder again, and
+// takes the folder out of the address, so reloading shows them all too.
+function clearMailRulesFolderFilter(panel) {
+  var filter = panel && panel.querySelector("[data-mail-rules-folder-filter]")
+  if (filter) filter.remove()
+  var params = new URLSearchParams(window.location.search)
+  if (!params.has("folder")) return
+  params.delete("folder")
+  var query = params.toString()
+  history.replaceState(history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash)
 }
 
 // mailRuleRowsShown are the rules the search shows.
@@ -1162,6 +1204,16 @@ document.addEventListener("click", function (e) {
   if (target.closest("[data-mail-rules-selection-clear]")) {
     Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-select]"), function (box) { box.checked = false })
     updateMailRuleSelection()
+    return
+  }
+  if (target.closest("[data-mail-rules-folder-filter-clear]")) {
+    clearMailRulesFolderFilter(panel)
+    filterMailRules()
+    // Pressed from the keyboard, the button is gone with the focus on it;
+    // the search is the nearest place to be. A tap leaves the focus alone,
+    // so a phone's keyboard doesn't open.
+    var search = panel.querySelector("[data-mail-rules-search]")
+    if (search && e.detail === 0) search.focus()
     return
   }
   var item = target.closest("[data-mail-rules-selection-action]")
@@ -1243,21 +1295,26 @@ document.addEventListener("input", function (e) {
   if (e.target.matches && e.target.matches("[data-mail-rules-search]")) filterMailRules()
 })
 
-// The list drawn again keeps the search (hx-preserve) and shows only what
-// it finds, unless a rule was just added: the search is cleared, so the new
-// rule shows even when it doesn't match.
+// The list drawn again keeps the search and the folder it shows the rules
+// of (hx-preserve), and shows only what they find, unless a rule was just
+// added: both are cleared, so the new rule shows even when it doesn't
+// match.
 function searchMailRulesAgain(swap) {
   // The rules selected before stay selected, those still there.
   ;(swap.selected || []).forEach(function (id) {
     var box = document.querySelector('#mail-rules-panel [data-mail-rule-row][data-mail-rule-id="' + cssEscapeSettings(id) + '"] [data-mail-rule-select]')
     if (box) box.checked = true
   })
+  var panel = document.getElementById("mail-rules-panel")
   var search = document.querySelector("#mail-rules-panel [data-mail-rules-search]")
-  if (search && search.value && swap.loaded) {
+  if (swap.loaded && ((search && search.value) || (panel && mailRulesFolderFilter(panel)))) {
     var added = Array.prototype.some.call(document.querySelectorAll("#mail-rules-panel [data-mail-rule-row]"), function (row) {
       return swap.rules.indexOf(row.getAttribute("data-mail-rule-id")) < 0
     })
-    if (added) search.value = ""
+    if (added) {
+      if (search) search.value = ""
+      clearMailRulesFolderFilter(panel)
+    }
   }
   filterMailRules(true)
 }

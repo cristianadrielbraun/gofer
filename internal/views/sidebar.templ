@@ -62,10 +62,10 @@ templ SidebarContextMenu() {
 		@popover.Content(popover.ContentProps{
 			Placement:  popover.PlacementBottomStart,
 			Offset:     2,
-			Class:      "z-50 w-52 rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
+			Class:      "z-50 " + sidebarContextMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
 			Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "mail.folder_menu.label")},
 		}) {
-			@dropdown.Label(dropdown.LabelProps{Class: "truncate text-xs font-medium text-muted-foreground", Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
+			@dropdown.Label(dropdown.LabelProps{Class: sidebarContextTitleClass, Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
 			@sidebarContextItem("mark-read", i18n.T(ctx, "mail.folder_menu.mark_read"), "") {
 				@icon.CheckCheck(icon.Props{Class: "size-4"})
 			}
@@ -80,6 +80,9 @@ templ SidebarContextMenu() {
 			}
 			@sidebarContextItem("mailbox-size", i18n.T(ctx, "mail.folder_menu.mailbox_size"), "") {
 				@icon.ChartPie(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("folder-rules", i18n.T(ctx, "mail.folder_menu.rules"), "") {
+				@icon.ListFilter(icon.Props{Class: "size-4"})
 			}
 			@sidebarContextItem("new-folder", i18n.T(ctx, "mail.folder_menu.new_folder"), "") {
 				@icon.FolderPlus(icon.Props{Class: "size-4"})
@@ -115,11 +118,21 @@ templ SidebarContextMenu() {
 	}
 }
 
+// sidebarContextMenuWidth makes a sidebar menu as wide as its longest item,
+// so no item wraps, from a least width up to what fits the window; an item
+// longer than that is cut short.
+const sidebarContextMenuWidth = "w-max min-w-52 max-w-[min(22rem,calc(100vw-1rem))]"
+
+// sidebarContextTitleClass is a sidebar menu's title, the folder's or the
+// account's name: it takes the width the items give the menu, cut short,
+// rather than widening it.
+const sidebarContextTitleClass = "w-0 min-w-full truncate text-xs font-medium text-muted-foreground"
+
 templ sidebarContextItem(action string, label string, class string) {
 	@dropdown.Item(dropdown.ItemProps{Class: class, Attributes: templ.Attributes{"role": "menuitem", "data-sidebar-context-action": action}}) {
-		<span class="flex items-center gap-2">
+		<span class="flex min-w-0 items-center gap-2 whitespace-nowrap">
 			{ children... }
-			{ label }
+			<span class="truncate">{ label }</span>
 		</span>
 	}
 }
@@ -1396,10 +1409,10 @@ templ ContactsSidebarContextMenu() {
 		@popover.Content(popover.ContentProps{
 			Placement:  popover.PlacementBottomStart,
 			Offset:     2,
-			Class:      "z-50 w-56 rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
+			Class:      "z-50 " + sidebarContextMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
 			Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "contacts.sidebar_menu.label")},
 		}) {
-			@dropdown.Label(dropdown.LabelProps{Class: "truncate text-xs font-medium text-muted-foreground", Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
+			@dropdown.Label(dropdown.LabelProps{Class: sidebarContextTitleClass, Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
 			@sidebarContextItem("new-here", i18n.T(ctx, "contacts.sidebar_menu.new_here"), "") {
 				@icon.UserPlus(icon.Props{Class: "size-4"})
 			}

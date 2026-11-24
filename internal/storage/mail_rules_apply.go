@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
@@ -568,6 +569,87 @@ func moveTarget(action models.MailRuleAction) models.MailRuleFolderTarget {
 		return models.MailRuleFolderTarget{Role: "junk"}
 	}
 	return models.MailRuleFolderTarget{}
+}
+
+// MailRuleDestinations returns the folders each of a user's rules moves mail
+// into, by rule ID, so the rules list can show those of one folder. They are
+// the folders a rule finds when it runs on each account it is for: Archive,
+// Trash, Spam and a move to a folder every account has are that folder of
+// each of those accounts, and a move to one folder is that folder, found by
+// its saved name if its ID changed, in another account too. Rules turned
+// off count as well. A rule that moves no mail, or whose folders are gone,
+// has none.
+func (db *DB) MailRuleDestinations(ctx context.Context, userID string, rules []models.MailRule) (map[string][]string, error) {
+	destinations := map[string][]string{}
+	var moving []models.MailRule
+	for _, rule := range rules {
+		if slices.ContainsFunc(rule.Actions, func(action models.MailRuleAction) bool { return mailrules.MovesMessage(action.Kind) }) {
+			moving = append(moving, rule)
+		}
+	}
+	if len(moving) == 0 {
+		return destinations, nil
+	}
+	// Rules run on the accounts mail arrives in: not Local folders, nor
+	// accounts with only contacts and calendars.
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id, provider FROM accounts
+		WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 AND provider NOT IN (?, ?)
+		ORDER BY id`, userID, providers.ProviderLocal, providers.ProviderDAV)
+	if err != nil {
+		return nil, fmt.Errorf("accounts: %w", err)
+	}
+	var runners []*mailRuleRunner
+	for rows.Next() {
+		runner := &mailRuleRunner{db: db, owner: userID}
+		if err := rows.Scan(&runner.accountID, &runner.provider); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("accounts: %w", err)
+		}
+		runners = append(runners, runner)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("accounts: %w", err)
+	}
+	// Another account's folder is the same whichever account the mail
+	// comes from, so each is looked up once.
+	others := map[models.MailRuleFolderTarget]string{}
+	for _, runner := range runners {
+		if err := runner.loadFolders(ctx); err != nil {
+			return nil, fmt.Errorf("folders of %s: %w", runner.accountID, err)
+		}
+		for _, rule := range moving {
+			if !rule.WatchesAccount(runner.accountID) {
+				continue
+			}
+			for _, action := range rule.Actions {
+				if !mailrules.MovesMessage(action.Kind) {
+					continue
+				}
+				target := moveTarget(action)
+				id := ""
+				if runner.otherAccount(target) {
+					found, seen := others[target]
+					if !seen {
+						folder, _, err := runner.otherFolder(ctx, target)
+						if err != nil && !errors.Is(err, sql.ErrNoRows) {
+							return nil, fmt.Errorf("folder of rule %s: %w", rule.ID, err)
+						}
+						found = folder.id
+						others[target] = found
+					}
+					id = found
+				} else if folder, ok := runner.findFolder(target); ok {
+					id = folder.id
+				}
+				if id != "" && !slices.Contains(destinations[rule.ID], id) {
+					destinations[rule.ID] = append(destinations[rule.ID], id)
+				}
+			}
+		}
+	}
+	return destinations, nil
 }
 
 // needless reports whether an action would leave the message as it is, and

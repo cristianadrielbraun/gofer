@@ -168,6 +168,12 @@ type MailRulesData struct {
 	Run    *MailRuleRunData
 	Error  string
 	Notice string
+	// Destinations are the folders each rule moves mail into, by rule ID,
+	// as storage's MailRuleDestinations finds them. Only the list has them.
+	Destinations map[string][]string
+	// FolderFilter is the folder whose rules the list opens showing: only
+	// those that move mail into it, as a folder's menu in the sidebar asks.
+	FolderFilter string
 }
 
 // MailRuleAccount is an account a rule can be limited to, with the folders

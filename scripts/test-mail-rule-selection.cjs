@@ -28,7 +28,8 @@ assert.equal(step('abcde', 'ace', -1), 'acbed', 'the top one stays, the others m
 const box = () => ({checked: false, matches: s => s === '[data-mail-rule-select]'})
 const rule = (id, name) => {
   const each = box()
-  return {id, name, box: each, hidden: false,
+  return {id, name, box: each, hidden: false, attrs: {},
+    toggleAttribute(n, on) { if (on) this.attrs[n] = ''; else delete this.attrs[n] },
     getAttribute: n => n === 'data-mail-rule-id' ? id : null,
     querySelector: s => s === '[data-mail-rule-select]' ? each : s === '[data-mail-rule-name]' ? {getAttribute: () => name} : null}
 }

@@ -149,13 +149,22 @@ templ MailRuleDialogPanel(data models.MailRulesData) {
 // mailRulesList is the list of rules, under a search once there are any.
 // The search is the folder picker's (folder-picker.js filter), so rules are
 // marked as its rows; it keeps what was typed when the list is drawn again
-// (hx-preserve, settings.js).
+// (hx-preserve, settings.js). Opened from a folder's menu in the sidebar,
+// the list shows only the rules that move mail into that folder, until
+// Show all; the line saying so is kept with the search.
 templ mailRulesList(data models.MailRulesData) {
 	<div class="space-y-5">
 		if len(data.Rules) > 0 {
 			<div>
 				<div id="mail-rules-search" hx-preserve="true">
 					@folderPickerSearch(i18n.T(ctx, "rules.search"), templ.Attributes{"data-mail-rules-search": ""})
+					if name := mailRulesFolderFilterName(ctx, data.FolderFilter, data.Accounts); name != "" {
+						<div class="mt-2 flex min-w-0 items-center gap-2 rounded-md border border-border/60 bg-background/60 py-1.5 pl-3 pr-2 text-xs text-foreground" data-mail-rules-folder-filter={ data.FolderFilter }>
+							@icon.ListFilter(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
+							<span class="min-w-0 flex-1 truncate">{ i18n.T(ctx, "rules.folder_filter", "folder", name) }</span>
+							<button type="button" class="shrink-0 rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-mail-rules-folder-filter-clear>{ i18n.T(ctx, "rules.folder_filter_clear") }</button>
+						</div>
+					}
 				</div>
 				@mailRulesSelection()
 			</div>
@@ -249,7 +258,7 @@ templ mailRulesSelectionItem(action string, destructive bool) {
 }
 
 templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
-	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) }>
+	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) } data-mail-rule-folders={ mailRuleDestinationsAttr(data.Destinations[rule.ID]) }>
 		<div class="mail-rule-card flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
 			@checkbox.Checkbox(checkbox.Props{Value: rule.ID, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "rules.select_named", "name", rule.Name), "data-mail-rule-select": ""}})
 			<button

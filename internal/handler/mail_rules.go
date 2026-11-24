@@ -66,7 +66,16 @@ func (h *Handler) loadMailRulesData(w http.ResponseWriter, r *http.Request) (mod
 	return data, true
 }
 
+// renderMailRulesPanel draws the list of rules, each with the folders it
+// moves mail into, which the list can be filtered by.
 func (h *Handler) renderMailRulesPanel(w http.ResponseWriter, r *http.Request, data models.MailRulesData) {
+	destinations, err := h.db.MailRuleDestinations(r.Context(), h.userID(r.Context()), data.Rules)
+	if err != nil {
+		log.Printf("mail rule folders of %s: %v", h.userID(r.Context()), err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_rules"), http.StatusInternalServerError)
+		return
+	}
+	data.Destinations = destinations
 	w.Header().Set("Content-Type", "text/html")
 	w.Header().Set("Cache-Control", "no-store")
 	views.MailRulesPanel(data).Render(r.Context(), w)
@@ -87,12 +96,14 @@ func (h *Handler) renderMailRuleDialogPanel(w http.ResponseWriter, r *http.Reque
 	views.MailRuleDialogPanel(data).Render(r.Context(), w)
 }
 
-// handleMailRulesPanel renders the list of rules.
+// handleMailRulesPanel renders the list of rules. With folder, it opens
+// showing only the rules that move mail into that folder.
 func (h *Handler) handleMailRulesPanel(w http.ResponseWriter, r *http.Request) {
 	data, ok := h.loadMailRulesData(w, r)
 	if !ok {
 		return
 	}
+	data.FolderFilter = strings.TrimSpace(r.URL.Query().Get("folder"))
 	h.renderMailRulesPanel(w, r, data)
 }
 

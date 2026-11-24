@@ -436,3 +436,46 @@ func TestChangeSelectedMailRules(t *testing.T) {
 		t.Fatalf("nothing selected = %d", rec.Code)
 	}
 }
+
+// Opened from a folder's menu in the sidebar, the rules list says which
+// folder it shows the rules of, and every rule carries the folders it moves
+// mail into, which the list is filtered by.
+func TestMailRulesPanelForFolder(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+	for _, rule := range []models.MailRule{
+		{Name: "Receipts", Actions: []models.MailRuleAction{{Kind: models.MailRuleActionMove, Folder: &models.MailRuleFolderTarget{FolderID: "owner-receipts"}}}},
+		{Name: "Old offers", Actions: []models.MailRuleAction{{Kind: models.MailRuleActionArchive}}},
+		{Name: "Lunch on Friday", Actions: []models.MailRuleAction{{Kind: models.MailRuleActionStar}}},
+	} {
+		rule.Enabled = true
+		rule.Conditions = []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}}
+		if _, err := db.SaveMailRuleGuarded(ctx, "owner", rule, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?folder=owner-receipts", nil, nil, true)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `data-mail-rules-folder-filter="owner-receipts"`) ||
+		!strings.Contains(body, "Only rules that move mail to Receipts in owner@example.com") || !strings.Contains(body, ">Show all<") {
+		t.Fatalf("panel for a folder = %d %q", rec.Code, body)
+	}
+	for _, want := range []string{`data-mail-rule-folders="[&#34;owner-receipts&#34;]"`, `data-mail-rule-folders="[&#34;owner-archive&#34;]"`, `data-mail-rule-folders="[]"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel lacks %s: %q", want, body)
+		}
+	}
+	// A special folder is named as the sidebar names it.
+	rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?folder=owner-archive", nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Only rules that move mail to Archive in owner@example.com") {
+		t.Fatalf("panel for Archive = %d %q", rec.Code, body)
+	}
+	// A folder that isn't the user's, or no folder, shows every rule.
+	for _, path := range []string{"/api/settings/rules/panel?folder=someone-elses", "/api/settings/rules/panel"} {
+		rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, path, nil, nil, true)
+		if body := rec.Body.String(); rec.Code != http.StatusOK || strings.Contains(body, "data-mail-rules-folder-filter") || !strings.Contains(body, `data-mail-rule-folders="[&#34;owner-receipts&#34;]"`) {
+			t.Fatalf("%s = %d %q", path, rec.Code, body)
+		}
+	}
+}

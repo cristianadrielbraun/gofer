@@ -9,7 +9,7 @@ const document = {addEventListener(name, listener, capture) { listeners[name] = 
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../assets/js/folder-picker.js'), 'utf8'), vm.createContext({window, document}))
 const picker = window.goferFolderPicker
 
-const row = searchText => ({hidden: false, dataset: {searchText}})
+const row = searchText => ({hidden: false, dataset: {searchText}, attrs: {}, hasAttribute(name) { return name in this.attrs }})
 const account = (rows, keep) => ({hidden: false, rows,
   querySelectorAll(selector) { return selector === '[data-folder-picker-row]' ? rows : [] },
   querySelector(selector) { return selector === '[data-folder-picker-keep]' && keep ? {} : null }})
@@ -49,4 +49,14 @@ assert.equal(shown(other), 1, 'the account matches too')
 search.value = ''
 picker.filter(root)
 assert.equal(shown(work) + shown(local) + shown(other), 5, 'an empty search shows every folder')
-console.log('Folder picker: path, account and empty searches passed.')
+
+// A row another filter left out stays hidden, with or without a search.
+other.rows[0].attrs['data-folder-picker-out'] = ''
+picker.filter(root)
+assert.equal(shown(other), 0, 'a row left out stays hidden with no search')
+assert.equal(other.hidden, true, 'and its account with it')
+search.value = 'sam@'
+picker.filter(root)
+assert.equal(shown(other), 0, 'and with a search it matches')
+assert.equal(empty.hidden, false)
+console.log('Folder picker: path, account, empty and left-out searches passed.')

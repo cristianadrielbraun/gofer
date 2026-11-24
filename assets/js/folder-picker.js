@@ -3,7 +3,9 @@
 // account, name or path has the text, so a parent's name finds the folders
 // inside it too. An account with no folder left is hidden, unless it has a
 // row that stays (data-folder-picker-keep), such as its New folder row,
-// which is then named for the search.
+// which is then named for the search. A row another filter left out
+// (data-folder-picker-out), such as a rule for another folder in the rules
+// list, stays hidden whatever is typed.
 ;(function () {
   // filter applies the search field of the picker inside root and returns
   // the text typed, trimmed. A new folder's name field being typed in goes.
@@ -24,7 +26,7 @@
     root.querySelectorAll("[data-folder-picker-account]").forEach(function (account) {
       var matches = 0
       account.querySelectorAll("[data-folder-picker-row]").forEach(function (row) {
-        row.hidden = query !== "" && (row.dataset.searchText || "").indexOf(query) === -1
+        row.hidden = row.hasAttribute("data-folder-picker-out") || (query !== "" && (row.dataset.searchText || "").indexOf(query) === -1)
         if (!row.hidden) matches++
       })
       account.hidden = matches === 0 && !account.querySelector("[data-folder-picker-keep]")

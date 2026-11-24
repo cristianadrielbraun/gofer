@@ -4486,6 +4486,9 @@ document.addEventListener("DOMContentLoaded", function () {
         // A paused account has no sync button to press.
         "sync-account": target.kind === "account" && !!sidebarAccountSyncButton(target.accountID),
         "mailbox-size": target.kind !== "tag" && !!target.accountID,
+        // Rules move mail into an account's folders, but never into Sent or
+        // Drafts, nor into a view such as Starred.
+        "folder-rules": target.kind === "folder" && !!target.accountID && !target.virtual && ["sent", "drafts", "starred", "scheduled"].indexOf(target.role) < 0 && !/^starred(-|$)/.test(target.folderID),
         // Gmail has labels rather than folders, so its items say so.
         "new-folder": target.kind === "account" && target.provider !== "gmail",
         "new-label": target.kind === "account" && target.provider === "gmail",
@@ -4526,6 +4529,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var button = sidebarAccountSyncButton(target.accountID)
         if (button) button.click()
       } else if (action === "mailbox-size") window.goferOpenMailboxSize(target.accountID, target.kind === "folder" ? target.folderID : "")
+      else if (action === "folder-rules") openFolderRules(target)
       else if (action === "new-folder") createMailFolder(target.accountID, "", "")
       else if (action === "new-subfolder") createMailFolder(target.accountID, target.folderID, target.name)
       else if (action === "folder-appearance") window.goferOpenFolderAppearance(target)
@@ -4584,6 +4588,11 @@ document.addEventListener("DOMContentLoaded", function () {
         virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
       }
       showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+    }
+
+    // The rules that move mail into a folder, in Settings → Rules.
+    function openFolderRules(target) {
+      window.location.assign("/settings/rules?folder=" + encodeURIComponent(target.folderID))
     }
 
     // The account settings' folders dialog runs these too.

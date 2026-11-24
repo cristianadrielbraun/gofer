@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"slices"
 	"strconv"
@@ -143,6 +144,41 @@ func mailRuleFolderChoiceName(folder models.MailRuleFolderChoice) string {
 		return folder.Path
 	}
 	return folder.Name
+}
+
+// mailRulesFolderFilterName names the folder the rules list is filtered by,
+// with its account, or is "" when no account has it. A special folder is
+// named as the sidebar names it; another by its path, as rules name it.
+func mailRulesFolderFilterName(ctx context.Context, folderID string, accounts []models.MailRuleAccount) string {
+	if folderID == "" {
+		return ""
+	}
+	for _, account := range accounts {
+		for _, folder := range account.Folders {
+			if folder.ID != folderID {
+				continue
+			}
+			name := mailRuleFolderChoiceName(folder)
+			if folder.Role != "" && folder.Role != "custom" {
+				name = i18n.FolderName(ctx, folder.Role, folder.Name)
+			}
+			return i18n.T(ctx, "rules.folder.in_account", "folder", name, "account", mailRuleAccountTitle(account))
+		}
+	}
+	return ""
+}
+
+// mailRuleDestinationsAttr is the folders a rule moves mail into, as its
+// row carries them for the folder filter (settings.js filterMailRules).
+func mailRuleDestinationsAttr(ids []string) string {
+	if len(ids) == 0 {
+		return "[]"
+	}
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }
 
 // mailRuleRunSummary is the rule's summary in its run dialog.
