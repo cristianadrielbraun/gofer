@@ -4598,6 +4598,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // The account settings' folders dialog runs these too.
     window.goferFolderActions = {
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
+      "folder-rules": openFolderRules,
       "new-subfolder": function (t) { createMailFolder(t.accountID, t.folderID, t.name) },
       "folder-appearance": function (t) { window.goferOpenFolderAppearance(t) },
       "rename-folder": renameMailFolder,
