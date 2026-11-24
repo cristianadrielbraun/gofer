@@ -100,6 +100,8 @@ func TestMailRuleFolderPickers(t *testing.T) {
 		{ID: "work", Email: "robin@example.test", Provider: "imap", Tree: []models.Folder{
 			{ID: "w-in", Name: "Inbox", Role: "inbox", Children: []models.Folder{{ID: "w-trips", Name: "Trips"}}},
 			{ID: "w-sent", Name: "Sent", Role: "sent"},
+		}, Folders: []models.MailRuleFolderChoice{
+			{ID: "w-in", Name: "Inbox", Role: "inbox"}, {ID: "w-trips", Name: "Trips", Path: "Inbox/Trips"}, {ID: "w-sent", Name: "Sent", Role: "sent"},
 		}},
 		{ID: "old", Email: "sam@example.test", Provider: "imap", Hidden: true, Tree: []models.Folder{{ID: "o-notes", Name: "Notes"}}},
 		{ID: "local", Name: "Local folders", Provider: "local", Tree: []models.Folder{{ID: "l-keep", Name: "Keep"}}},
@@ -112,7 +114,7 @@ func TestMailRuleFolderPickers(t *testing.T) {
 		return out.String()
 	}
 
-	cond := mailRuleConditionFolders(ctx, 0, &models.MailRuleFolderTarget{FolderID: "w-trips"}, accounts)
+	cond := mailRuleConditionFolders(ctx, 0, models.MailRule{}, &models.MailRuleFolderTarget{FolderID: "w-trips"}, accounts)
 	if cond.Value != "id:w-trips" || cond.Chosen.Name != "Trips" || cond.Chosen.Parent != "Inbox" || cond.Chosen.Account != "robin@example.test" || cond.Chosen.Full() != "robin@example.test · Inbox / Trips" {
 		t.Fatalf("condition chosen = %q %+v", cond.Value, cond.Chosen)
 	}
@@ -123,8 +125,23 @@ func TestMailRuleFolderPickers(t *testing.T) {
 	if !regexp.MustCompile(`aria-selected="true"[^>]*data-folder-field-choice="id:w-trips"`).MatchString(html) {
 		t.Fatal("the chosen folder isn't selected in the picker")
 	}
+	if !strings.Contains(html, `data-folder-field-choice="id:o-notes"`) {
+		t.Fatal("a rule for every account can't test another account's folder")
+	}
+	// A rule for some accounts only tests their mail, and saving refuses
+	// another account's folder, so the picker offers none.
+	workOnly := models.MailRule{AccountsChosen: true, AccountIDs: []string{"work"}}
+	html = render(mailRuleConditionFolders(ctx, 0, workOnly, &models.MailRuleFolderTarget{FolderID: "w-trips"}, accounts))
+	if strings.Contains(html, `data-folder-field-choice="id:o-notes"`) || !strings.Contains(html, `data-folder-field-choice="id:w-trips"`) {
+		t.Fatal("a rule for one account offers another account's folders")
+	}
+	// A folder of an account the rule is no longer for stays shown, so it
+	// isn't dropped unseen.
+	if kept := mailRuleConditionFolders(ctx, 0, workOnly, &models.MailRuleFolderTarget{FolderID: "o-notes", AccountID: "old"}, accounts); kept.Value != "id:o-notes" || kept.Chosen.Name != "Notes" {
+		t.Fatalf("condition on an account the rule left = %q %+v", kept.Value, kept.Chosen)
+	}
 
-	move := mailRuleMoveFolders(ctx, 0, &models.MailRuleFolderTarget{Role: "archive"}, accounts)
+	move := mailRuleMoveFolders(ctx, 0, models.MailRule{}, &models.MailRuleFolderTarget{Role: "archive"}, accounts)
 	html = render(move)
 	if move.Value != "role:archive" || !strings.Contains(html, `data-folder-field-choice="id:l-keep"`) || strings.Contains(html, `data-folder-field-choice="id:o-notes"`) {
 		t.Fatalf("move offers Local folders but not a hidden account: %q", move.Value)
@@ -132,10 +149,10 @@ func TestMailRuleFolderPickers(t *testing.T) {
 	if !regexp.MustCompile(`disabled[^>]*data-folder-field-choice="id:w-sent"`).MatchString(html) || !strings.Contains(html, "data-mail-rule-rerender") || !strings.Contains(html, `data-folder-picker-create-parent="w-trips"`) {
 		t.Fatal("move can't pick Sent, draws the form again and makes folders")
 	}
-	if got := mailRuleMoveFolders(ctx, 0, &models.MailRuleFolderTarget{FolderID: "o-notes", AccountID: "old"}, accounts); got.Value != "id:o-notes" {
+	if got := mailRuleMoveFolders(ctx, 0, models.MailRule{}, &models.MailRuleFolderTarget{FolderID: "o-notes", AccountID: "old"}, accounts); got.Value != "id:o-notes" {
 		t.Fatalf("a hidden account the rule moves to = %q", got.Value)
 	}
-	if got := mailRuleMoveFolders(ctx, 0, &models.MailRuleFolderTarget{FolderID: "gone"}, accounts); got.Value != "" || got.Chosen.Name != "" {
+	if got := mailRuleMoveFolders(ctx, 0, models.MailRule{}, &models.MailRuleFolderTarget{FolderID: "gone"}, accounts); got.Value != "" || got.Chosen.Name != "" {
 		t.Fatalf("a folder no longer there = %q %+v", got.Value, got.Chosen)
 	}
 
@@ -143,6 +160,35 @@ func TestMailRuleFolderPickers(t *testing.T) {
 	html = render(run)
 	if run.Chosen.Name != "Inbox" || !strings.Contains(html, `name="scope"`) || strings.Contains(html, `data-folder-field-choice="id:l-keep"`) {
 		t.Fatalf("run picker = %+v", run.Chosen)
+	}
+	if html = render(mailRuleRunFolders(ctx, &models.MailRuleRunData{Rule: models.MailRule{}, Scope: "role:inbox"}, accounts)); !strings.Contains(html, `data-folder-field-choice="role:inbox"`) {
+		t.Fatal("a run for every account doesn't offer each account's Inbox")
+	}
+
+	// For a rule on one account, the folders every account has would repeat
+	// that account's own: its pickers list only its folders.
+	for name, html := range map[string]string{
+		"condition": render(mailRuleConditionFolders(ctx, 0, workOnly, nil, accounts)),
+		"move":      render(mailRuleMoveFolders(ctx, 0, workOnly, nil, accounts)),
+	} {
+		if strings.Contains(html, `data-folder-field-choice="role:`) || !strings.Contains(html, `data-folder-field-choice="id:w-in"`) {
+			t.Errorf("%s picker for one account repeats its folders", name)
+		}
+	}
+	// One of them, as a new Folder condition starts with, shows as the
+	// account's own folder.
+	if own := mailRuleConditionFolders(ctx, 0, workOnly, &models.MailRuleFolderTarget{Role: "inbox"}, accounts); own.Value != "id:w-in" || own.Chosen.Name != "Inbox" {
+		t.Errorf("condition on the Inbox of the message's account = %q %+v", own.Value, own.Chosen)
+	}
+	// One the account has no folder for keeps them, so it still shows.
+	kept := mailRuleMoveFolders(ctx, 0, workOnly, &models.MailRuleFolderTarget{Role: "archive"}, accounts)
+	if html = render(kept); kept.Value != "role:archive" || !strings.Contains(html, `data-folder-field-choice="role:inbox"`) {
+		t.Errorf("move to the Archive of the message's account = %q", kept.Value)
+	}
+	// A run starts in the Inbox: for one account, that account's own.
+	single := mailRuleRunFolders(ctx, &models.MailRuleRunData{Rule: workOnly, Scope: "role:inbox"}, accounts)
+	if html = render(single); single.Value != "id:w-in" || single.Chosen.Name != "Inbox" || strings.Contains(html, `data-folder-field-choice="role:`) {
+		t.Fatalf("run for one account = %q %+v", single.Value, single.Chosen)
 	}
 }
 
@@ -182,5 +228,28 @@ func TestFolderFieldsForImportAndRoles(t *testing.T) {
 	}
 	if got := folderRoleField(ctx, roles, models.FolderRole{Role: "drafts", Chosen: "in"}); got.Value != "" {
 		t.Fatalf("the Inbox was taken as a role's folder: %q", got.Value)
+	}
+}
+
+// A folder every account has shows, for a rule on one account, as the
+// folder the rule finds for it when it runs.
+func TestMailRuleOwnValueFindsTheFolderTheRuleUses(t *testing.T) {
+	account := models.MailRuleAccount{ID: "work", Folders: []models.MailRuleFolderChoice{
+		{ID: "b-archive", Name: "Archive", Role: "archive"},
+		{ID: "in", Name: "Inbox", Role: "inbox"},
+		{ID: "a-archive", Name: "Old archive", Path: "Inbox/Old archive", Role: "archive"},
+		{ID: "junk-mail", Name: "Junk", Role: "spam"},
+	}}
+	for value, want := range map[string]string{
+		"role:inbox":   "id:in",
+		"role:archive": "id:a-archive",
+		"role:junk":    "id:junk-mail",
+		"role:drafts":  "role:drafts",
+		"id:in":        "id:in",
+		"":             "",
+	} {
+		if got := mailRuleOwnValue(account, value); got != want {
+			t.Errorf("mailRuleOwnValue(%q) = %q, want %q", value, got, want)
+		}
 	}
 }

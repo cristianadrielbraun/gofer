@@ -283,12 +283,15 @@ templ mailRuleForm(data models.MailRulesData, rule models.MailRule) {
 		data-mail-rule-form
 	>
 		@dataDialogScroll("pb-5") {
+			// Drawing the form again never overtakes Save: it is dropped while
+			// the rule is being saved, and saving stops one still running.
 			<div
 				class="space-y-5"
 				hx-post={ mailRulePath("/form") }
 				hx-trigger="mail-rule-rerender"
 				hx-target="#mail-rule-dialog-panel"
 				hx-swap="outerHTML"
+				hx-sync="closest form:abort"
 				data-mail-rule-form-body
 			>
 				<input type="hidden" name="id" value={ rule.ID }/>
@@ -508,7 +511,7 @@ templ mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, inde
 		<div class="min-w-0 flex-1">
 			if condition.Field == models.MailRuleFieldFolder {
 				<input type="hidden" name="cond_value" value=""/>
-				@folderFieldView(mailRuleConditionFolders(ctx, index, condition.Folder, data.Accounts))
+				@folderFieldView(mailRuleConditionFolders(ctx, index, rule, condition.Folder, data.Accounts))
 			} else {
 				<input type="hidden" name="cond_folder" value=""/>
 				@input.Input(input.Props{Name: "cond_value", Type: input.TypeText, Class: mailRuleCompactControl, Value: condition.Value, Placeholder: mailRuleValuePlaceholder(ctx, condition), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": i18n.T(ctx, "rules.compare_with")}})
@@ -558,8 +561,8 @@ templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index i
 			switch action.Kind {
 				case models.MailRuleActionMove:
 					<input type="hidden" name="act_label" value=""/>
-					@folderFieldView(mailRuleMoveFolders(ctx, index, action.Folder, data.Accounts))
-					if action.Folder != nil && action.Folder.FolderID != "" {
+					@folderFieldView(mailRuleMoveFolders(ctx, index, rule, action.Folder, data.Accounts))
+					if action.Folder != nil && action.Folder.FolderID != "" && !mailRuleMovesWithinAccount(rule, action.Folder, data.Accounts) {
 						<div class="mt-2">
 							@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
 								@selectbox.Trigger(selectbox.TriggerProps{Name: "act_for_good", Class: mailRuleCompactControl, DisableClear: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "rules.for_good_label"), "value": mailRuleForGoodValue(action.ForGood)}}) {

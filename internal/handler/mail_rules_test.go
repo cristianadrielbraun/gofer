@@ -86,10 +86,30 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 	}
 	// As in the account's Folders dialog: a new folder at the top, or inside
 	// any folder.
-	for _, want := range []string{`data-folder-picker-create-account="victim-account"`, `data-folder-picker-create-parent="owner-receipts"`, `data-folder-picker-create-parent="owner-inbox"`, `data-folder-field-choice="role:inbox"`, "New folder in Receipts", "data-folder-field-create"} {
+	for _, want := range []string{`data-folder-picker-create-account="victim-account"`, `data-folder-picker-create-parent="owner-receipts"`, `data-folder-picker-create-parent="owner-inbox"`, "New folder in Receipts", "data-folder-field-create"} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("move folder picker lacks %s: %q", want, rec.Body.String())
 		}
+	}
+	// A rule for one account lists that account's folders, not the folders
+	// every account has as well; a rule for all of them offers those first.
+	if strings.Contains(rec.Body.String(), `data-folder-field-choice="role:`) {
+		t.Fatalf("folder pickers of a rule for one account repeat its folders: %q", rec.Body.String())
+	}
+	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_ids": "all", "cond_field": "folder", "act_kind": "move"}), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `data-folder-field-choice="role:inbox"`) {
+		t.Fatalf("folder pickers of a rule for every account = %d %q", rec.Code, body)
+	}
+	// Moving to a folder asks what happens to mail from another account,
+	// unless the rule is for that folder's account alone.
+	fromElsewhere := `aria-label="What happens to mail from another account"`
+	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"act_kind": "move", "act_folder": "id:owner-receipts"}), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || strings.Contains(body, fromElsewhere) || !strings.Contains(body, `name="act_for_good" value=""`) {
+		t.Fatalf("a move within the rule's only account asks about other accounts: %d %q", rec.Code, body)
+	}
+	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_ids": "all", "act_kind": "move", "act_folder": "id:owner-receipts"}), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, fromElsewhere) {
+		t.Fatalf("a move for every account doesn't ask about other accounts: %d %q", rec.Code, body)
 	}
 	// Mail goes to one place: once an action moves it, an added action
 	// offers no move, and nothing already there.

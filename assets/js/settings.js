@@ -1255,7 +1255,18 @@ function setupMailRuleForm() {
     else if (values.indexOf("all") >= 0 && values.length > 1) next = values.filter(function (v) { return v !== "all" })
     input._mailRuleAccounts = next.join(",")
     if (input.value !== input._mailRuleAccounts) input.value = input._mailRuleAccounts
+    input._mailRuleAccountsChanged = true
   })
+  // The accounts a rule is for decide the folders its conditions can test,
+  // so the form is drawn again once the accounts list closes after a
+  // change. Drawing it at each pick would close the list while choosing.
+  document.addEventListener("toggle", function (e) {
+    if (e.newState !== "closed" || !e.target.matches || !e.target.matches("[data-tui-selectbox-content]") || !window.htmx) return
+    var input = document.querySelector("[data-mail-rule-form-body] [data-mail-rule-accounts]")
+    if (!input || !input._mailRuleAccountsChanged) return
+    input._mailRuleAccountsChanged = false
+    window.htmx.trigger(input.closest("[data-mail-rule-form-body]"), "mail-rule-rerender")
+  }, true)
   document.addEventListener("change", function (e) {
     var input = e.target
     if (!input.matches || !input.matches("[data-mail-rule-rerender]") || !window.htmx) return

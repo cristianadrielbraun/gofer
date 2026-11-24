@@ -1136,27 +1136,27 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "<div class=\"space-y-5\" hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "  <div class=\"space-y-5\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var58 string
 			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(mailRulePath("/form"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 288, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 290, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "\" hx-trigger=\"mail-rule-rerender\" hx-target=\"#mail-rule-dialog-panel\" hx-swap=\"outerHTML\" data-mail-rule-form-body><input type=\"hidden\" name=\"id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "\" hx-trigger=\"mail-rule-rerender\" hx-target=\"#mail-rule-dialog-panel\" hx-swap=\"outerHTML\" hx-sync=\"closest form:abort\" data-mail-rule-form-body><input type=\"hidden\" name=\"id\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var59 string
 			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(rule.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 294, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 297, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 			if templ_7745c5c3_Err != nil {
@@ -1191,7 +1191,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "contacts.field.name"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 297, Col: 104}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 300, Col: 104}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 			if templ_7745c5c3_Err != nil {
@@ -1234,7 +1234,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var65 string
 			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.for"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 301, Col: 73}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 304, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 			if templ_7745c5c3_Err != nil {
@@ -1309,7 +1309,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 						var templ_7745c5c3_Var70 string
 						templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.accounts.all"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 308, Col: 44}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 311, Col: 44}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 						if templ_7745c5c3_Err != nil {
@@ -1338,7 +1338,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 								var templ_7745c5c3_Var72 string
 								templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleAccountTitle(account))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 313, Col: 42}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 316, Col: 42}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 								if templ_7745c5c3_Err != nil {
@@ -1371,7 +1371,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var73 string
 			templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.when"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 323, Col: 122}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 326, Col: 122}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 			if templ_7745c5c3_Err != nil {
@@ -1384,7 +1384,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var74 string
 			templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.groups_note"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 324, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 327, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 			if templ_7745c5c3_Err != nil {
@@ -1403,7 +1403,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 					var templ_7745c5c3_Var75 string
 					templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.or"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 330, Col: 178}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 333, Col: 178}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 					if templ_7745c5c3_Err != nil {
@@ -1421,7 +1421,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 				var templ_7745c5c3_Var76 string
 				templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(g))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 333, Col: 133}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 336, Col: 133}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 				if templ_7745c5c3_Err != nil {
@@ -1473,7 +1473,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var77 string
 			templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.do_this"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 350, Col: 120}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 353, Col: 120}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 			if templ_7745c5c3_Err != nil {
@@ -1514,7 +1514,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var78 string
 			templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.stop_here"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 364, Col: 39}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 367, Col: 39}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 			if templ_7745c5c3_Err != nil {
@@ -1527,7 +1527,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var79 string
 			templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.stop_here_note"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 365, Col: 94}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 368, Col: 94}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 			if templ_7745c5c3_Err != nil {
@@ -1548,7 +1548,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var80 string
 			templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.active"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 371, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 374, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 			if templ_7745c5c3_Err != nil {
@@ -1561,7 +1561,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 			var templ_7745c5c3_Var81 string
 			templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.active_note"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 372, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 375, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 			if templ_7745c5c3_Err != nil {
@@ -1597,7 +1597,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 				var templ_7745c5c3_Var83 string
 				templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 380, Col: 112}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 383, Col: 112}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 				if templ_7745c5c3_Err != nil {
@@ -1615,7 +1615,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 				var templ_7745c5c3_Var84 string
 				templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.save_note"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 382, Col: 103}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 385, Col: 103}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 				if templ_7745c5c3_Err != nil {
@@ -1679,7 +1679,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 					var templ_7745c5c3_Var89 string
 					templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 386, Col: 88}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 389, Col: 88}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 					if templ_7745c5c3_Err != nil {
@@ -1728,7 +1728,7 @@ func mailRuleForm(data models.MailRulesData, rule models.MailRule) templ.Compone
 				var templ_7745c5c3_Var92 string
 				templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.save"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 390, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 393, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 				if templ_7745c5c3_Err != nil {
@@ -1831,7 +1831,7 @@ func mailRuleAddConditionButton(group int, label string) templ.Component {
 		var templ_7745c5c3_Var95 string
 		templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(mailRulePath("/form"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 415, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 418, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 		if templ_7745c5c3_Err != nil {
@@ -1844,7 +1844,7 @@ func mailRuleAddConditionButton(group int, label string) templ.Component {
 		var templ_7745c5c3_Var96 string
 		templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf(`{"op":"add_condition","group":%q}`, strconv.Itoa(group)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 416, Col: 81}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 419, Col: 81}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var96))
 		if templ_7745c5c3_Err != nil {
@@ -1857,7 +1857,7 @@ func mailRuleAddConditionButton(group int, label string) templ.Component {
 		var templ_7745c5c3_Var97 string
 		templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(group))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 419, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 422, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var97))
 		if templ_7745c5c3_Err != nil {
@@ -1874,7 +1874,7 @@ func mailRuleAddConditionButton(group int, label string) templ.Component {
 		var templ_7745c5c3_Var98 string
 		templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 422, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 425, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 		if templ_7745c5c3_Err != nil {
@@ -1919,7 +1919,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var100 string
 			templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(mailRulePath("/form"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 433, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 436, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 			if templ_7745c5c3_Err != nil {
@@ -1932,7 +1932,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var101 string
 			templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf(`{"op":%q}`, op))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 434, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 437, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 			if templ_7745c5c3_Err != nil {
@@ -1945,7 +1945,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var102 string
 			templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(op)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 437, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 440, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 			if templ_7745c5c3_Err != nil {
@@ -1962,7 +1962,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var103 string
 			templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 440, Col: 10}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 443, Col: 10}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 			if templ_7745c5c3_Err != nil {
@@ -1998,7 +1998,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var106 string
 			templ_7745c5c3_Var106, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 446, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 449, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var106))
 			if templ_7745c5c3_Err != nil {
@@ -2011,7 +2011,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var107 string
 			templ_7745c5c3_Var107, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 447, Col: 16}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 450, Col: 16}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var107))
 			if templ_7745c5c3_Err != nil {
@@ -2024,7 +2024,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var108 string
 			templ_7745c5c3_Var108, templ_7745c5c3_Err = templ.JoinStringErrs(mailRulePath("/form"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 448, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 451, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var108))
 			if templ_7745c5c3_Err != nil {
@@ -2037,7 +2037,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var109 string
 			templ_7745c5c3_Var109, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf(`{"op":%q,"index":%q}`, op, strconv.Itoa(index)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 449, Col: 73}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 452, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var109))
 			if templ_7745c5c3_Err != nil {
@@ -2050,7 +2050,7 @@ func mailRuleRowButton(op string, index int, label string) templ.Component {
 			var templ_7745c5c3_Var110 string
 			templ_7745c5c3_Var110, templ_7745c5c3_Err = templ.JoinStringErrs(op)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 452, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 455, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var110))
 			if templ_7745c5c3_Err != nil {
@@ -2121,7 +2121,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 		var templ_7745c5c3_Var114 string
 		templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(condition.Group))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 463, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 466, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 		if templ_7745c5c3_Err != nil {
@@ -2135,7 +2135,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 			var templ_7745c5c3_Var115 string
 			templ_7745c5c3_Var115, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.and"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 466, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 469, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var115))
 			if templ_7745c5c3_Err != nil {
@@ -2149,7 +2149,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 			var templ_7745c5c3_Var116 string
 			templ_7745c5c3_Var116, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.if"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 468, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 471, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var116))
 			if templ_7745c5c3_Err != nil {
@@ -2230,7 +2230,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 						var templ_7745c5c3_Var121 string
 						templ_7745c5c3_Var121, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleFieldLabel(ctx, field))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 479, Col: 39}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 482, Col: 39}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var121))
 						if templ_7745c5c3_Err != nil {
@@ -2325,7 +2325,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 						var templ_7745c5c3_Var126 string
 						templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.op.is"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 493, Col: 35}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 496, Col: 35}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 						if templ_7745c5c3_Err != nil {
@@ -2356,7 +2356,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 						var templ_7745c5c3_Var128 string
 						templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.op.is_not"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 496, Col: 39}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 499, Col: 39}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 						if templ_7745c5c3_Err != nil {
@@ -2385,7 +2385,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 							var templ_7745c5c3_Var130 string
 							templ_7745c5c3_Var130, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleOperatorLabel(ctx, operator))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 501, Col: 46}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 504, Col: 46}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var130))
 							if templ_7745c5c3_Err != nil {
@@ -2420,7 +2420,7 @@ func mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = folderFieldView(mailRuleConditionFolders(ctx, index, condition.Folder, data.Accounts)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = folderFieldView(mailRuleConditionFolders(ctx, index, rule, condition.Folder, data.Accounts)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2560,7 +2560,7 @@ func mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index in
 							var templ_7745c5c3_Var136 string
 							templ_7745c5c3_Var136, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleActionLabel(ctx, kind))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 550, Col: 40}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 553, Col: 40}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var136))
 							if templ_7745c5c3_Err != nil {
@@ -2596,7 +2596,7 @@ func mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index in
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = folderFieldView(mailRuleMoveFolders(ctx, index, action.Folder, data.Accounts)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = folderFieldView(mailRuleMoveFolders(ctx, index, rule, action.Folder, data.Accounts)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2604,7 +2604,7 @@ func mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index in
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if action.Folder != nil && action.Folder.FolderID != "" {
+			if action.Folder != nil && action.Folder.FolderID != "" && !mailRuleMovesWithinAccount(rule, action.Folder, data.Accounts) {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 154, "<div class=\"mt-2\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -2674,7 +2674,7 @@ func mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index in
 							var templ_7745c5c3_Var141 string
 							templ_7745c5c3_Var141, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.for_good.trash"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 570, Col: 47}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 573, Col: 47}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var141))
 							if templ_7745c5c3_Err != nil {
@@ -2705,7 +2705,7 @@ func mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index in
 							var templ_7745c5c3_Var143 string
 							templ_7745c5c3_Var143, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.for_good.delete"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 573, Col: 48}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 576, Col: 48}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var143))
 							if templ_7745c5c3_Err != nil {
@@ -2756,7 +2756,7 @@ func mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index in
 			var templ_7745c5c3_Var144 string
 			templ_7745c5c3_Var144, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleActionHint(ctx, action.Kind))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 589, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 592, Col: 89}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var144))
 			if templ_7745c5c3_Err != nil {
@@ -2854,7 +2854,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 		var templ_7745c5c3_Var148 string
 		templ_7745c5c3_Var148, templ_7745c5c3_Err = templ.JoinStringErrs(run.JobID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 622, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 625, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var148))
 		if templ_7745c5c3_Err != nil {
@@ -2867,7 +2867,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 		var templ_7745c5c3_Var149 string
 		templ_7745c5c3_Var149, templ_7745c5c3_Err = templ.JoinStringErrs(run.State)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 622, Col: 105}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 625, Col: 105}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var149))
 		if templ_7745c5c3_Err != nil {
@@ -2880,7 +2880,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 		var templ_7745c5c3_Var150 string
 		templ_7745c5c3_Var150, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(run.Seq))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 622, Col: 154}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 625, Col: 154}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var150))
 		if templ_7745c5c3_Err != nil {
@@ -2909,7 +2909,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 			var templ_7745c5c3_Var152 string
 			templ_7745c5c3_Var152, templ_7745c5c3_Err = templ.JoinStringErrs(mailRulePath("/" + run.Rule.ID + "/run/scope"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 626, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 629, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var152))
 			if templ_7745c5c3_Err != nil {
@@ -2922,7 +2922,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 			var templ_7745c5c3_Var153 string
 			templ_7745c5c3_Var153, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.on_mail_in"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 632, Col: 98}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 635, Col: 98}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var153))
 			if templ_7745c5c3_Err != nil {
@@ -2953,7 +2953,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var154 string
 				templ_7745c5c3_Var154, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.checking"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 642, Col: 42}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 645, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var154))
 				if templ_7745c5c3_Err != nil {
@@ -2966,7 +2966,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var155 string
 				templ_7745c5c3_Var155, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleCount(ctx, run.Scanned))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 642, Col: 119}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 645, Col: 119}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var155))
 				if templ_7745c5c3_Err != nil {
@@ -2979,7 +2979,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var156 string
 				templ_7745c5c3_Var156, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.of"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 642, Col: 158}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 645, Col: 158}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var156))
 				if templ_7745c5c3_Err != nil {
@@ -2992,7 +2992,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var157 string
 				templ_7745c5c3_Var157, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleCount(ctx, run.Total))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 642, Col: 231}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 645, Col: 231}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var157))
 				if templ_7745c5c3_Err != nil {
@@ -3005,7 +3005,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var158 string
 				templ_7745c5c3_Var158, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleCount(ctx, run.Matches))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 644, Col: 121}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 647, Col: 121}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var158))
 				if templ_7745c5c3_Err != nil {
@@ -3018,7 +3018,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var159 string
 				templ_7745c5c3_Var159, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.so_far"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 644, Col: 164}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 647, Col: 164}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var159))
 				if templ_7745c5c3_Err != nil {
@@ -3037,7 +3037,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var160 string
 					templ_7745c5c3_Var160, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.nothing", "scope", run.ScopeName, "messages", MailRuleMessages(ctx, run.Scanned)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 647, Col: 183}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 650, Col: 183}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var160))
 					if templ_7745c5c3_Err != nil {
@@ -3055,7 +3055,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var161 string
 					templ_7745c5c3_Var161, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(run.Matches))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 649, Col: 78}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 652, Col: 78}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var161))
 					if templ_7745c5c3_Err != nil {
@@ -3068,7 +3068,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var162 string
 					templ_7745c5c3_Var162, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleCount(ctx, run.Matches))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 650, Col: 91}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 653, Col: 91}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var162))
 					if templ_7745c5c3_Err != nil {
@@ -3081,7 +3081,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var163 string
 					templ_7745c5c3_Var163, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "rules.run.would_change", run.Matches, "scope", run.ScopeName, "checked", mailRuleCount(ctx, run.Scanned)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 651, Col: 170}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 654, Col: 170}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var163))
 					if templ_7745c5c3_Err != nil {
@@ -3104,7 +3104,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var164 string
 				templ_7745c5c3_Var164, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.changing"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 657, Col: 42}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 660, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var164))
 				if templ_7745c5c3_Err != nil {
@@ -3117,7 +3117,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var165 string
 				templ_7745c5c3_Var165, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleCount(ctx, run.Processed))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 657, Col: 123}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 660, Col: 123}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var165))
 				if templ_7745c5c3_Err != nil {
@@ -3130,7 +3130,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var166 string
 				templ_7745c5c3_Var166, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.of"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 657, Col: 162}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 660, Col: 162}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var166))
 				if templ_7745c5c3_Err != nil {
@@ -3143,7 +3143,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var167 string
 				templ_7745c5c3_Var167, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleCount(ctx, run.Matches))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 657, Col: 239}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 660, Col: 239}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var167))
 				if templ_7745c5c3_Err != nil {
@@ -3156,7 +3156,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var168 string
 				templ_7745c5c3_Var168, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.can_close"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 659, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 662, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var168))
 				if templ_7745c5c3_Err != nil {
@@ -3178,7 +3178,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var169 string
 				templ_7745c5c3_Var169, templ_7745c5c3_Err = templ.JoinStringErrs(MailRuleRunDoneNotice(ctx, *run))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 663, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 666, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var169))
 				if templ_7745c5c3_Err != nil {
@@ -3197,7 +3197,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var170 string
 					templ_7745c5c3_Var170, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.stopped_after", "messages", MailRuleMessages(ctx, run.Processed), "total", mailRuleCount(ctx, run.Matches)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 668, Col: 140}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 671, Col: 140}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var170))
 					if templ_7745c5c3_Err != nil {
@@ -3207,7 +3207,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var171 string
 					templ_7745c5c3_Var171, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.stopped"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 670, Col: 42}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 673, Col: 42}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var171))
 					if templ_7745c5c3_Err != nil {
@@ -3226,7 +3226,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 				var templ_7745c5c3_Var172 string
 				templ_7745c5c3_Var172, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Stored(ctx, "jobs.", run.Error))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 674, Col: 114}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 677, Col: 114}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var172))
 				if templ_7745c5c3_Err != nil {
@@ -3310,7 +3310,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 						var templ_7745c5c3_Var178 string
 						templ_7745c5c3_Var178, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 683, Col: 90}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 686, Col: 90}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var178))
 						if templ_7745c5c3_Err != nil {
@@ -3355,7 +3355,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var181 string
 					templ_7745c5c3_Var181, templ_7745c5c3_Err = templ.JoinStringErrs("/api/settings/rule-runs/" + run.JobID + "/start")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 688, Col: 66}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 691, Col: 66}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var181))
 					if templ_7745c5c3_Err != nil {
@@ -3372,7 +3372,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var182 string
 					templ_7745c5c3_Var182, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.start", "messages", MailRuleMessages(ctx, run.Matches)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 695, Col: 87}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 698, Col: 87}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var182))
 					if templ_7745c5c3_Err != nil {
@@ -3408,7 +3408,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var185 string
 					templ_7745c5c3_Var185, templ_7745c5c3_Err = templ.JoinStringErrs("/api/settings/rule-runs/" + run.JobID + "/stop")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 701, Col: 65}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 704, Col: 65}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var185))
 					if templ_7745c5c3_Err != nil {
@@ -3421,7 +3421,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 					var templ_7745c5c3_Var186 string
 					templ_7745c5c3_Var186, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.run.stop"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 706, Col: 38}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 709, Col: 38}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var186))
 					if templ_7745c5c3_Err != nil {
@@ -3468,7 +3468,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 						var templ_7745c5c3_Var190 string
 						templ_7745c5c3_Var190, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.close"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 708, Col: 90}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 711, Col: 90}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var190))
 						if templ_7745c5c3_Err != nil {
@@ -3522,7 +3522,7 @@ func mailRuleRunView(data models.MailRulesData) templ.Component {
 						var templ_7745c5c3_Var194 string
 						templ_7745c5c3_Var194, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.close"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 712, Col: 90}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 715, Col: 90}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var194))
 						if templ_7745c5c3_Err != nil {
@@ -3668,7 +3668,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 						var templ_7745c5c3_Var201 string
 						templ_7745c5c3_Var201, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.title"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 737, Col: 42}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 740, Col: 42}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var201))
 						if templ_7745c5c3_Err != nil {
@@ -3699,7 +3699,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 						var templ_7745c5c3_Var203 string
 						templ_7745c5c3_Var203, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.description", "count", i18n.Number(ctx, 2000)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 740, Col: 81}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 743, Col: 81}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var203))
 						if templ_7745c5c3_Err != nil {
@@ -3762,7 +3762,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 					var templ_7745c5c3_Var207 string
 					templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinStringErrs(mailRulePath("/activity/list"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 747, Col: 45}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 750, Col: 45}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var207))
 					if templ_7745c5c3_Err != nil {
@@ -3837,7 +3837,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 								var templ_7745c5c3_Var212 string
 								templ_7745c5c3_Var212, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.all"))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 760, Col: 45}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 763, Col: 45}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var212))
 								if templ_7745c5c3_Err != nil {
@@ -3865,7 +3865,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 									var templ_7745c5c3_Var214 string
 									templ_7745c5c3_Var214, templ_7745c5c3_Err = templ.JoinStringErrs(rule.Name)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 764, Col: 22}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 767, Col: 22}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var214))
 									if templ_7745c5c3_Err != nil {
@@ -3901,7 +3901,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 					var templ_7745c5c3_Var215 string
 					templ_7745c5c3_Var215, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.failed_only"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 772, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 775, Col: 50}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var215))
 					if templ_7745c5c3_Err != nil {
@@ -3952,7 +3952,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 						var templ_7745c5c3_Var218 string
 						templ_7745c5c3_Var218, templ_7745c5c3_Err = templ.JoinStringErrs(mailRulePath("/activity/clear"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 782, Col: 70}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 785, Col: 70}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var218))
 						if templ_7745c5c3_Err != nil {
@@ -3969,7 +3969,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 						var templ_7745c5c3_Var219 string
 						templ_7745c5c3_Var219, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.clear"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 785, Col: 44}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 788, Col: 44}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var219))
 						if templ_7745c5c3_Err != nil {
@@ -4016,7 +4016,7 @@ func MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) tem
 							var templ_7745c5c3_Var223 string
 							templ_7745c5c3_Var223, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.close"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 788, Col: 90}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 791, Col: 90}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var223))
 							if templ_7745c5c3_Err != nil {
@@ -4100,7 +4100,7 @@ func MailRuleActivityList(data models.MailRuleActivityData, now time.Time) templ
 				var templ_7745c5c3_Var225 string
 				templ_7745c5c3_Var225, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.no_match"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 805, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 808, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var225))
 				if templ_7745c5c3_Err != nil {
@@ -4110,7 +4110,7 @@ func MailRuleActivityList(data models.MailRuleActivityData, now time.Time) templ
 				var templ_7745c5c3_Var226 string
 				templ_7745c5c3_Var226, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.empty"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 807, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 810, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var226))
 				if templ_7745c5c3_Err != nil {
@@ -4139,7 +4139,7 @@ func MailRuleActivityList(data models.MailRuleActivityData, now time.Time) templ
 					var templ_7745c5c3_Var227 templ.SafeURL
 					templ_7745c5c3_Var227, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(mailRuleActivityMessageURL(run)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 816, Col: 63}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 819, Col: 63}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var227))
 					if templ_7745c5c3_Err != nil {
@@ -4152,7 +4152,7 @@ func MailRuleActivityList(data models.MailRuleActivityData, now time.Time) templ
 					var templ_7745c5c3_Var228 string
 					templ_7745c5c3_Var228, templ_7745c5c3_Err = templ.JoinStringErrs(run.Status)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 816, Col: 178}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 819, Col: 178}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var228))
 					if templ_7745c5c3_Err != nil {
@@ -4178,7 +4178,7 @@ func MailRuleActivityList(data models.MailRuleActivityData, now time.Time) templ
 					var templ_7745c5c3_Var229 string
 					templ_7745c5c3_Var229, templ_7745c5c3_Err = templ.JoinStringErrs(run.Status)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 820, Col: 105}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 823, Col: 105}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var229))
 					if templ_7745c5c3_Err != nil {
@@ -4236,7 +4236,7 @@ func MailRuleActivityList(data models.MailRuleActivityData, now time.Time) templ
 				var templ_7745c5c3_Var232 string
 				templ_7745c5c3_Var232, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleActivityMorePath(data))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 832, Col: 45}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 835, Col: 45}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var232))
 				if templ_7745c5c3_Err != nil {
@@ -4249,7 +4249,7 @@ func MailRuleActivityList(data models.MailRuleActivityData, now time.Time) templ
 				var templ_7745c5c3_Var233 string
 				templ_7745c5c3_Var233, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.more"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 836, Col: 42}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 839, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var233))
 				if templ_7745c5c3_Err != nil {
@@ -4319,7 +4319,7 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 			var templ_7745c5c3_Var235 string
 			templ_7745c5c3_Var235, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleSentence(mailrules.DetailText(ctx, run.Detail)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 857, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 860, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var235))
 			if templ_7745c5c3_Err != nil {
@@ -4329,7 +4329,7 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 			var templ_7745c5c3_Var236 string
 			templ_7745c5c3_Var236, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Subject(ctx, run.Subject))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 859, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 862, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var236))
 			if templ_7745c5c3_Err != nil {
@@ -4343,7 +4343,7 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 			var templ_7745c5c3_Var237 string
 			templ_7745c5c3_Var237, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "rules.activity.no_subject"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 861, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 864, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var237))
 			if templ_7745c5c3_Err != nil {
@@ -4383,7 +4383,7 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 		var templ_7745c5c3_Var240 string
 		templ_7745c5c3_Var240, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleActivityDetail(ctx, run))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 865, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 868, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var240))
 		if templ_7745c5c3_Err != nil {
@@ -4396,7 +4396,7 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 		var templ_7745c5c3_Var241 string
 		templ_7745c5c3_Var241, templ_7745c5c3_Err = templ.JoinStringErrs(run.CreatedAt.Format(time.RFC3339))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 868, Col: 119}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 871, Col: 119}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var241))
 		if templ_7745c5c3_Err != nil {
@@ -4409,7 +4409,7 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 		var templ_7745c5c3_Var242 string
 		templ_7745c5c3_Var242, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleActivityTime(ctx, run.CreatedAt, now))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 868, Col: 169}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 871, Col: 169}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var242))
 		if templ_7745c5c3_Err != nil {
