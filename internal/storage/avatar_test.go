@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -136,5 +137,82 @@ func TestGetSenderAvatarUserIDsUsesActiveAccountOwnership(t *testing.T) {
 	}
 	if len(userIDs) != 1 || userIDs[0] != "default" {
 		t.Fatalf("GetSenderAvatarUserIDs() = %#v, want only active owner", userIDs)
+	}
+}
+
+// Avatar times are compared with SQLite's clock, which is UTC. On a server in
+// another time zone, a picture is still looked up again when its time comes,
+// not hours early or late.
+func TestSenderAvatarTimesIgnoreServerTimeZone(t *testing.T) {
+	ctx := context.Background()
+	serverZone := time.Local
+	t.Cleanup(func() { time.Local = serverZone })
+	for _, zone := range []*time.Location{time.FixedZone("UTC-7", -7*60*60), time.FixedZone("UTC+9", 9*60*60)} {
+		time.Local = zone
+		db := newContactsTestDB(t)
+		now := time.Now()
+		senders := []struct {
+			hash string
+			due  bool
+			save func(hash, email string) error
+		}{
+			{"found-in-an-hour", false, func(hash, email string) error {
+				return db.SaveSenderAvatarFound(ctx, hash, email, "domain_icon", "image/png", "", []byte("png"), now.Add(time.Hour), "missing", "missing")
+			}},
+			{"found-an-hour-ago", true, func(hash, email string) error {
+				return db.SaveSenderAvatarFound(ctx, hash, email, "gravatar", "image/png", "", []byte("png"), now.Add(-time.Hour), "found", "missing")
+			}},
+			{"missing-in-an-hour", false, func(hash, email string) error {
+				return db.SaveSenderAvatarMissing(ctx, hash, email, "none", now.Add(time.Hour), "missing", "missing")
+			}},
+			{"missing-an-hour-ago", true, func(hash, email string) error {
+				return db.SaveSenderAvatarMissing(ctx, hash, email, "none", now.Add(-time.Hour), "missing", "missing")
+			}},
+			{"error-in-an-hour", false, func(hash, email string) error {
+				return db.SaveSenderAvatarError(ctx, hash, email, "gravatar", "timeout", now.Add(time.Hour), "error", "missing")
+			}},
+			{"error-an-hour-ago", true, func(hash, email string) error {
+				return db.SaveSenderAvatarError(ctx, hash, email, "gravatar", "timeout", now.Add(-time.Hour), "error", "missing")
+			}},
+		}
+		for i, sender := range senders {
+			if err := sender.save(sender.hash, fmt.Sprintf("sender%d@brand.example", i)); err != nil {
+				t.Fatalf("%s: save %s: %v", zone, sender.hash, err)
+			}
+		}
+		candidates, err := db.GetDueSenderAvatarCandidates(ctx, 100)
+		if err != nil {
+			t.Fatalf("%s: GetDueSenderAvatarCandidates() error = %v", zone, err)
+		}
+		due := map[string]bool{}
+		for _, candidate := range candidates {
+			due[candidate.EmailHash] = true
+		}
+		for _, sender := range senders {
+			if due[sender.hash] != sender.due {
+				t.Errorf("%s: %s due = %v, want %v", zone, sender.hash, due[sender.hash], sender.due)
+			}
+		}
+
+		// Another sender at the same company reuses its icon while it is fresh.
+		reused, err := db.GetReusableDomainIconAvatar(ctx, "colleague", "alex@brand.example")
+		if err != nil || reused == nil || reused.EmailHash != "found-in-an-hour" {
+			t.Errorf("%s: GetReusableDomainIconAvatar() = %+v, %v; want the icon that expires in an hour", zone, reused, err)
+		}
+
+		// Only failed lookups inside the window count.
+		if _, err := db.Write().ExecContext(ctx, `INSERT INTO avatar_attempt_logs (email_hash, email, provider, status, message, created_at) VALUES ('looked-up', 'sam@brand.example', 'gravatar', 'missing', '', ?)`,
+			now.Add(-2*time.Hour).UTC().Format("2006-01-02 15:04:05")); err != nil {
+			t.Fatal(err)
+		}
+		for _, window := range []struct {
+			since time.Duration
+			want  int
+		}{{time.Hour, 0}, {3 * time.Hour, 1}} {
+			count, err := db.CountFailedSenderAvatarLookupsSince(ctx, "looked-up", now.Add(-window.since))
+			if err != nil || count != window.want {
+				t.Errorf("%s: failed lookups in the last %v = %d, %v; want %d", zone, window.since, count, err, window.want)
+			}
+		}
 	}
 }
