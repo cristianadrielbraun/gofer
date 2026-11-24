@@ -157,12 +157,18 @@ func TestCalDAVSyncLeavesOtherServerFailuresToTheRetry(t *testing.T) {
 }
 
 func TestCalDAVCalendarTimeZoneAcceptsABareName(t *testing.T) {
+	// With TZ set, Go names the server's zone after it rather than "Local",
+	// as a server run with TZ=Europe/Madrid does.
+	serverZone := time.Local
+	t.Cleanup(func() { time.Local = serverZone })
+	time.Local = time.FixedZone("Europe/Madrid", 60*60)
 	for value, want := range map[string]string{
 		"Europe/Zurich":   "Europe/Zurich",
 		" Europe/Paris\n": "Europe/Paris",
 		"Not/AZone":       "",
 		"Local":           "",
 		"BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nTZID:Europe/Prague\r\nEND:VTIMEZONE\r\nEND:VCALENDAR\r\n": "Europe/Prague",
+		"BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nTZID:Local\r\nEND:VTIMEZONE\r\nEND:VCALENDAR\r\n":         "",
 	} {
 		if got := calDAVCalendarTimeZone(value); got != want {
 			t.Errorf("calDAVCalendarTimeZone(%q) = %q, want %q", value, got, want)
