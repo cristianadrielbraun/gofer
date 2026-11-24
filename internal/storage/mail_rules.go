@@ -111,20 +111,22 @@ func migrateV131ToV132(db *sql.DB) error {
 }
 
 const mailRuleColumns = `id, accounts_chosen, COALESCE((SELECT group_concat(ra.account_id) FROM mail_rule_accounts ra WHERE ra.rule_id = mail_rules.id), ''),
-	name, enabled, match_all, stop_processing, conditions_json, actions_json, sort_order, created_at, updated_at`
+	name, enabled, match_all, stop_processing, conditions_json, actions_json, sort_order, created_at, updated_at,
+	COALESCE((SELECT group_concat(rt.tag, char(31)) FROM mail_rule_tags rt WHERE rt.rule_id = mail_rules.id), '')`
 
 func scanMailRule(scan func(...any) error) (models.MailRule, error) {
 	var rule models.MailRule
-	var conditions, actions, accounts string
+	var conditions, actions, accounts, tags string
 	var chosen bool
 	var created, updated sqliteNullTime
 	if err := scan(&rule.ID, &chosen, &accounts, &rule.Name, &rule.Enabled, &rule.MatchAll, &rule.StopProcessing,
-		&conditions, &actions, &rule.SortOrder, &created, &updated); err != nil {
+		&conditions, &actions, &rule.SortOrder, &created, &updated, &tags); err != nil {
 		return models.MailRule{}, err
 	}
 	rule.AccountsChosen = chosen
 	rule.AccountIDs = splitMailRuleAccounts(accounts)
 	slices.Sort(rule.AccountIDs)
+	rule.Tags = splitMailRuleTags(tags)
 	if err := json.Unmarshal([]byte(conditions), &rule.Conditions); err != nil {
 		return models.MailRule{}, fmt.Errorf("rule %s conditions: %w", rule.ID, err)
 	}
@@ -172,7 +174,8 @@ func (db *DB) GetMailRule(ctx context.Context, userID, ruleID string) (models.Ma
 // last, and returns it as stored. A folder a rule names by ID must be one of
 // the owner's, and a folder a condition names must be in an account the
 // rule is for; the folder's account and current name are kept with it, its
-// name to find it by should its ID change.
+// name to find it by should its ID change. Its tags become what rule.Tags
+// holds, each spelled as the owner's other rules spell it.
 func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule models.MailRule, guard func(*sql.Tx) error) (models.MailRule, error) {
 	if err := mailrules.Validate(&rule); err != nil {
 		return models.MailRule{}, err
@@ -266,6 +269,9 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 		}
 	}
 	if err := saveMailRuleAccountsTx(ctx, tx, rule.ID, rule.AccountIDs); err != nil {
+		return models.MailRule{}, err
+	}
+	if err := saveMailRuleTagsTx(ctx, tx, userID, rule.ID, rule.Tags); err != nil {
 		return models.MailRule{}, err
 	}
 	saved, err := scanMailRule(tx.QueryRowContext(ctx, `SELECT `+mailRuleColumns+` FROM mail_rules WHERE id = ?`, rule.ID).Scan)

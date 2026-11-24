@@ -1966,6 +1966,13 @@ CREATE TABLE IF NOT EXISTS mail_rule_accounts (
     PRIMARY KEY (rule_id, account_id)
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_accounts_account ON mail_rule_accounts(account_id);
+-- A rule's tags say what it is for, to find and change rules together; they
+-- don't change how it runs. Each of an owner's tags has one spelling.
+CREATE TABLE IF NOT EXISTS mail_rule_tags (
+    rule_id TEXT NOT NULL REFERENCES mail_rules(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL COLLATE NOCASE CHECK (tag != ''),
+    PRIMARY KEY (rule_id, tag)
+);
 CREATE TABLE IF NOT EXISTS mail_rule_transfers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2050,4 +2057,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (152);
+INSERT OR REPLACE INTO schema_version (version) VALUES (153);

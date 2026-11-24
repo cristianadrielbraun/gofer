@@ -25,6 +25,10 @@ type MailRule struct {
 	SortOrder      int                 `json:"sort_order"`
 	CreatedAt      time.Time           `json:"created_at"`
 	UpdatedAt      time.Time           `json:"updated_at"`
+	// Tags say what the rule is for, such as "finance", to find and change
+	// rules together; they don't change how it runs. They are in
+	// alphabetical order, each spelled as the owner's other rules spell it.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // MailRuleCondition tests one part of a message: Field compared with Value

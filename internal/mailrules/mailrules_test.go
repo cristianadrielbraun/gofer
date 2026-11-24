@@ -230,3 +230,44 @@ func TestValidate(t *testing.T) {
 		t.Fatalf("two different labels refused: %v", err)
 	}
 }
+
+// A tag is kept without spaces at its ends, the # it may be written with,
+// runs of spaces or invisible characters, and is refused when nothing is
+// left, it is too long, or it has a comma.
+func TestTags(t *testing.T) {
+	for in, want := range map[string]string{
+		"  #Finance ":          "Finance",
+		"##bills":              "bills",
+		"# Lunch   on\tFriday": "Lunch on Friday",
+		"trips\x1f\x00":        "trips",
+		"#":                    "",
+	} {
+		if got := CleanTag(in); got != want {
+			t.Errorf("CleanTag(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{
+		"  ":                    "enter the tag",
+		"bills, receipts":       "comma",
+		strings.Repeat("ñ", 41): "at most 40 characters",
+	} {
+		if _, err := CheckTag(in); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("CheckTag(%q) = %v, want %q", in, err, want)
+		}
+	}
+	if tag, err := CheckTag(strings.Repeat("ñ", 40)); err != nil || tag != strings.Repeat("ñ", 40) {
+		t.Errorf("a 40-character tag = %q, %v", tag, err)
+	}
+
+	rule := models.MailRule{Name: "Receipts", MatchAll: true,
+		Conditions: []models.MailRuleCondition{{Field: "from", Operator: "contains", Value: "shop"}},
+		Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionStar}},
+		Tags:       []string{" #Finance", "", "bills", "FINANCE", "#"}}
+	if err := Validate(&rule); err != nil || strings.Join(rule.Tags, "|") != "Finance|bills" {
+		t.Fatalf("validated tags = %q, %v", rule.Tags, err)
+	}
+	rule.Tags = []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}
+	if err := Validate(&rule); err == nil || !strings.Contains(err.Error(), "at most 10 tags") {
+		t.Fatalf("eleven tags = %v", err)
+	}
+}

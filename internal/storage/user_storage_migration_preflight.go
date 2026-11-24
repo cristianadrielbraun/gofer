@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 152
+	return version >= 105 && version <= 153
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -547,6 +547,9 @@ func requireSharedMigrationTables(ctx context.Context, present map[string]bool, 
 			}
 			if (name == "mail_rule_accounts" || name == "mail_rule_transfers") && version < 135 {
 				continue // Added by migrateV134ToV135.
+			}
+			if name == "mail_rule_tags" && version < 153 {
+				continue // Added empty by migrateV152ToV153.
 			}
 			if name == contactRemoteDeletionsTable && version < 139 {
 				continue // Added empty by migrateV138ToV139.

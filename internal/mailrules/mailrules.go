@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -20,7 +21,66 @@ const (
 	MaxConditions    = 20
 	MaxActions       = 10
 	MaxRulesPerOwner = 500
+	MaxTagLength     = 40
+	MaxTagsPerRule   = 10
 )
+
+// CleanTag is a tag as rules keep it: without the spaces at its ends or the
+// # it may be written with, with each run of spaces made one, and without
+// invisible control characters. It is "" when nothing is left.
+func CleanTag(tag string) string {
+	tag = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, tag)
+	tag = strings.Join(strings.Fields(tag), " ")
+	return strings.TrimSpace(strings.TrimLeft(tag, "#"))
+}
+
+// CheckTag cleans a tag and says why it can't be one: there's nothing left
+// of it, it is too long, or it has a comma, which the tags field separates
+// tags with. Its error is shown to the person who wrote the tag.
+func CheckTag(tag string) (string, error) {
+	tag = CleanTag(tag)
+	switch {
+	case tag == "":
+		return "", errors.New("enter the tag to add")
+	case strings.Contains(tag, ","):
+		return "", errors.New("a tag can't contain a comma")
+	case utf8.RuneCountInString(tag) > MaxTagLength:
+		return "", fmt.Errorf("a tag can be at most %d characters", MaxTagLength)
+	}
+	return tag, nil
+}
+
+// checkTags cleans a rule's tags: empty ones go, and so does a tag that
+// repeats another but for its capitals, the first spelling staying.
+func checkTags(tags []string) ([]string, error) {
+	kept := tags[:0]
+	seen := map[string]bool{}
+	for _, tag := range tags {
+		if CleanTag(tag) == "" {
+			continue
+		}
+		tag, err := CheckTag(tag)
+		if err != nil {
+			return nil, err
+		}
+		if key := strings.ToLower(tag); !seen[key] {
+			seen[key] = true
+			kept = append(kept, tag)
+		}
+	}
+	if len(kept) > MaxTagsPerRule {
+		return nil, fmt.Errorf("a rule can have at most %d tags", MaxTagsPerRule)
+	}
+	if len(kept) == 0 {
+		return nil, nil
+	}
+	return kept, nil
+}
 
 // TargetRoles are the folder roles a rule may name for any account.
 var TargetRoles = []string{"inbox", "archive", "trash", "junk", "sent", "drafts"}
@@ -135,6 +195,11 @@ func Validate(rule *models.MailRule) error {
 	if rule.Name == "" {
 		return errors.New("give the rule a name")
 	}
+	tags, err := checkTags(rule.Tags)
+	if err != nil {
+		return err
+	}
+	rule.Tags = tags
 	if utf8.RuneCountInString(rule.Name) > MaxNameLength {
 		return fmt.Errorf("the name can be at most %d characters", MaxNameLength)
 	}
