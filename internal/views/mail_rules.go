@@ -189,6 +189,32 @@ func mailRuleListSummary(ctx context.Context, rule models.MailRule, accounts []m
 	return mailRuleAccountName(ctx, rule, accounts) + " · " + mailRuleConditionsCount(ctx, rule) + " · " + mailRuleActionsText(ctx, rule, accounts)
 }
 
+// mailRuleSearchText is what the rules search looks in, in lower case: the
+// rule's name, its line in the list, the accounts it is for and each
+// condition and action in words, with the folders they name, so a folder's
+// name finds the rules that move mail to it or test for it.
+func mailRuleSearchText(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) string {
+	parts := []string{rule.Name, mailRuleListSummary(ctx, rule, accounts)}
+	for _, account := range accounts {
+		if rule.AccountsChosen && slices.Contains(rule.AccountIDs, account.ID) {
+			parts = append(parts, mailRuleAccountTitle(account), account.Name)
+		}
+	}
+	for _, condition := range rule.Conditions {
+		if condition.Folder != nil {
+			parts = append(parts, mailRuleFieldLabel(ctx, condition.Field), mailRuleFolderName(ctx, condition.Folder, accounts), condition.Folder.Path)
+			continue
+		}
+		parts = append(parts, mailRuleFieldLabel(ctx, condition.Field), mailRuleOperatorLabel(ctx, condition.Operator), condition.Value)
+	}
+	for _, action := range rule.Actions {
+		if action.Folder != nil {
+			parts = append(parts, action.Folder.Path)
+		}
+	}
+	return strings.ToLower(strings.Join(parts, " "))
+}
+
 // mailRuleConditionsCount counts a rule's conditions, and its groups when
 // it has more than one: "1 condition", "3 conditions in 2 groups".
 func mailRuleConditionsCount(ctx context.Context, rule models.MailRule) string {

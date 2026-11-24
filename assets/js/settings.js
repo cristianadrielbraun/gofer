@@ -1019,6 +1019,35 @@ document.addEventListener("htmx:afterRequest", function (e) {
   })
 })
 
+// filterMailRules shows the rules the rules search finds, with the folder
+// picker's search (mailRulesList). While it holds text, rules can't be
+// dragged, since some are hidden.
+function filterMailRules() {
+  var panel = document.getElementById("mail-rules-panel")
+  if (!panel || !window.goferFolderPicker) return
+  var typed = window.goferFolderPicker.filter(panel)
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  if (list) list.toggleAttribute("data-searching", typed !== "")
+}
+
+document.addEventListener("input", function (e) {
+  if (e.target.matches && e.target.matches("[data-mail-rules-search]")) filterMailRules()
+})
+
+// The list drawn again keeps the search (hx-preserve) and shows only what
+// it finds, unless a rule was just added: the search is cleared, so the new
+// rule shows even when it doesn't match.
+function searchMailRulesAgain(swap) {
+  var search = document.querySelector("#mail-rules-panel [data-mail-rules-search]")
+  if (search && search.value && swap.loaded) {
+    var added = Array.prototype.some.call(document.querySelectorAll("#mail-rules-panel [data-mail-rule-row]"), function (row) {
+      return swap.rules.indexOf(row.getAttribute("data-mail-rule-id")) < 0
+    })
+    if (added) search.value = ""
+  }
+  filterMailRules()
+}
+
 document.body.addEventListener("htmx:beforeSwap", function (e) {
   var target = e.detail && e.detail.target
   if (!target || !e.detail.shouldSwap) return
@@ -1043,6 +1072,7 @@ document.body.addEventListener("htmx:beforeSwap", function (e) {
 document.body.addEventListener("htmx:afterSwap", function () {
   var swap = mailRuleSwap
   mailRuleSwap = null
+  if (swap && swap.list) searchMailRulesAgain(swap)
   if (!swap || mailRuleStill()) return
   if (swap.list) {
     // The first load eases from the loading shape to the list, which

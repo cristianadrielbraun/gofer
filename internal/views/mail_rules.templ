@@ -144,8 +144,17 @@ templ MailRuleDialogPanel(data models.MailRulesData) {
 	</div>
 }
 
+// mailRulesList is the list of rules, under a search once there are any.
+// The search is the folder picker's (folder-picker.js filter), so rules are
+// marked as its rows; it keeps what was typed when the list is drawn again
+// (hx-preserve, settings.js).
 templ mailRulesList(data models.MailRulesData) {
 	<div class="space-y-5">
+		if len(data.Rules) > 0 {
+			<div id="mail-rules-search" hx-preserve="true">
+				@folderPickerSearch(i18n.T(ctx, "rules.search"), templ.Attributes{"data-mail-rules-search": ""})
+			</div>
+		}
 		if data.Notice != "" {
 			<p class="flex items-start gap-1.5 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-foreground" role="status" data-mail-rule-notice>
 				@icon.CircleCheck(icon.Props{Class: "mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"})
@@ -160,22 +169,29 @@ templ mailRulesList(data models.MailRulesData) {
 				<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "rules.empty") }</p>
 			</div>
 		} else {
-			<ul class="space-y-2" data-mail-rule-order-list>
-				for _, rule := range data.Rules {
-					@mailRuleRow(data, rule)
-				}
-			</ul>
+			<div>
+				// A gap rather than margins, so the last rule shown while
+				// searching has no space under it. Rules can't be dragged
+				// while some are hidden: where one lands among them would be
+				// a guess.
+				<ul class="group/rules flex flex-col gap-2" data-mail-rule-order-list data-folder-picker-account>
+					for _, rule := range data.Rules {
+						@mailRuleRow(data, rule)
+					}
+				</ul>
+				<p class="hidden rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground" data-folder-picker-empty>{ i18n.T(ctx, "rules.no_match") }</p>
+			</div>
 		}
 	</div>
 }
 
 templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
-	<li data-mail-rule-row data-mail-rule-id={ rule.ID }>
+	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) }>
 		<div class="mail-rule-card flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
 			<button
 				type="button"
 				data-mail-rule-order-handle
-				class="-ml-1 flex h-8 shrink-0 cursor-grab touch-none items-center rounded px-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+				class="-ml-1 flex h-8 shrink-0 cursor-grab touch-none items-center rounded px-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing group-data-[searching]/rules:invisible"
 				aria-label={ i18n.T(ctx, "rules.reorder", "name", rule.Name) }
 				title={ i18n.T(ctx, "rules.drag") }
 			>
