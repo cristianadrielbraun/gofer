@@ -62,7 +62,7 @@ templ SidebarContextMenu() {
 		@popover.Content(popover.ContentProps{
 			Placement:  popover.PlacementBottomStart,
 			Offset:     2,
-			Class:      "z-50 " + sidebarContextMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
+			Class:      "z-50 " + fitMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
 			Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "mail.folder_menu.label")},
 		}) {
 			@dropdown.Label(dropdown.LabelProps{Class: sidebarContextTitleClass, Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
@@ -81,9 +81,7 @@ templ SidebarContextMenu() {
 			@sidebarContextItem("mailbox-size", i18n.T(ctx, "mail.folder_menu.mailbox_size"), "") {
 				@icon.ChartPie(icon.Props{Class: "size-4"})
 			}
-			@sidebarContextItem("folder-rules", i18n.T(ctx, "mail.folder_menu.rules"), "") {
-				@icon.ListFilter(icon.Props{Class: "size-4"})
-			}
+			@sidebarContextRulesItem()
 			@sidebarContextItem("new-folder", i18n.T(ctx, "mail.folder_menu.new_folder"), "") {
 				@icon.FolderPlus(icon.Props{Class: "size-4"})
 			}
@@ -118,10 +116,11 @@ templ SidebarContextMenu() {
 	}
 }
 
-// sidebarContextMenuWidth makes a sidebar menu as wide as its longest item,
-// so no item wraps, from a least width up to what fits the window; an item
-// longer than that is cut short.
-const sidebarContextMenuWidth = "w-max min-w-52 max-w-[min(22rem,calc(100vw-1rem))]"
+// fitMenuWidth makes a menu as wide as its longest item, so no item wraps,
+// from a least width up to what fits the window; an item longer than that
+// is cut short. On phones a menu that opens as a sheet takes the screen's
+// width instead (mobile-sheet).
+const fitMenuWidth = "w-max min-w-52 max-w-[min(22rem,calc(100vw-1rem))]"
 
 // sidebarContextTitleClass is a sidebar menu's title, the folder's or the
 // account's name: it takes the width the items give the menu, cut short,
@@ -130,11 +129,42 @@ const sidebarContextTitleClass = "w-0 min-w-full truncate text-xs font-medium te
 
 templ sidebarContextItem(action string, label string, class string) {
 	@dropdown.Item(dropdown.ItemProps{Class: class, Attributes: templ.Attributes{"role": "menuitem", "data-sidebar-context-action": action}}) {
-		<span class="flex min-w-0 items-center gap-2 whitespace-nowrap">
+		@sidebarContextItemText(label) {
 			{ children... }
-			<span class="truncate">{ label }</span>
-		</span>
+		}
 	}
+}
+
+// sidebarContextItemText is a sidebar menu item's icon (children) and words,
+// on one line.
+templ sidebarContextItemText(label string) {
+	<span class="flex min-w-0 items-center gap-2 whitespace-nowrap">
+		{ children... }
+		<span class="truncate">{ label }</span>
+	</span>
+}
+
+// sidebarContextRulesItem opens the rules that move mail into the folder,
+// with how many there are beside it.
+templ sidebarContextRulesItem() {
+	@dropdown.Item(dropdown.ItemProps{Class: "gap-3", Attributes: templ.Attributes{"role": "menuitem", "data-sidebar-context-action": "folder-rules"}}) {
+		@sidebarContextItemText(i18n.T(ctx, "mail.folder_menu.rules")) {
+			@icon.ListFilter(icon.Props{Class: "size-4"})
+		}
+		@folderRulesCount()
+	}
+}
+
+// folderRulesCount is how many rules move mail into a folder, beside the
+// Rules item of the folder's menus, as the unread count is beside a folder.
+// app.js loads it only when the menu opens (loadFolderRulesCount). Until
+// the number comes it is a blank pill, there from the start so the menu is
+// placed with its room and doesn't widen once open. It sits closer to the
+// item's right edge than text does, as far from it as from the top and
+// bottom. Its corners follow the theme's, and Express shows it as its
+// counts (express.css).
+templ folderRulesCount() {
+	<span data-loading class="-mr-0.5 ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md bg-foreground/10 px-1.5 text-[11px] font-semibold tabular-nums text-foreground data-[loading]:animate-pulse" data-folder-rules-count></span>
 }
 
 templ ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.ContactFilters) {
@@ -1409,7 +1439,7 @@ templ ContactsSidebarContextMenu() {
 		@popover.Content(popover.ContentProps{
 			Placement:  popover.PlacementBottomStart,
 			Offset:     2,
-			Class:      "z-50 " + sidebarContextMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
+			Class:      "z-50 " + fitMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
 			Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "contacts.sidebar_menu.label")},
 		}) {
 			@dropdown.Label(dropdown.LabelProps{Class: sidebarContextTitleClass, Attributes: templ.Attributes{"data-sidebar-context-title": ""}})

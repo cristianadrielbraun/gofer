@@ -3332,6 +3332,10 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         e.preventDefault()
         window.tui.popover.close("sidebar-context-menu")
+        // How many rules move mail into the folder loads now, only when its
+        // Rules item shows.
+        var rules = root.querySelector('[data-sidebar-context-action="folder-rules"]')
+        if (rules && !rules.hidden) loadFolderRulesCount(rules.querySelector("[data-folder-rules-count]"), target.folderID)
         placePointPopover(root, e.clientX, e.clientY)
         window.tui.popover.open("sidebar-context-menu")
         // Sizes load while the menu is open, so the dialog opens filled.
@@ -25698,6 +25702,51 @@ function confirmMoveDialog(emailId, thread) {
   }
   moveMessage(emailId, selected.getAttribute("data-mail-move-folder"), thread)
 }
+
+// loadFolderRulesCount shows in badge how many rules move mail into a
+// folder: the rules its menu's Rules item opens. It loads only when the
+// menu opens. Until the number comes the badge is a blank pill; a count
+// that comes after the menu opened again, for this folder or another, is
+// dropped, and a failure leaves no badge.
+function loadFolderRulesCount(badge, folderID) {
+  if (!badge) return Promise.resolve()
+  var load = {}
+  badge._folderRulesLoad = load
+  badge.textContent = ""
+  badge.setAttribute("data-loading", "")
+  badge.hidden = !folderID
+  if (!folderID) return Promise.resolve()
+  return fetch("/api/settings/rules/folder-count?folder=" + encodeURIComponent(folderID), { headers: { Accept: "application/json" } })
+    .then(function (response) {
+      if (!response.ok) throw new Error("rules for folder: " + response.status)
+      return response.json()
+    })
+    .then(function (data) {
+      if (badge._folderRulesLoad !== load) return
+      badge.removeAttribute("data-loading")
+      badge.textContent = String(data && typeof data.count === "number" ? data.count : 0)
+    })
+    .catch(function (err) {
+      if (badge._folderRulesLoad !== load) return
+      console.warn(err)
+      badge.hidden = true
+    })
+}
+
+// Opening a folder's menu in the account settings' folders dialog loads
+// how many rules move mail into it. The menu toggles on the same click, so
+// whether it opened is read once that click is done.
+document.addEventListener("click", function (e) {
+  var trigger = e.target && e.target.closest && e.target.closest("[data-folder-actions-trigger]")
+  var root = trigger && trigger.closest("[data-tui-popover-root]")
+  if (!root) return
+  setTimeout(function () {
+    var content = Array.prototype.find.call(root.children, function (child) { return child.matches("[data-tui-popover-content]") })
+    var badge = content && content.matches(":popover-open") && content.querySelector("[data-folder-rules-count]")
+    var item = badge && badge.closest("[data-folder-id]")
+    if (item) loadFolderRulesCount(badge, item.getAttribute("data-folder-id"))
+  }, 0)
+})
 
 // A button in the account settings' folders dialog runs the folder action
 // it names, as the sidebar's menu does.

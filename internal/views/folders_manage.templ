@@ -146,9 +146,9 @@ func folderTakesRuleMail(role string) bool {
 
 func folderActionsItemClass(destructive bool) string {
 	if destructive {
-		return "justify-start gap-2 text-destructive " + menuDestructiveClass
+		return "justify-start gap-2 whitespace-nowrap text-destructive " + menuDestructiveClass
 	}
-	return "justify-start gap-2"
+	return "justify-start gap-2 whitespace-nowrap"
 }
 
 // folderActionsItemAttributes are what manageFolderAction (app.js) reads
@@ -221,6 +221,7 @@ templ foldersPanelRow(account models.Account, folder models.Folder, depth int, i
 					@folderActionsItem("folder-rules", accountID, folder.ID, folder.Name, false, nil) {
 						@icon.ListFilter(icon.Props{Class: "size-3.5"})
 						{ i18n.T(ctx, "mail.folder_menu.rules") }
+						@folderRulesCount()
 					}
 				}
 				if actions.Rename {
@@ -277,7 +278,7 @@ templ folderActionsMenu(id, name string) {
 				@icon.EllipsisVertical(icon.Props{Class: "size-4"})
 			</button>
 		}
-		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-56 normal-case tracking-normal"}) {
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet " + fitMenuWidth + " normal-case tracking-normal"}) {
 			{ children... }
 		}
 	}

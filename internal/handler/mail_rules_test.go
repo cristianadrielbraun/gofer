@@ -478,4 +478,18 @@ func TestMailRulesPanelForFolder(t *testing.T) {
 			t.Fatalf("%s = %d %q", path, rec.Code, body)
 		}
 	}
+
+	// A folder's menu shows how many rules the list would show for it, a
+	// rule turned off included.
+	if _, err := db.SaveMailRuleGuarded(ctx, "owner", models.MailRule{Name: "Old receipts",
+		Conditions: []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "receipt"}},
+		Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionMove, Folder: &models.MailRuleFolderTarget{FolderID: "owner-receipts"}}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for folder, want := range map[string]string{"owner-receipts": `{"count":2}`, "owner-archive": `{"count":1}`, "owner-inbox": `{"count":0}`, "someone-elses": `{"count":0}`, "": `{"count":0}`} {
+		rec = identityRequest(t, h, h.handleMailRuleFolderCount, http.MethodGet, "/api/settings/rules/folder-count?folder="+folder, nil, nil, true)
+		if got := strings.TrimSpace(rec.Body.String()); rec.Code != http.StatusOK || got != want {
+			t.Errorf("count for %q = %d %s, want %s", folder, rec.Code, got, want)
+		}
+	}
 }

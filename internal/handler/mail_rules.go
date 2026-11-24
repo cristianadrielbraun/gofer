@@ -96,6 +96,34 @@ func (h *Handler) renderMailRuleDialogPanel(w http.ResponseWriter, r *http.Reque
 	views.MailRuleDialogPanel(data).Render(r.Context(), w)
 }
 
+// handleMailRuleFolderCount answers how many rules move mail into a folder
+// (folder): the rules the list shows when opened for it. A folder's menu
+// asks when it opens, to show the number beside its Rules item. A folder
+// that isn't the user's has none.
+func (h *Handler) handleMailRuleFolderCount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	folderID := strings.TrimSpace(r.URL.Query().Get("folder"))
+	rules, err := h.db.ListMailRules(ctx, userID)
+	var destinations map[string][]string
+	if err == nil {
+		destinations, err = h.db.MailRuleDestinations(ctx, userID, rules)
+	}
+	if err != nil {
+		log.Printf("mail rules for folder %s of %s: %v", folderID, userID, err)
+		http.Error(w, i18n.T(ctx, "server.error.failed_to_load_rules"), http.StatusInternalServerError)
+		return
+	}
+	count := 0
+	for _, rule := range rules {
+		if folderID != "" && slices.Contains(destinations[rule.ID], folderID) {
+			count++
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeFolderJSON(w, map[string]int{"count": count})
+}
+
 // handleMailRulesPanel renders the list of rules. With folder, it opens
 // showing only the rules that move mail into that folder.
 func (h *Handler) handleMailRulesPanel(w http.ResponseWriter, r *http.Request) {
@@ -547,6 +575,7 @@ type mailRuleRoute struct {
 // mailRuleLocalRoutes change only the rules themselves.
 var mailRuleLocalRoutes = []mailRuleRoute{
 	{"GET /api/settings/rules/panel", func(h *Handler) http.HandlerFunc { return h.handleMailRulesPanel }},
+	{"GET /api/settings/rules/folder-count", func(h *Handler) http.HandlerFunc { return h.handleMailRuleFolderCount }},
 	{"GET /api/settings/rules/dialog", func(h *Handler) http.HandlerFunc { return h.handleMailRuleDialog }},
 	{"POST /api/settings/rules/form", func(h *Handler) http.HandlerFunc { return h.handleMailRuleForm }},
 	{"POST /api/settings/rules", func(h *Handler) http.HandlerFunc { return h.handleSaveMailRule }},

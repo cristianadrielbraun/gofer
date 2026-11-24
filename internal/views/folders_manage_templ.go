@@ -636,9 +636,9 @@ func folderTakesRuleMail(role string) bool {
 
 func folderActionsItemClass(destructive bool) string {
 	if destructive {
-		return "justify-start gap-2 text-destructive " + menuDestructiveClass
+		return "justify-start gap-2 whitespace-nowrap text-destructive " + menuDestructiveClass
 	}
-	return "justify-start gap-2"
+	return "justify-start gap-2 whitespace-nowrap"
 }
 
 // folderActionsItemAttributes are what manageFolderAction (app.js) reads
@@ -944,6 +944,10 @@ func foldersPanelRow(account models.Account, folder models.Folder, depth int, in
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
+						templ_7745c5c3_Err = folderRulesCount().Render(ctx, templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
 						return nil
 					})
 					templ_7745c5c3_Err = folderActionsItem("folder-rules", accountID, folder.ID, folder.Name, false, nil).Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
@@ -989,7 +993,7 @@ func foldersPanelRow(account models.Account, folder models.Folder, depth int, in
 						var templ_7745c5c3_Var45 string
 						templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.folder_menu.restore_folder"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 232, Col: 54}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 233, Col: 54}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 						if templ_7745c5c3_Err != nil {
@@ -1030,7 +1034,7 @@ func foldersPanelRow(account models.Account, folder models.Folder, depth int, in
 						var templ_7745c5c3_Var47 string
 						templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.folder_menu.move_folder"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 238, Col: 51}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 239, Col: 51}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 						if templ_7745c5c3_Err != nil {
@@ -1071,7 +1075,7 @@ func foldersPanelRow(account models.Account, folder models.Folder, depth int, in
 						var templ_7745c5c3_Var49 string
 						templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.folder_menu.rename_folder"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 244, Col: 53}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 245, Col: 53}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 						if templ_7745c5c3_Err != nil {
@@ -1120,7 +1124,7 @@ func foldersPanelRow(account models.Account, folder models.Folder, depth int, in
 						var templ_7745c5c3_Var51 string
 						templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.folder_menu.delete_folder"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 251, Col: 53}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 252, Col: 53}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 						if templ_7745c5c3_Err != nil {
@@ -1210,7 +1214,7 @@ func folderActionsMenu(id, name string) templ.Component {
 				var templ_7745c5c3_Var55 string
 				templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.folders.more_actions", "name", name))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 273, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 274, Col: 70}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 				if templ_7745c5c3_Err != nil {
@@ -1223,7 +1227,7 @@ func folderActionsMenu(id, name string) templ.Component {
 				var templ_7745c5c3_Var56 string
 				templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.folders.more_actions", "name", name))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 274, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 275, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 				if templ_7745c5c3_Err != nil {
@@ -1269,7 +1273,7 @@ func folderActionsMenu(id, name string) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-56 normal-case tracking-normal"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet " + fitMenuWidth + " normal-case tracking-normal"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -2239,8 +2239,10 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   color: inherit;
 }
 
-/* Unread counts are plain blue "(12)" after the name, and the name turns bold. */
-[data-theme="express"] [data-folder-unread] {
+/* Unread counts are plain blue "(12)" after the name, and the name turns
+   bold. A folder menu's count of rules looks the same, once it has come. */
+[data-theme="express"] [data-folder-unread],
+[data-theme="express"] [data-folder-rules-count] {
   min-width: 0;
   height: auto;
   padding: 0;
@@ -2252,11 +2254,13 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   font-weight: 400;
 }
 
-[data-theme="express"] [data-folder-unread]::before {
+[data-theme="express"] [data-folder-unread]::before,
+[data-theme="express"] [data-folder-rules-count]:not([data-loading])::before {
   content: "(";
 }
 
-[data-theme="express"] [data-folder-unread]::after {
+[data-theme="express"] [data-folder-unread]::after,
+[data-theme="express"] [data-folder-rules-count]:not([data-loading])::after {
   content: ")";
 }
 
