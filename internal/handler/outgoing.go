@@ -59,6 +59,11 @@ type outgoingMessageSnapshot struct {
 	IdentityID           string                        `json:"identity_id,omitempty"`
 	// IdentitySMTP sends the message through the identity's own server.
 	IdentitySMTP bool `json:"identity_smtp,omitempty"`
+	// DraftRevision is the version of the draft Gofer had saved when this was
+	// queued, for drafts in Gmail, Outlook and JMAP accounts. Sync can drop
+	// such a draft's stored body, so after sending, this version tells whether
+	// the draft was saved again since, not the body.
+	DraftRevision string `json:"draft_revision,omitempty"`
 }
 
 type sentCopyIMAPClient interface {
@@ -216,7 +221,13 @@ func (h *Handler) queueOutgoingMessage(ctx context.Context, accountID string, lo
 	if err != nil {
 		return storage.OutgoingSend{}, fmt.Errorf("build outgoing message: %w", err)
 	}
-	snapshotJSON, err := json.Marshal(snapshotOutgoingMessage(msg))
+	snapshot := snapshotOutgoingMessage(msg)
+	if localMessageID > 0 && strings.TrimSpace(draftID) != "" {
+		if snapshot.DraftRevision, err = h.db.UserProviderDraftLocalRevision(ctx, accountID, strings.TrimSpace(draftID)); err != nil {
+			return storage.OutgoingSend{}, err
+		}
+	}
+	snapshotJSON, err := json.Marshal(snapshot)
 	if err != nil {
 		return storage.OutgoingSend{}, fmt.Errorf("encode outgoing message: %w", err)
 	}
@@ -896,12 +907,25 @@ func (h *Handler) deliveredSnapshotMatchesDraft(ctx context.Context, send storag
 	if send.MessageID <= 0 || len(send.MessageJSON) == 0 {
 		return true
 	}
-	current, err := h.outgoingMessageFromDraft(ctx, send.MessageID)
-	if err != nil {
-		return false
-	}
 	var delivered outgoingMessageSnapshot
 	if err := json.Unmarshal(send.MessageJSON, &delivered); err != nil {
+		return false
+	}
+	if delivered.DraftRevision != "" {
+		// Gofer still keeps the version that was sent unless the draft was
+		// saved again since. Its stored body can't tell: sync may have dropped
+		// it, to fetch it again when the draft is opened.
+		revision, err := h.db.UserProviderDraftLocalRevision(ctx, send.AccountID, send.DraftID)
+		if err != nil {
+			return false
+		}
+		if revision != "" {
+			return revision == delivered.DraftRevision
+		}
+		delivered.DraftRevision = ""
+	}
+	current, err := h.outgoingMessageFromDraft(ctx, send.MessageID)
+	if err != nil {
 		return false
 	}
 	current.MessageID = delivered.MessageID

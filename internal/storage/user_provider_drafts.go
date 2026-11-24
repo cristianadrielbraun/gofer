@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -288,6 +289,25 @@ func (db *DB) FailUserProviderDraft(ctx context.Context, op UserProviderDraftOpe
 		_, err := tx.ExecContext(ctx, `UPDATE gofer_provider_draft_operations SET status=?,last_error=?,next_attempt_at=?,create_attempted=CASE WHEN ? AND candidate_id='' THEN 0 ELSE create_attempted END WHERE id=?`, status, text, next.UTC(), creationRejected, op.ID)
 		return err
 	})
+}
+
+// UserProviderDraftLocalRevision returns the version of the draft key that
+// Gofer last saved in accountID, or "" when it keeps none: the draft was
+// discarded, it belongs to an IMAP account, or the store has no provider
+// drafts.
+func (db *DB) UserProviderDraftLocalRevision(ctx context.Context, accountID, key string) (string, error) {
+	if !db.userMailDelivery {
+		return "", nil
+	}
+	var revision string
+	err := db.Read().QueryRowContext(ctx, `SELECT local_revision FROM gofer_provider_draft_states WHERE account_id=? AND draft_key=?`, accountID, key).Scan(&revision)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("load provider draft revision: %w", err)
+	}
+	return revision, nil
 }
 
 func (db *DB) NextUserProviderDraftAttempt(ctx context.Context, accountID string) (time.Time, error) {

@@ -833,3 +833,44 @@ func TestUserProviderDraftGmailUntaggedDraftIsRemovedAfterSend(t *testing.T) {
 		t.Fatal("sent draft was left in Gmail")
 	}
 }
+
+// Sync drops the stored body of a draft the provider reports as changed,
+// which Outlook does for Gofer's own uploads. Sending the draft unchanged must
+// still remove it, here and from the provider.
+func TestUserProviderDraftSendRemovesDraftWhoseBodySyncDropped(t *testing.T) {
+	for _, provider := range []string{"gmail", "outlook"} {
+		t.Run(provider, func(t *testing.T) {
+			f, api := newProviderDraftFixture(t, provider)
+			key := "<synced-draft@mail.test>"
+			id := f.saveProviderDraft(t, "alice", key, "Lunch on Friday?")
+			waitUserIMAP(t, func() bool { return f.pendingProviderDrafts(t, "alice") == 0 })
+			if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+				var remote string
+				if err := db.Read().QueryRow(`SELECT remote_message_id FROM message_folder_state WHERE message_id=?`, id).Scan(&remote); err != nil {
+					return err
+				}
+				if _, err := db.UpsertProviderSyncMessages(t.Context(), []storage.ProviderSyncMessage{{AccountID: f.accounts["alice"].ID, FolderID: f.accounts["alice"].ID + "-drafts", ProviderMessageID: remote, InternetMessageID: key, Subject: "alice private draft", IsDraft: true}}); err != nil {
+					return err
+				}
+				var dropped bool
+				if err := db.Read().QueryRow(`SELECT body_text_path IS NULL AND body_html_path IS NULL FROM messages WHERE id=?`, id).Scan(&dropped); err != nil {
+					return err
+				}
+				if !dropped {
+					return fmt.Errorf("sync kept the draft body, so this test checks nothing")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			result := f.compose(t, "alice", "/compose", url.Values{"account_id": {f.accounts["alice"].ID}, "draft_id": {key}, "to": {"to@mail.test"}, "bcc": {"hidden@mail.test"}, "subject": {"alice private draft"}, "body": {"Lunch on Friday?"}})
+			waitUserIMAP(t, func() bool {
+				_, copy, _ := f.providerSendStatus(t, "alice", result["send_id"].(string))
+				return copy == "complete" && f.pendingProviderDrafts(t, "alice") == 0
+			})
+			if rec := f.request("alice", "GET", fmt.Sprintf("/api/drafts/%d", id), ""); rec.Code != 404 || api.draftCount("alice") != 0 {
+				t.Fatalf("sent draft kept after sync dropped its body: %d, %d left in %s", rec.Code, api.draftCount("alice"), provider)
+			}
+		})
+	}
+}
