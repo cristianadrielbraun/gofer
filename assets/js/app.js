@@ -594,15 +594,16 @@ document.addEventListener("DOMContentLoaded", function () {
       var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
       button.dataset.active = count > 0 ? "true" : "false"
-      // The count is the pill after the icon; the first span is the "Filters" label.
-      var badge = button.querySelector("span.rounded-full")
+      // The count after the icon; the first span is the "Filters" label.
+      var badge = button.querySelector("[data-contact-filter-count]")
       if (count === 0) {
         if (badge) badge.remove()
         return
       }
       if (!badge) {
         badge = document.createElement("span")
-        badge.className = "min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"
+        badge.className = "min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"
+        badge.setAttribute("data-contact-filter-count", "")
         button.appendChild(badge)
       }
       badge.textContent = String(count)
@@ -9934,7 +9935,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (span) {
               var badge = document.createElement("span")
               badge.dataset.folderUnread = id
-              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
+              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
               badge.textContent = String(counts[id])
               link.appendChild(badge)
             }
@@ -10334,7 +10335,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-title-row flex items-center justify-between">' +
       '<div class="mail-list-title flex items-center gap-2 min-w-0">' +
       '<h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + escapeHTML(folderName) + '</h2>' +
-      (count ? '<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
+      (count ? '<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
       '</div>' +
       '<div class="h-8 w-8 rounded-md bg-muted/50"></div>' +
       '</div>' +
@@ -10844,7 +10845,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mailPendingHeaderHTML() {
     return '<div class="mail-list-header px-4 py-4 space-y-3">' +
-      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
+      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="mail-list-search-section"><div class="mail-list-search-primary">' + pendingMailSearchHTML() +
         '<div class="mail-list-search-actions">' + pendingFiltersButtonHTML() + '</div></div></div>' +
     '</div>'

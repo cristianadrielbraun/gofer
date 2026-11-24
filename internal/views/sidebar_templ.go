@@ -909,8 +909,8 @@ func sidebarContextRulesItem() templ.Component {
 // the number comes it is a blank pill, there from the start so the menu is
 // placed with its room and doesn't widen once open. It sits closer to the
 // item's right edge than text does, as far from it as from the top and
-// bottom. Its corners follow the theme's, and Express shows it as its
-// counts (express.css).
+// bottom. Its corners follow the theme's, as the unread count's do, and
+// Express shows it as its counts (express.css).
 func folderRulesCount() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1789,14 +1789,14 @@ func ContactsUnresolvedCount(count int) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if count > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "<span class=\"flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-600 px-1.5 text-[11px] font-semibold tabular-nums text-white dark:bg-amber-400 dark:text-amber-950\" data-contacts-unresolved-number>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "<span class=\"flex h-5 min-w-5 items-center justify-center rounded-md bg-amber-600 px-1.5 text-[11px] font-semibold tabular-nums text-white dark:bg-amber-400 dark:text-amber-950\" data-contacts-unresolved-number>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var76 string
 			templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(count))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 347, Col: 233}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 347, Col: 231}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 			if templ_7745c5c3_Err != nil {
@@ -2543,7 +2543,7 @@ func SettingsSidebarItem(activeTab string, value string, label string) templ.Com
 			return templ_7745c5c3_Err
 		}
 		if value == "operations" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "<span hidden class=\"shrink-0 rounded-full border border-amber-500/25 bg-amber-500/15 px-1.5 text-[10px] font-semibold tabular-nums text-amber-800 dark:text-amber-200\" aria-hidden=\"true\" data-mail-operations-attention-count></span> <span class=\"sr-only\" data-mail-operations-attention-label></span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "<span hidden class=\"shrink-0 rounded-md border border-amber-500/25 bg-amber-500/15 px-1.5 text-[10px] font-semibold tabular-nums text-amber-800 dark:text-amber-200\" aria-hidden=\"true\" data-mail-operations-attention-count></span> <span class=\"sr-only\" data-mail-operations-attention-label></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -5046,7 +5046,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 				return templ_7745c5c3_Err
 			}
 			if folder.Unread > 0 {
-				var templ_7745c5c3_Var230 = []any{"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+				var templ_7745c5c3_Var230 = []any{"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums",
 					templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
 					templ.KV("bg-sidebar-accent text-sidebar-foreground", activeFolder != folder.ID),
 				}
@@ -5111,7 +5111,7 @@ func SidebarFolderItem(folder models.Folder, activeFolder string, accountID stri
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 313, "\" class=\"min-w-5 h-5 px-1.5 items-center justify-center rounded-full border border-sidebar-foreground/40 text-[11px] font-semibold tabular-nums text-sidebar-foreground\"></span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 313, "\" class=\"min-w-5 h-5 px-1.5 items-center justify-center rounded-md border border-sidebar-foreground/40 text-[11px] font-semibold tabular-nums text-sidebar-foreground\"></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -5300,7 +5300,7 @@ func SidebarFolderLink(folder models.Folder, activeFolder string, accountID stri
 			return templ_7745c5c3_Err
 		}
 		if folder.Unread > 0 {
-			var templ_7745c5c3_Var245 = []any{"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+			var templ_7745c5c3_Var245 = []any{"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums",
 				templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
 				templ.KV("bg-sidebar-accent text-sidebar-foreground", activeFolder != folder.ID),
 			}
@@ -6169,7 +6169,7 @@ func MobileTopBar() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 379, "<span data-mail-filter-count-mirror class=\"absolute right-0.5 top-0.5 hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground\"></span></button><div class=\"mobile-topbar-contacts-more\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 379, "<span data-mail-filter-count-mirror class=\"absolute right-0.5 top-0.5 hidden min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground\"></span></button><div class=\"mobile-topbar-contacts-more\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

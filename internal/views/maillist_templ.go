@@ -970,14 +970,14 @@ func MailListHeader(accounts []models.Account, activeFolder string, totalCount i
 			return templ_7745c5c3_Err
 		}
 		if totalCount >= 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<span id=\"mail-folder-count\" class=\"inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<span id=\"mail-folder-count\" class=\"inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 174, Col: 231}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 174, Col: 229}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
@@ -988,7 +988,7 @@ func MailListHeader(accounts []models.Account, activeFolder string, totalCount i
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<span id=\"mail-folder-count\" class=\"inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse\"></span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<span id=\"mail-folder-count\" class=\"inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse\"></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -3352,7 +3352,7 @@ func MailFiltersPopover(accounts []models.Account, conversations bool) templ.Com
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, " <span data-mail-filter-count class=\"hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground\"></span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, " <span data-mail-filter-count class=\"hidden min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground\"></span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -4657,7 +4657,7 @@ func MailFiltersPopover(accounts []models.Account, conversations bool) templ.Com
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 243, "</span> <span data-mail-advanced-filter-count class=\"hidden min-w-4 rounded-full bg-primary-foreground/15 px-1.5 py-0.5 text-center text-[10px] leading-none\">0</span></button></div></div></form><div class=\"mail-filters-applied-view\" data-mail-filters-applied-view><div class=\"mail-filters-applied-view-header\"><button type=\"button\" class=\"mail-filters-applied-back\" data-mail-filters-applied-close aria-label=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 243, "</span> <span data-mail-advanced-filter-count class=\"hidden min-w-4 rounded-md bg-primary-foreground/15 px-1.5 py-0.5 text-center text-[10px] leading-none\">0</span></button></div></div></form><div class=\"mail-filters-applied-view\" data-mail-filters-applied-view><div class=\"mail-filters-applied-view-header\"><button type=\"button\" class=\"mail-filters-applied-back\" data-mail-filters-applied-close aria-label=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

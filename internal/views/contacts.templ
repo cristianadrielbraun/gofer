@@ -1693,7 +1693,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								<span class="mail-list-filter-label">{ i18n.T(ctx, "mail.filters.title") }</span>
 								@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
 								if count := contactFiltersActiveCount(filters); count > 0 {
-									<span class="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground">{ fmt.Sprint(count) }</span>
+									<span class="min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground" data-contact-filter-count>{ fmt.Sprint(count) }</span>
 								}
 							}
 						}

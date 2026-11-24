@@ -17361,7 +17361,7 @@ func customThemePreviewFolder(folderIcon string, name string, unread int, active
 			return templ_7745c5c3_Err
 		}
 		if unread > 0 {
-			var templ_7745c5c3_Var953 = []any{"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+			var templ_7745c5c3_Var953 = []any{"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums",
 				templ.KV("bg-sidebar-primary/20 text-sidebar-primary", active),
 				templ.KV("bg-sidebar-accent text-sidebar-foreground", !active),
 			}
