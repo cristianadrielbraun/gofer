@@ -5017,11 +5017,16 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 			download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.readerDefaultProxy)
 		}
 		data, err := download(ctx, remoteURL)
-		if err != nil || len(data) == 0 {
+		if err == nil && len(data) == 0 {
+			err = errEmptyRemoteResource
+		}
+		if err != nil {
+			logUnsavedRemoteImage(msgID, remoteURL, err)
 			continue
 		}
 		localPath, err := h.blobStore.StoreRemoteAsset(accountID, msgID, remoteURL, data)
 		if err != nil {
+			logUnsavedRemoteImage(msgID, remoteURL, err)
 			continue
 		}
 		urlToLocal[remoteURL] = "/api/remote-assets/" + emailID + "/" + filepath.Base(localPath)
@@ -5115,6 +5120,26 @@ func newRemoteResourceDownloader(allowPrivate netguard.PrivatePolicy, pick ...fu
 		}
 		return data, err
 	}
+}
+
+// errEmptyRemoteResource is a remote resource that came back empty.
+var errEmptyRemoteResource = errors.New("remote resource is empty")
+
+// logUnsavedRemoteImage says why a remote image of a message was not saved
+// with its remote content. The image stays marked as remote, and the reader
+// loads it through Gofer instead. Only the image's server is named: the full
+// address often identifies the reader to the sender.
+func logUnsavedRemoteImage(messageID int64, remoteURL string, err error) {
+	server := "an unnamed server"
+	if parsed, parseErr := url.Parse(remoteURL); parseErr == nil && parsed.Host != "" {
+		server = parsed.Host
+	}
+	// A failed request names the whole address, so only its cause is kept.
+	var requestErr *url.Error
+	if errors.As(err, &requestErr) {
+		err = requestErr.Err
+	}
+	log.Printf("remote content: message %d: image from %s not saved: %v", messageID, server, err)
 }
 
 // privateTargetAllowed reads the administrator's private-target exceptions.

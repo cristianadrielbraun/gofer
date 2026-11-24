@@ -50,7 +50,8 @@ func RewriteCIDReferences(html []byte, cidToURL map[string]string) []byte {
 // Marks left by the sanitizer. An <img> keeps the original format,
 // src="" data-remote-src="URL", which saved drafts, signatures and remote
 // asset downloads rely on. Other attributes are renamed with a prefix, and a
-// CSS url() is given a scheme the browser can't load.
+// CSS url() is given a scheme the browser can't load. removedImageSrcAttr is
+// only in bodies saved by older versions; see RestoreUnsavedRemoteImages.
 const (
 	remoteMarkerAttr    = "data-gofer-remote"
 	remoteAttrPrefix    = "data-gofer-remote-"
@@ -516,6 +517,10 @@ func ExtractRemoteURLs(body string) []string {
 	return urls
 }
 
+// RewriteToLocalAssets points each remote image saved in urlToLocal at its
+// saved copy. An image that is not there, because it could not be
+// downloaded, stays marked as remote, so the reader still loads it through
+// Gofer once remote content is allowed and it can work on a later try.
 func RewriteToLocalAssets(body []byte, urlToLocal map[string]string) []byte {
 	s := string(body)
 	for remoteURL, localPath := range urlToLocal {
@@ -526,7 +531,21 @@ func RewriteToLocalAssets(body []byte, urlToLocal map[string]string) []byte {
 			s = strings.ReplaceAll(s, `data-remote-src='`+form+`'`, `src='`+localPath+`'`)
 		}
 	}
-	s = strings.ReplaceAll(s, `data-remote-src="`, `data-removed-src="`)
-	s = strings.ReplaceAll(s, `data-remote-src='`, `data-removed-src='`)
 	return []byte(s)
+}
+
+// RestoreUnsavedRemoteImages undoes the mark that older versions of Gofer
+// gave the remote images they could not save with a message's remote
+// content. Nothing could load those images again, not even allowing remote
+// content once more. They become ordinary remote images, which the reader
+// loads like the others. It reports whether body changed.
+func RestoreUnsavedRemoteImages(body []byte) ([]byte, bool) {
+	if !bytes.Contains(body, []byte(removedImageSrcAttr+"=")) {
+		return body, false
+	}
+	// Older versions renamed the attribute in the rendered HTML, so the
+	// reverse rename gives back exactly the marks they started from.
+	out := bytes.ReplaceAll(body, []byte(removedImageSrcAttr+`="`), []byte(remoteImageSrcAttr+`="`))
+	out = bytes.ReplaceAll(out, []byte(removedImageSrcAttr+`='`), []byte(remoteImageSrcAttr+`='`))
+	return out, !bytes.Equal(out, body)
 }
