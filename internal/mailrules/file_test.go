@@ -170,6 +170,42 @@ func TestImportSaysWhatIsMissing(t *testing.T) {
 	}
 }
 
+// A rule that was on and misses only folders of accounts that are here, as
+// the accounts a profile import adds before they sync, turns on again once
+// they are found; one missing an account, or off where exported, doesn't.
+func TestImportSaysWhichRulesTurnOnOnceFound(t *testing.T) {
+	without := slices.Clone(workAccounts)
+	without[1].Folders = nil
+	rules := homeRules()
+	off := rules[0]
+	off.Name, off.Enabled = "Receipts, off", false
+	plans := PlanImport(exportAndRead(t, append(rules, off), homeAccounts), without, nil)
+	receipts, sky, offPlan := plans[0], plans[2], plans[4]
+	if receipts.Err != nil || receipts.Rule.Enabled || !receipts.TurnsOn {
+		t.Fatalf("receipts = %+v", receipts)
+	}
+	for _, target := range []*models.MailRuleFolderTarget{receipts.Rule.Conditions[2].Folder, receipts.Rule.Actions[0].Folder} {
+		if !target.Missing() || target.AccountID != "w-robin" || !target.TurnOnWhenFound {
+			t.Fatalf("receipts folder = %+v", target)
+		}
+	}
+	if sky.TurnsOn || sky.Rule.Actions[0].Folder.TurnOnWhenFound {
+		t.Fatalf("a rule missing an account turns on once found: %+v", sky)
+	}
+	if offPlan.TurnsOn || offPlan.Rule.Actions[0].Folder.TurnOnWhenFound {
+		t.Fatalf("a rule off where exported turns on once found: %+v", offPlan)
+	}
+
+	// A folder condition can't wait for a folder of an account the rule
+	// isn't for, as it couldn't name one.
+	file := exportAndRead(t, rules[:1], homeAccounts)
+	file.Rules[0].Accounts = nil
+	file.Rules[0].AllAccounts = false
+	if plan := PlanImport(file, without, nil)[0]; plan.Err == nil {
+		t.Fatalf("a folder condition for an account the rule isn't for = %+v", plan)
+	}
+}
+
 // A folder that wasn't found goes out again as it was known, so exporting
 // an imported rule before fixing it loses nothing.
 func TestExportKeepsMissingFolders(t *testing.T) {

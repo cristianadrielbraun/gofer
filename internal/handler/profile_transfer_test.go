@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
@@ -11,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -947,5 +951,129 @@ func TestProfileWithLocalFolders(t *testing.T) {
 	}
 	if _, err := target.importProfile(t.Context(), "default", old, options); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A profile carries the mail rules. Those for an account the import adds
+// wait for its folders, turned off, and the ones that were on turn on again
+// once the account syncs them; a rule already there is skipped.
+func TestProfileCarriesMailRules(t *testing.T) {
+	source := newProfileTestHandler(t)
+	ctx := t.Context()
+	imapID, _ := seedProfileSource(t, source)
+	if err := source.db.UpsertFolders(ctx, []storage.UpsertFolderInput{
+		{ID: imapID + "_inbox", AccountID: imapID, RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: imapID + "_trips", AccountID: imapID, RemoteID: "Trips", Name: "Trips", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fromAirline := []models.MailRuleCondition{{Field: "from", Operator: "contains", Value: "airline.example"}}
+	toTrips := []models.MailRuleAction{{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: imapID + "_trips"}}}
+	archiveNews := models.MailRule{Name: "Archive news", Enabled: true, MatchAll: true,
+		Conditions: []models.MailRuleCondition{{Field: "list_id", Operator: "contains", Value: "news.example"}}, Actions: []models.MailRuleAction{{Kind: "archive"}}}
+	for _, rule := range []models.MailRule{
+		{Name: "Trips", Enabled: true, MatchAll: true, AccountsChosen: true, AccountIDs: []string{imapID}, Conditions: fromAirline, Actions: toTrips},
+		{Name: "Trips, off", MatchAll: true, Conditions: fromAirline, Actions: toTrips},
+		archiveNews,
+	} {
+		if _, err := source.db.SaveMailRuleGuarded(ctx, "default", rule, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data := exportProfileForTest(t, source, false)
+
+	target := newProfileTestHandler(t)
+	if _, err := target.db.SaveMailRuleGuarded(ctx, "default", archiveNews, nil); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("profile", "gofer-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write(data)
+	_ = writer.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/profile/import/preview", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default", Username: "default"}))
+	rec := httptest.NewRecorder()
+	target.handlePreviewProfileImport(rec, req)
+	preview := rec.Body.String()
+	for _, want := range []string{`data-profile-import-section="mail_rules"`, "3 mail rules", `data-mail-rules-import-rule="0"`,
+		"turns on again once Gofer finds the folder “Trips” in robin@mail.example.test", "The same rule is already here."} {
+		if !strings.Contains(preview, want) {
+			t.Errorf("preview lacks %q", want)
+		}
+	}
+	if t.Failed() {
+		t.Fatalf("preview = %d %s", rec.Code, preview)
+	}
+
+	file, err := parseProfile(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := profileImportOptions{Rules: true, Accounts: map[string]bool{}}
+	for _, account := range file.Accounts {
+		options.Accounts[account.Ref] = true
+	}
+	result, err := target.importProfile(ctx, "default", file, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Rules != (mailRulesImported{Imported: 2, Waiting: 1, Off: 1, Skipped: 1}) || result.RulesTooMany {
+		t.Fatalf("rules imported = %+v", result.Rules)
+	}
+	accounts, err := target.db.GetAccounts(ctx, "default")
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("accounts = %v, %v", accounts, err)
+	}
+	added := accounts[0].ID
+	rules, err := target.db.ListMailRules(ctx, "default")
+	if err != nil || len(rules) != 3 {
+		t.Fatalf("rules = %+v, %v", rules, err)
+	}
+	trips := rules[1]
+	if trips.Name != "Trips" || trips.Enabled || !slices.Equal(trips.AccountIDs, []string{added}) || !trips.MissingFolders() || trips.Actions[0].Folder.AccountID != added {
+		t.Fatalf("rule for the added account = %+v, folder %+v", trips, trips.Actions[0].Folder)
+	}
+
+	// The account is reconnected and syncs its folders.
+	if err := target.db.UpsertFolders(ctx, []storage.UpsertFolderInput{
+		{ID: added + "_inbox", AccountID: added, RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+		{ID: added + "_trips", AccountID: added, RemoteID: "Trips", Name: "Trips", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rules, err = target.db.ListMailRules(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trips := rules[1]; !trips.Enabled || trips.MissingFolders() || trips.Actions[0].Folder.FolderID != added+"_trips" {
+		t.Fatalf("rule once the folders synced = %+v, folder %+v", trips, trips.Actions[0].Folder)
+	}
+	if off := rules[2]; off.Name != "Trips, off" || off.Enabled || off.MissingFolders() {
+		t.Fatalf("rule off where exported, once the folders synced = %+v", off)
+	}
+
+	// Without the section chosen, no rule comes in.
+	again := newProfileTestHandler(t)
+	if _, err := again.importProfile(ctx, "default", file, profileImportOptions{Accounts: map[string]bool{}}); err != nil {
+		t.Fatal(err)
+	}
+	if rules, err := again.db.ListMailRules(ctx, "default"); err != nil || len(rules) != 0 {
+		t.Fatalf("rules without the section = %d, %v", len(rules), err)
+	}
+}
+
+func TestParseProfileRefusesDamagedMailRules(t *testing.T) {
+	for _, rules := range []string{`{"format":"other","version":1,"rules":[]}`, `{"format":"gofer-mail-rules","version":1,"rules":[{"name":"A","accounts":["account-9"]}]}`} {
+		if _, err := parseProfile([]byte(`{"format":"gofer-profile","version":1,"mail_rules":` + rules + `}`)); err == nil {
+			t.Errorf("read a profile with mail rules %s", rules)
+		}
+	}
+	if _, err := parseProfile([]byte(`{"format":"gofer-profile","version":1,"mail_rules":{"format":"gofer-mail-rules","version":99,"rules":[]}}`)); err == nil || !strings.Contains(err.Error(), "newer version") {
+		t.Errorf("newer rules: err = %v", err)
 	}
 }

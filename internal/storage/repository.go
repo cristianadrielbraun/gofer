@@ -291,7 +291,22 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Rules imported before these folders were here may be waiting for
+	// them, as rules a profile import brings for an account it adds. A rule
+	// that can't be given its folders doesn't stop the folders syncing.
+	var accounts []string
+	for _, f := range folders {
+		if !slices.Contains(accounts, f.AccountID) {
+			accounts = append(accounts, f.AccountID)
+		}
+	}
+	if err := db.findMissingMailRuleFolders(ctx, accounts); err != nil {
+		log.Printf("upsert folders: %v", err)
+	}
+	return nil
 }
 
 // ListedProviderFolder is a folder the provider lists, with the provider's

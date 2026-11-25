@@ -265,6 +265,10 @@ type ImportRule struct {
 	MissingAccounts []string
 	// MissingFolders are the folders the rule names that weren't found.
 	MissingFolders []MissingFolder
+	// TurnsOn is set on a rule that was on and is missing only folders of
+	// accounts that are here: it turns on again once they are found there,
+	// as when such an account first syncs its folders.
+	TurnsOn bool
 	// Err says why the rule can't be imported: it isn't one this Gofer can
 	// run. It is shown to the person importing.
 	Err error
@@ -382,6 +386,10 @@ func PlanImport(file *File, accounts []models.MailRuleAccount, existing []models
 		}
 		if plan.Missing() {
 			rule.Enabled = false
+			plan.TurnsOn = fileRule.Enabled && len(plan.MissingAccounts) == 0 && everyMissingFolderInAccount(rule)
+			if plan.TurnsOn {
+				markTurnOnWhenFound(&rule)
+			}
 		}
 		plan.Err = ValidateImported(&rule)
 		if plan.Err == nil {
@@ -420,11 +428,47 @@ func findFileAccount(fileAccount FileAccount, accounts []models.MailRuleAccount)
 	return nil, false
 }
 
+// missingTargets are the folders a rule names that an import didn't find.
+func missingTargets(rule *models.MailRule) []*models.MailRuleFolderTarget {
+	var targets []*models.MailRuleFolderTarget
+	for _, condition := range rule.Conditions {
+		if condition.Folder != nil && condition.Folder.Missing() {
+			targets = append(targets, condition.Folder)
+		}
+	}
+	for _, action := range rule.Actions {
+		if action.Folder != nil && action.Folder.Missing() {
+			targets = append(targets, action.Folder)
+		}
+	}
+	return targets
+}
+
+// everyMissingFolderInAccount reports whether each folder a rule names that
+// wasn't found is in an account that is here, where it can still be found.
+func everyMissingFolderInAccount(rule models.MailRule) bool {
+	for _, target := range missingTargets(&rule) {
+		if target.AccountID == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// markTurnOnWhenFound marks the folders a rule is missing to turn the rule
+// on once they are found.
+func markTurnOnWhenFound(rule *models.MailRule) {
+	for _, target := range missingTargets(rule) {
+		target.TurnOnWhenFound = true
+	}
+}
+
 // checkImportedFolderConditions refuses a rule whose folder condition names
-// a folder of an account the rule isn't for, as saving a rule does.
+// a folder of an account the rule isn't for, as saving a rule does; a
+// folder not found yet counts too, as it can be found later.
 func checkImportedFolderConditions(rule models.MailRule) error {
 	for _, condition := range rule.Conditions {
-		if target := condition.Folder; target != nil && target.FolderID != "" && !rule.WatchesAccount(target.AccountID) {
+		if target := condition.Folder; target != nil && target.AccountID != "" && !rule.WatchesAccount(target.AccountID) {
 			return errors.New("a folder condition can only name a folder of an account the rule is for")
 		}
 	}

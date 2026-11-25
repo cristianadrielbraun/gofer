@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -118,7 +119,7 @@ func (h *Handler) handlePreviewMailRulesImport(w http.ResponseWriter, r *http.Re
 		h.renderMailRulesImportError(w, r, data, mailRulesFileError(r, err))
 		return
 	}
-	data.Import = mailRulesImportView(r, file, string(content), data, nil)
+	data.Import = mailRulesImportView(r.Context(), file, string(content), data, nil)
 	h.renderMailRuleDialogPanel(w, r, data)
 }
 
@@ -126,18 +127,18 @@ func (h *Handler) handlePreviewMailRulesImport(w http.ResponseWriter, r *http.Re
 // as importing it would add it, with the choice made for a rule whose name
 // is taken (choices, by its place in the file), or the one it starts with:
 // skip a rule that is already here, keep both of two that differ.
-func mailRulesImportView(r *http.Request, file *mailrules.File, content string, data models.MailRulesData, choices map[int]string) *models.MailRuleImport {
+func mailRulesImportView(ctx context.Context, file *mailrules.File, content string, data models.MailRulesData, choices map[int]string) *models.MailRuleImport {
 	view := &models.MailRuleImport{File: content}
 	if exported, err := time.Parse(time.RFC3339, file.ExportedAt); err == nil {
-		view.ExportedAt = i18n.Dates(r.Context()).LongMonthDate(exported)
+		view.ExportedAt = i18n.Dates(ctx).LongMonthDate(exported)
 	}
 	for _, plan := range mailrules.PlanImport(file, data.Accounts, data.Rules) {
 		rule := models.MailRuleImportRule{
 			Index: plan.Index, Rule: plan.Rule, MissingAccounts: plan.MissingAccounts, MissingFolders: plan.MissingFolders,
-			SameName: plan.SameName != "", Same: plan.Same,
+			TurnsOn: plan.TurnsOn, SameName: plan.SameName != "", Same: plan.Same,
 		}
 		if plan.Err != nil {
-			rule.Problem = serverText(r.Context(), sentence(plan.Err.Error()))
+			rule.Problem = serverText(ctx, sentence(plan.Err.Error()))
 		}
 		if rule.SameName {
 			rule.Choice = models.MailRuleImportAdd
@@ -151,6 +152,63 @@ func mailRulesImportView(r *http.Request, file *mailrules.File, content string, 
 		view.Rules = append(view.Rules, rule)
 	}
 	return view
+}
+
+// mailRulesImported counts what importing a rules file added: Imported
+// rules, of which Waiting turn on once the folders they're missing are
+// found and Off stay off until what they're missing is chosen, and the
+// rules Skipped.
+type mailRulesImported struct {
+	Imported, Waiting, Off, Skipped int
+}
+
+// chooseMailRulesImport is what importing view adds after existing, the
+// owner's rules: each rule that can be imported, but those whose name is
+// taken that are chosen to be skipped. A rule kept beside one of the same
+// name gets a number after its name.
+func chooseMailRulesImport(view *models.MailRuleImport, existing []models.MailRule) ([]models.MailRule, mailRulesImported) {
+	names := map[string]bool{}
+	for _, rule := range existing {
+		names[strings.ToLower(strings.TrimSpace(rule.Name))] = true
+	}
+	var rules []models.MailRule
+	var counts mailRulesImported
+	for _, item := range view.Rules {
+		if item.Problem != "" || (item.SameName && item.Choice == models.MailRuleImportSkip) {
+			counts.Skipped++
+			continue
+		}
+		rule := item.Rule
+		rule.Name = mailrules.UniqueName(rule.Name, func(name string) bool { return names[strings.ToLower(name)] })
+		names[strings.ToLower(rule.Name)] = true
+		switch {
+		case item.TurnsOn:
+			counts.Waiting++
+		case len(item.MissingAccounts) > 0 || len(item.MissingFolders) > 0:
+			counts.Off++
+		}
+		rules = append(rules, rule)
+	}
+	counts.Imported = len(rules)
+	return rules, counts
+}
+
+// mailRulesImportNotice says what importing rules added.
+func mailRulesImportNotice(ctx context.Context, counts mailRulesImported) string {
+	if counts.Imported == 0 {
+		return i18n.T(ctx, "rules.import.none")
+	}
+	notice := []string{i18n.N(ctx, "rules.import.done", counts.Imported, "count", i18n.Number(ctx, counts.Imported))}
+	if counts.Waiting > 0 {
+		notice = append(notice, i18n.N(ctx, "rules.import.done_waiting", counts.Waiting, "count", i18n.Number(ctx, counts.Waiting)))
+	}
+	if counts.Off > 0 {
+		notice = append(notice, i18n.N(ctx, "rules.import.done_off", counts.Off, "count", i18n.Number(ctx, counts.Off)))
+	}
+	if counts.Skipped > 0 {
+		notice = append(notice, i18n.N(ctx, "rules.import.skipped", counts.Skipped, "count", i18n.Number(ctx, counts.Skipped)))
+	}
+	return strings.Join(notice, " ")
 }
 
 // mailRulesImportChoices reads what to do with each rule whose name is
@@ -188,26 +246,8 @@ func (h *Handler) handleImportMailRules(w http.ResponseWriter, r *http.Request) 
 		h.renderMailRulesImportError(w, r, data, mailRulesFileError(r, err))
 		return
 	}
-	view := mailRulesImportView(r, file, content, data, mailRulesImportChoices(r))
-	names := map[string]bool{}
-	for _, rule := range data.Rules {
-		names[strings.ToLower(strings.TrimSpace(rule.Name))] = true
-	}
-	var rules []models.MailRule
-	skipped, off := 0, 0
-	for _, item := range view.Rules {
-		if item.Problem != "" || (item.SameName && item.Choice == models.MailRuleImportSkip) {
-			skipped++
-			continue
-		}
-		rule := item.Rule
-		rule.Name = mailrules.UniqueName(rule.Name, func(name string) bool { return names[strings.ToLower(name)] })
-		names[strings.ToLower(rule.Name)] = true
-		if len(item.MissingAccounts) > 0 || len(item.MissingFolders) > 0 {
-			off++
-		}
-		rules = append(rules, rule)
-	}
+	view := mailRulesImportView(r.Context(), file, content, data, mailRulesImportChoices(r))
+	rules, counts := chooseMailRulesImport(view, data.Rules)
 	if len(rules) > 0 {
 		if _, err := h.db.ImportMailRulesGuarded(r.Context(), h.userID(r.Context()), rules, h.signatureGuard); err != nil {
 			if errors.Is(err, storage.ErrTooManyMailRules) {
@@ -225,19 +265,7 @@ func (h *Handler) handleImportMailRules(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	notice := []string{}
-	if len(rules) == 0 {
-		notice = append(notice, i18n.T(r.Context(), "rules.import.none"))
-	} else {
-		notice = append(notice, i18n.N(r.Context(), "rules.import.done", len(rules), "count", i18n.Number(r.Context(), len(rules))))
-	}
-	if off > 0 {
-		notice = append(notice, i18n.N(r.Context(), "rules.import.done_off", off, "count", i18n.Number(r.Context(), off)))
-	}
-	if skipped > 0 && len(rules) > 0 {
-		notice = append(notice, i18n.N(r.Context(), "rules.import.skipped", skipped, "count", i18n.Number(r.Context(), skipped)))
-	}
-	data.Notice = strings.Join(notice, " ")
+	data.Notice = mailRulesImportNotice(r.Context(), counts)
 	// The rules that came in show even when the list's filters would hide
 	// them, as a rule just added does.
 	if len(rules) > 0 {

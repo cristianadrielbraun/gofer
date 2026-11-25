@@ -371,17 +371,20 @@ func validateFolderTarget(target *models.MailRuleFolderTarget, imported bool) er
 			return fmt.Errorf("unknown folder %q", target.Role)
 		}
 		target.FolderID, target.Path, target.AccountID, target.AccountName = "", "", "", ""
+		target.TurnOnWhenFound = false
 		return nil
 	}
 	target.AccountID = strings.TrimSpace(target.AccountID)
 	if target.FolderID != "" {
-		target.AccountName = ""
+		target.AccountName, target.TurnOnWhenFound = "", false
 		return nil
 	}
 	// A folder an import didn't find is kept by its name, to show it.
 	if !imported || target.Path == "" {
 		return errors.New("choose a folder")
 	}
+	// Only a folder of an account that is here can be found later.
+	target.TurnOnWhenFound = target.TurnOnWhenFound && target.AccountID != ""
 	return nil
 }
 

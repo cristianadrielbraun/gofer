@@ -154,3 +154,59 @@ func TestImportedRuleWithMissingFolderDoesNotRun(t *testing.T) {
 		t.Fatalf("runs = %+v", runs)
 	}
 }
+
+// A rule imported for an account whose folders haven't synced yet, as a
+// profile import adds it, gets its folders when they come: only a folder at
+// the very path the rule names, in its account. Once it misses no folder, it
+// turns on if it was on where it was exported.
+func TestImportedRulesFindTheirFoldersWhenTheAccountSyncs(t *testing.T) {
+	db := newMailRulesTestDB(t, "imap")
+	ctx := t.Context()
+	waiting := func(path string, turnOn bool) *models.MailRuleFolderTarget {
+		return &models.MailRuleFolderTarget{Path: path, AccountID: "acc", AccountName: "robin@example.org", TurnOnWhenFound: turnOn}
+	}
+	move := func(target *models.MailRuleFolderTarget) []models.MailRuleAction {
+		return []models.MailRuleAction{{Kind: "move", Folder: target}}
+	}
+	imported, err := db.ImportMailRulesGuarded(ctx, "default", []models.MailRule{
+		{Name: "Trips", MatchAll: true, Conditions: fromBakery(), Actions: move(waiting("Trips", true))},
+		{Name: "Trips, off where exported", MatchAll: true, Conditions: fromBakery(), Actions: move(waiting("Trips", false))},
+		{Name: "Trips, not from Travel", MatchAll: true, Conditions: append(fromBakery(),
+			models.MailRuleCondition{Field: "folder", Operator: "is_not", Folder: waiting("Travel", true)}), Actions: move(waiting("Trips", true))},
+		{Name: "Trips in lower case", MatchAll: true, Conditions: fromBakery(), Actions: move(waiting("trips", true))},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "trips", AccountID: "acc", RemoteID: "Trips", Name: "Trips", Role: "custom", Selectable: true}}); err != nil {
+		t.Fatal(err)
+	}
+	rule := func(i int) models.MailRule {
+		t.Helper()
+		got, err := db.GetMailRule(ctx, "default", imported[i].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	found := models.MailRuleFolderTarget{FolderID: "trips", Path: "Trips", AccountID: "acc"}
+	if got := rule(0); !got.Enabled || *got.Actions[0].Folder != found {
+		t.Fatalf("rule waiting for Trips: on %v, folder %+v", got.Enabled, got.Actions[0].Folder)
+	}
+	if got := rule(1); got.Enabled || *got.Actions[0].Folder != found {
+		t.Fatalf("rule off where exported: on %v, folder %+v", got.Enabled, got.Actions[0].Folder)
+	}
+	if got := rule(2); got.Enabled || *got.Actions[0].Folder != found || !got.MissingFolders() || !got.Conditions[1].Folder.TurnOnWhenFound {
+		t.Fatalf("rule still missing Travel: on %v, %+v", got.Enabled, got)
+	}
+	if got := rule(3); got.Enabled || !got.MissingFolders() {
+		t.Fatalf("a folder of another name was taken for %q: %+v", "trips", got.Actions[0].Folder)
+	}
+	id := arrive(t, db, "inbox", SyncMessage{MessageID: "<trip@harbor-bakery.example>", FromEmail: "news@harbor-bakery.example"})
+	if _, err := db.ApplyPendingMailRules(ctx, "acc"); err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleFolders(t, db, id); got != "trips" {
+		t.Fatalf("message is in %q", got)
+	}
+}

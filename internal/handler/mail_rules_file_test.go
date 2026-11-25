@@ -149,7 +149,7 @@ func TestImportMailRulesFromFile(t *testing.T) {
 	for _, want := range []string{
 		"The same rule is already here.",
 		"A rule with this name is already here.",
-		"Not found here: the folder “Trips” in Owner@Example.com.",
+		"Comes in turned off, and turns on again once Gofer finds the folder “Trips” in Owner@Example.com.",
 		"Not found here: the account sky@example.net.",
 		"Can&#39;t be imported.",
 		`name="rule_action:0" value="skip" checked`,
@@ -166,7 +166,7 @@ func TestImportMailRulesFromFile(t *testing.T) {
 	rec = identityRequest(t, h, h.handleImportMailRules, http.MethodPost, "/api/settings/rules/import", nil,
 		url.Values{"file": {string(content)}, "rule_action:0": {"skip"}, "rule_action:1": {"add"}}, true)
 	if body := rec.Body.String(); rec.Code != http.StatusOK || rec.Header().Get("HX-Trigger") != "mail-rule-dialog-done" ||
-		!strings.Contains(body, "3 rules imported. 2 are turned off until you choose what they&#39;re missing. 2 skipped.") {
+		!strings.Contains(body, "3 rules imported. 1 turns on again once Gofer finds the folders it&#39;s missing. 1 is turned off until you choose what it&#39;s missing. 2 skipped.") {
 		t.Fatalf("import = %d %v %q", rec.Code, rec.Header(), body)
 	}
 	if got := ownerRuleNames(t, db); !slices.Equal(got, []string{"Receipts", "Archive offers", "Archive offers (2)", "Trips", "Sky"}) {
@@ -176,7 +176,7 @@ func TestImportMailRulesFromFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if trips := rules[3]; trips.Enabled || !trips.MissingFolders() || trips.Actions[0].Folder.AccountID != "victim-account" {
+	if trips := rules[3]; trips.Enabled || !trips.MissingFolders() || trips.Actions[0].Folder.AccountID != "victim-account" || !trips.Actions[0].Folder.TurnOnWhenFound {
 		t.Fatalf("trips = %+v, folder %+v", trips, trips.Actions[0].Folder)
 	}
 	if sky := rules[4]; sky.Enabled || !sky.AccountsChosen || len(sky.AccountIDs) != 0 {

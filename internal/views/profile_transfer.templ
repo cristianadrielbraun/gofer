@@ -8,6 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/radio"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
 
@@ -49,6 +50,10 @@ type ProfileImportPreviewData struct {
 	Contacts       int
 	Conflicts      []ProfileImportContactConflict
 	Accounts       []ProfileImportAccount
+	// MailRules are the profile's mail rules as importing them would add
+	// them (in Import), among the user's accounts and the ones the profile
+	// adds; nil when it has none.
+	MailRules *models.MailRulesData
 }
 
 type ProfileImportResultData struct {
@@ -60,6 +65,8 @@ type ProfileImportResultData struct {
 	ContactsReplaced int
 	ContactsSkipped  int
 	Preferences      bool
+	// Rules says what importing the mail rules added, or why none were.
+	Rules string
 }
 
 const profileButtonClass = "inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
@@ -163,7 +170,13 @@ templ ProfileImportPreview(data ProfileImportPreviewData) {
 				if data.Contacts > 0 {
 					@profileImportSection("contacts", i18n.N(ctx, "transfer.profile.contacts", data.Contacts), profileContactsDescription(ctx, data), true)
 				}
+				if data.MailRules != nil {
+					@profileImportSection("mail_rules", i18n.N(ctx, "transfer.profile.rules", len(data.MailRules.Import.Rules)), i18n.T(ctx, "transfer.profile.rules_detail"), true)
+				}
 			</div>
+			if data.MailRules != nil {
+				@profileMailRules(*data.MailRules)
+			}
 			if len(data.Conflicts) > 0 {
 				@profileContactConflicts(data.Conflicts)
 			}
@@ -230,6 +243,19 @@ templ profileConflictChoice(name string, value string, label string, selected st
 		@radio.Radio(radio.Props{Name: name, Value: value, Checked: selected == value, Attributes: templ.Attributes{"data-profile-conflict-choice": value}})
 		<span>{ label }</span>
 	</label>
+}
+
+// profileMailRules lists the profile's mail rules as the Rules import lists
+// a rules file's, with the same choices for those whose name is taken.
+templ profileMailRules(data models.MailRulesData) {
+	<div class="space-y-2" data-profile-mail-rules>
+		<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "transfer.profile.rules_heading") }</p>
+		<ul class="max-h-80 space-y-2 overflow-y-auto">
+			for _, item := range data.Import.Rules {
+				@mailRulesImportRow(data, item)
+			}
+		</ul>
+	</div>
 }
 
 templ profileContactConflicts(conflicts []ProfileImportContactConflict) {
@@ -345,6 +371,9 @@ templ ProfileImportResult(result ProfileImportResultData) {
 						}
 						if result.ContactsSkipped > 0 {
 							<li>{ i18n.N(ctx, "transfer.profile.result.skipped", result.ContactsSkipped) }</li>
+						}
+						if result.Rules != "" {
+							<li data-profile-import-rules>{ result.Rules }</li>
 						}
 						if len(result.Accounts) > 0 {
 							<li>{ i18n.N(ctx, "transfer.profile.result.accounts", len(result.Accounts), "accounts", settingsJoinAnd(ctx, result.Accounts)) }</li>

@@ -73,6 +73,12 @@ type MailRuleFolderTarget struct {
 	// then empty). Such a folder is shown by Path and AccountName until
 	// another is chosen; the rule doesn't run until then.
 	AccountName string `json:"account_name,omitempty"`
+	// TurnOnWhenFound is set, with AccountName, on a folder an import didn't
+	// find yet in an account that is here, of a rule that was on where it
+	// was exported: once its account has a folder at Path, and the rule
+	// names no other folder that wasn't found, the rule is turned on again.
+	// An account a profile import adds has no folders until it syncs.
+	TurnOnWhenFound bool `json:"turn_on_when_found,omitempty"`
 }
 
 // Missing reports whether the target names a folder that an import didn't
@@ -250,6 +256,9 @@ type MailRuleImportRule struct {
 	MissingFolders  []MailRuleMissingFolder
 	// Problem says why the rule can't be imported, when it can't.
 	Problem string
+	// TurnsOn is set when the rule turns on again once the folders it is
+	// missing are found in their accounts, which are here.
+	TurnsOn bool
 	// SameName is set when a rule here has the same name, and Same when it
 	// also does the same. Choice is then what to do: skip the rule from the
 	// file, or add it beside the other, under a name of its own.

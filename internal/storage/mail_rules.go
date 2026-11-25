@@ -29,11 +29,22 @@ var ErrMailRuleMissingFolder = errors.New("choose the folders the rule is missin
 // folder an import didn't find: one with neither a role nor an ID
 // (models.MailRuleFolderTarget.Missing).
 func mailRuleMissingSQL(rule string) string {
+	return mailRuleMissingWhereSQL(rule, "")
+}
+
+// mailRuleMissingInAccountSQL holds, as mailRuleMissingSQL does, for a rule
+// that names a folder an import didn't find in the account given twice as
+// its arguments.
+func mailRuleMissingInAccountSQL(rule string) string {
+	return mailRuleMissingWhereSQL(rule, ` AND json_extract(item.value, '$.folder.account_id') = ?`)
+}
+
+func mailRuleMissingWhereSQL(rule, also string) string {
 	missing := func(column string) string {
 		return `EXISTS (SELECT 1 FROM json_each(` + rule + `.` + column + `) item
 			WHERE json_type(item.value, '$.folder') = 'object'
 			  AND COALESCE(json_extract(item.value, '$.folder.role'), '') = ''
-			  AND COALESCE(json_extract(item.value, '$.folder.folder_id'), '') = '')`
+			  AND COALESCE(json_extract(item.value, '$.folder.folder_id'), '') = ''` + also + `)`
 	}
 	return `(` + missing("conditions_json") + ` OR ` + missing("actions_json") + `)`
 }
@@ -260,6 +271,111 @@ func (db *DB) ImportMailRulesGuarded(ctx context.Context, userID string, rules [
 		return nil, err
 	}
 	return saved, nil
+}
+
+// findMissingMailRuleFolders fills in the folders the owners' rules name
+// that an import didn't find in one of accounts, from the folders the
+// account has now. A folder is found only at the very path the rule names,
+// in the account it was in; nothing is guessed. A rule left with no folder
+// it is missing is turned on when it was on where it was exported
+// (models.MailRuleFolderTarget.TurnOnWhenFound). Nothing is written when no
+// rule waits for a folder of these accounts, as is almost always the case.
+func (db *DB) findMissingMailRuleFolders(ctx context.Context, accountIDs []string) error {
+	for _, accountID := range accountIDs {
+		var waiting bool
+		if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM mail_rules WHERE `+mailRuleMissingInAccountSQL("mail_rules")+`)`,
+			accountID, accountID).Scan(&waiting); err != nil {
+			return fmt.Errorf("rules waiting for folders of %s: %w", accountID, err)
+		}
+		if !waiting {
+			continue
+		}
+		if err := db.mailRuleWrite(ctx, nil, func(tx *sql.Tx) error {
+			return findMissingMailRuleFoldersTx(ctx, tx, accountID)
+		}); err != nil {
+			return fmt.Errorf("find rules' folders in %s: %w", accountID, err)
+		}
+	}
+	return nil
+}
+
+func findMissingMailRuleFoldersTx(ctx context.Context, tx *sql.Tx, accountID string) error {
+	type folder struct{ id, path string }
+	found := map[string]folder{}
+	rows, err := tx.QueryContext(ctx, `SELECT id, COALESCE(remote_id, ''), name FROM folders
+		WHERE account_id = ? AND selectable = 1 AND COALESCE(discovery_state, 'active') = 'active'
+		ORDER BY lower(COALESCE(NULLIF(remote_id, ''), name)), id`, accountID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, remote, name string
+		if err := rows.Scan(&id, &remote, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		// A folder is known by its name on the server, or by its name in
+		// Gofer when it has none, as a rules file names it.
+		key := remote
+		if key == "" {
+			key = name
+		}
+		if _, seen := found[key]; !seen {
+			found[key] = folder{id, remote}
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rules, err := queryMailRules(ctx, tx, `SELECT `+mailRuleColumns+` FROM mail_rules WHERE `+mailRuleMissingInAccountSQL("mail_rules"), accountID, accountID)
+	if err != nil {
+		return err
+	}
+	for _, rule := range rules {
+		changed, turnOn := false, false
+		fill := func(target *models.MailRuleFolderTarget, condition bool) {
+			if target == nil || !target.Missing() || target.AccountID != accountID {
+				return
+			}
+			// A folder condition only tests folders of accounts the rule
+			// is for, as when a rule is saved.
+			if condition && !rule.WatchesAccount(accountID) {
+				return
+			}
+			match, ok := found[target.Path]
+			if !ok {
+				return
+			}
+			turnOn = turnOn || target.TurnOnWhenFound
+			*target = models.MailRuleFolderTarget{FolderID: match.id, Path: match.path, AccountID: accountID}
+			changed = true
+		}
+		for i := range rule.Conditions {
+			fill(rule.Conditions[i].Folder, true)
+		}
+		for i := range rule.Actions {
+			fill(rule.Actions[i].Folder, false)
+		}
+		if !changed {
+			continue
+		}
+		turnOn = turnOn && !rule.MissingFolders()
+		conditions, err := json.Marshal(rule.Conditions)
+		if err != nil {
+			return err
+		}
+		actions, err := json.Marshal(rule.Actions)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE mail_rules SET conditions_json = ?, actions_json = ?,
+			enabled = CASE WHEN ? THEN 1 ELSE enabled END, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			string(conditions), string(actions), turnOn, rule.ID); err != nil {
+			return fmt.Errorf("rule %s: %w", rule.ID, err)
+		}
+	}
+	return nil
 }
 
 // saveMailRuleTx stores a rule already checked, as SaveMailRuleGuarded

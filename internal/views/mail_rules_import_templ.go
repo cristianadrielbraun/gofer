@@ -676,7 +676,8 @@ func mailRulesImportable(view *models.MailRuleImport) bool {
 }
 
 // mailRulesImportMissing says what a rule names that isn't here, and that it
-// comes in turned off for it, or is "" when everything was found.
+// comes in turned off for it, turning on once it's found when it will, or is
+// "" when everything was found.
 func mailRulesImportMissing(ctx context.Context, item models.MailRuleImportRule) string {
 	var missing []string
 	for _, account := range item.MissingAccounts {
@@ -691,6 +692,9 @@ func mailRulesImportMissing(ctx context.Context, item models.MailRuleImportRule)
 	}
 	if len(missing) == 0 {
 		return ""
+	}
+	if item.TurnsOn {
+		return i18n.T(ctx, "rules.import.missing_turns_on", "missing", settingsJoinAnd(ctx, missing))
 	}
 	return i18n.T(ctx, "rules.import.missing", "missing", settingsJoinAnd(ctx, missing))
 }
