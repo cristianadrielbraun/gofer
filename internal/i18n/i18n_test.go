@@ -14,8 +14,8 @@ import (
 
 func TestLocalesStartWithEnglish(t *testing.T) {
 	got := Locales()
-	if len(got) < 4 || got[0] != English || !slices.Contains(got, Locale("es")) || !slices.Contains(got, Locale("pt-br")) || !slices.Contains(got, Locale("zh-cn")) {
-		t.Fatalf("Locales() = %v, want English first and Spanish, Brazilian Portuguese and Simplified Chinese present", got)
+	if len(got) < 5 || got[0] != English || !slices.Contains(got, Locale("de")) || !slices.Contains(got, Locale("es")) || !slices.Contains(got, Locale("pt-br")) || !slices.Contains(got, Locale("zh-cn")) {
+		t.Fatalf("Locales() = %v, want English first and German, Spanish, Brazilian Portuguese and Simplified Chinese present", got)
 	}
 	if locale, ok := Parse("pt-BR"); !ok || locale != "pt-br" {
 		t.Fatalf("Parse(pt-BR) = %q, %v", locale, ok)
@@ -33,7 +33,9 @@ func TestMatchPicksTheBestCatalog(t *testing.T) {
 		"fr-FR,fr;q=0.9":           English,
 		"fr-FR,es;q=0.5,en;q=0.4":  "es",
 		"en-GB,en;q=0.9,es;q=0.8":  English,
-		"de-CH, de;q=0.9, *;q=0.5": English,
+		"de-CH, de;q=0.9, *;q=0.5": "de",
+		"de-DE,de;q=0.9,en;q=0.8":  "de",
+		"fr-FR,de;q=0.5,en;q=0.4":  "de",
 		"pt-BR,pt;q=0.9,en;q=0.8":  "pt-br",
 		"pt":                       "pt-br",
 		"pt-PT":                    "pt-br",
@@ -149,6 +151,25 @@ func TestCatalogsMatchEnglish(t *testing.T) {
 			if _, ok := messages[key]; !ok {
 				t.Errorf("%s: %s is missing", locale, key)
 			}
+		}
+	}
+}
+
+// Each language lists itself by its own name in the language picker. A
+// catalog translated from English can carry over English's "English" here, so
+// the name must contain what the catalog itself calls its language, as
+// "Português (Brasil)" contains "Português".
+func TestNativeNamesNameTheirOwnLanguage(t *testing.T) {
+	for _, locale := range Locales() {
+		messages := catalogs[locale]
+		base, _, _ := strings.Cut(string(locale), "-")
+		own := messages["language.name."+base]
+		if own == "" {
+			t.Errorf("%s: language.name.%s is missing", locale, base)
+			continue
+		}
+		if native := messages["language.native_name"]; !strings.Contains(native, own) {
+			t.Errorf("%s: language.native_name is %q, want a name containing %q", locale, native, own)
 		}
 	}
 }
