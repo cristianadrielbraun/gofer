@@ -146,6 +146,28 @@ func mailRuleFolderChoiceName(folder models.MailRuleFolderChoice) string {
 	return folder.Name
 }
 
+// mailRulesShownFolder is the folder whose rules the list shows, or "" when
+// it shows every folder's or no account has the folder asked for.
+func mailRulesShownFolder(ctx context.Context, data models.MailRulesData) string {
+	if mailRulesFolderFilterName(ctx, data.FolderFilter, data.Accounts) == "" {
+		return ""
+	}
+	return data.FolderFilter
+}
+
+// mailRulesActiveFilterCount is how many of the list's filters are on, for
+// the Filters button.
+func mailRulesActiveFilterCount(ctx context.Context, data models.MailRulesData) int {
+	count := 0
+	if mailRulesShownFolder(ctx, data) != "" {
+		count++
+	}
+	if len(data.TagFilter) > 0 {
+		count++
+	}
+	return count
+}
+
 // mailRulesFolderFilterName names the folder the rules list is filtered by,
 // with its account, or is "" when no account has it. A special folder is
 // named as the sidebar names it; another by its path, as rules name it.

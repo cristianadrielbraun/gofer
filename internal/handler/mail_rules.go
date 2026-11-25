@@ -58,8 +58,8 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	return data, nil
 }
 
-// loadMailRulesData gathers what the Rules settings show, or writes the
-// error response and returns false.
+// loadMailRulesData gathers what the Rules settings show, with the filters
+// the request carries, or writes the error response and returns false.
 func (h *Handler) loadMailRulesData(w http.ResponseWriter, r *http.Request) (models.MailRulesData, bool) {
 	data, err := mailRulesData(r.Context(), h.db, h.userID(r.Context()))
 	if err != nil {
@@ -67,7 +67,44 @@ func (h *Handler) loadMailRulesData(w http.ResponseWriter, r *http.Request) (mod
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_rules"), http.StatusInternalServerError)
 		return models.MailRulesData{}, false
 	}
+	mailRulesFilters(r, &data)
 	return data, true
+}
+
+// mailRulesFilters reads the filters the rules list had when a request was
+// made (settings.js sends them with each), so the list drawn again keeps
+// them: the folder whose rules it shows (filter_folder), and the categories
+// it shows rules of (filter_tag, separated by commas, which a category
+// can't hold). A category no rule has any more is dropped.
+func mailRulesFilters(r *http.Request, data *models.MailRulesData) {
+	data.FolderFilter = strings.TrimSpace(r.FormValue("filter_folder"))
+	data.TagFilter = nil
+	for _, value := range r.Form["filter_tag"] {
+		for _, tag := range strings.Split(value, ",") {
+			for _, known := range data.Tags {
+				if strings.EqualFold(strings.TrimSpace(tag), known) && !slices.Contains(data.TagFilter, known) {
+					data.TagFilter = append(data.TagFilter, known)
+				}
+			}
+		}
+	}
+}
+
+// mailRuleFiltered reports whether the list's filters would hide a rule:
+// it moves no mail into the folder, or has none of the categories.
+func mailRuleFiltered(data models.MailRulesData, rule models.MailRule, destinations []string) bool {
+	if data.FolderFilter != "" && !slices.Contains(destinations, data.FolderFilter) {
+		return true
+	}
+	if len(data.TagFilter) == 0 {
+		return false
+	}
+	for _, tag := range rule.Tags {
+		if slices.ContainsFunc(data.TagFilter, func(t string) bool { return strings.EqualFold(t, tag) }) {
+			return false
+		}
+	}
+	return true
 }
 
 // renderMailRulesPanel draws the list of rules, each with the folders it
@@ -128,14 +165,13 @@ func (h *Handler) handleMailRuleFolderCount(w http.ResponseWriter, r *http.Reque
 	writeFolderJSON(w, map[string]int{"count": count})
 }
 
-// handleMailRulesPanel renders the list of rules. With folder, it opens
-// showing only the rules that move mail into that folder.
+// handleMailRulesPanel renders the list of rules, with the filters asked
+// for (mailRulesFilters).
 func (h *Handler) handleMailRulesPanel(w http.ResponseWriter, r *http.Request) {
 	data, ok := h.loadMailRulesData(w, r)
 	if !ok {
 		return
 	}
-	data.FolderFilter = strings.TrimSpace(r.URL.Query().Get("folder"))
 	h.renderMailRulesPanel(w, r, data)
 }
 
@@ -376,7 +412,7 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule, _ := mailRuleFromForm(r)
-	_, saveErr := h.db.SaveMailRuleGuarded(r.Context(), h.userID(r.Context()), rule, h.signatureGuard)
+	saved, saveErr := h.db.SaveMailRuleGuarded(r.Context(), h.userID(r.Context()), rule, h.signatureGuard)
 	if errors.Is(saveErr, sql.ErrNoRows) && rule.ID != "" {
 		http.NotFound(w, r)
 		return
@@ -406,6 +442,17 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		data.Editing = &rule
 		h.renderMailRuleDialogPanel(w, r, data)
 		return
+	}
+	// A rule just added shows even when the list's filters would hide it:
+	// they are cleared, as the search is (settings.js).
+	if rule.ID == "" && (data.FolderFilter != "" || len(data.TagFilter) > 0) {
+		destinations, err := h.db.MailRuleDestinations(r.Context(), h.userID(r.Context()), []models.MailRule{saved})
+		if err != nil {
+			log.Printf("folders of a new mail rule: %v", err)
+		}
+		if err != nil || mailRuleFiltered(data, saved, destinations[saved.ID]) {
+			data.FolderFilter, data.TagFilter = "", nil
+		}
 	}
 	h.renderMailRulesDone(w, r, data)
 }

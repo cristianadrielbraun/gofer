@@ -12,18 +12,21 @@ assert(start >= 0 && end > start)
 
 const listeners = {}
 const window = {}
-const rule = (id, searchText, folders = []) => ({
+const rule = (id, searchText, folders = [], tags = []) => ({
   hidden: false, dataset: {searchText}, attrs: {},
   querySelector: () => null,
   hasAttribute(name) { return name in this.attrs },
   toggleAttribute(name, on) { if (on) this.attrs[name] = ''; else delete this.attrs[name] },
-  getAttribute: name => name === 'data-mail-rule-id' ? id : name === 'data-mail-rule-folders' ? JSON.stringify(folders) : null,
+  getAttribute: name => ({'data-mail-rule-id': id, 'data-mail-rule-folders': JSON.stringify(folders), 'data-mail-rule-tags': JSON.stringify(tags)})[name] ?? null,
 })
 let rows = [rule('r1', 'shop receipts robin@example.test · move to finance / receipts', ['f-receipts']), rule('r2', 'weekly digest subject starts with lunch on friday?', ['f-archive', 'f-receipts']), rule('r3', 'travel plans move to trips', ['f-trips'])]
-// The line saying the list shows one folder's rules, when it was opened
-// for one.
-let folderFilter = null
-const showFolder = folder => { folderFilter = {getAttribute: name => name === 'data-mail-rules-folder-filter' ? folder : null, remove() { folderFilter = null }} }
+// The list's filters as the server drew them: the folder whose rules it
+// shows, as a folder's menu in the sidebar opens it, and its categories.
+let filters = null
+const setFilters = (folder, tags) => { filters = {getAttribute: name => name === 'data-filter-folder' ? folder : name === 'data-filter-tags' ? JSON.stringify(tags) : null} }
+// Changing them asks for the list again with them.
+const requests = []
+window.htmx = {ajax(method, url, options) { requests.push({method, url, values: options.values}) }}
 const list = {
   hidden: false, attrs: {},
   querySelectorAll: selector => selector === '[data-folder-picker-row]' ? rows : [],
@@ -34,7 +37,7 @@ const search = {value: '', focused: false, matches: selector => selector === '[d
 const empty = {hidden: true, classList: {toggle(name, on) { empty.hidden = on }}}
 const panel = {
   closest: () => null,
-  querySelector: selector => ({'[data-folder-picker-search]': search, '[data-mail-rules-search]': search, '[data-folder-picker-empty]': empty, '[data-mail-rule-order-list]': list, '[data-mail-rules-folder-filter]': folderFilter})[selector] || null,
+  querySelector: selector => ({'[data-folder-picker-search]': search, '[data-mail-rules-search]': search, '[data-folder-picker-empty]': empty, '[data-mail-rule-order-list]': list, '[data-mail-rules-filters]': filters})[selector] || null,
   querySelectorAll: selector => selector === '[data-folder-picker-account]' ? [list] : selector === '[data-mail-rule-row]' ? rows : [],
 }
 const document = {
@@ -43,7 +46,7 @@ const document = {
   querySelector: selector => selector === '#mail-rules-panel [data-mail-rules-search]' ? search : null,
   querySelectorAll: selector => selector === '#mail-rules-panel [data-mail-rule-row]' ? rows : [],
 }
-// The page's address, which the folder leaves when every rule shows again.
+// The page's address, which keeps the folder the list shows the rules of.
 window.location = {pathname: '/settings/rules', search: '?folder=f-receipts', hash: ''}
 const history = {state: null, replaceState(state, title, url) { const [pathname, query] = url.split('?'); window.location = {pathname, search: query ? '?' + query : '', hash: ''} }}
 const context = vm.createContext({window, document, history, URLSearchParams})
@@ -83,8 +86,8 @@ assert.equal(shown(), 'r1,r2,r3,r4')
 
 // Opened from a folder's menu, the list shows only the rules that move mail
 // into that folder, and the search looks among them.
-rows = [rule('r1', 'shop receipts', ['f-receipts']), rule('r2', 'weekly digest', ['f-archive', 'f-receipts']), rule('r3', 'travel plans', ['f-trips']), rule('r4', 'invoices')]
-showFolder('f-receipts')
+rows = [rule('r1', 'shop receipts', ['f-receipts'], ['Finance']), rule('r2', 'weekly digest', ['f-archive', 'f-receipts']), rule('r3', 'travel plans', ['f-trips'], ['Travel', 'finance']), rule('r4', 'invoices', [], ['Bills'])]
+setFilters('f-receipts', [])
 context.searchMailRulesAgain({loaded: false, rules: []})
 assert.equal(shown(), 'r1,r2', 'only the folder\'s rules show, one moving mail to several folders too')
 assert.ok('data-searching' in list.attrs, 'rules are not dragged while some are hidden')
@@ -95,33 +98,52 @@ assert.equal(shown(), '', 'and finds none of the other rules')
 assert.equal(empty.hidden, false, 'no match says so')
 type('')
 assert.equal(shown(), 'r1,r2')
-
-// The list drawn again keeps the folder.
 context.searchMailRulesAgain({loaded: true, rules: ['r1', 'r2', 'r3', 'r4']})
 assert.equal(shown(), 'r1,r2', 'a list drawn again keeps the folder')
+assert.equal(window.location.search, '?folder=f-receipts')
 
-// Show all shows every rule and takes the folder out of the address.
-// Pressed from the keyboard (a click with no pointer: detail 0).
-const showAll = detail => { for (const listener of listeners.click) listener({detail, target: {closest: selector => selector === '[data-mail-rules-folder-filter-clear]' ? {} : null}}) }
-showAll(0)
-assert.equal(folderFilter, null)
-assert.equal(shown(), 'r1,r2,r3,r4', 'show all shows every rule')
-assert.ok(!('data-searching' in list.attrs), 'and rules can be dragged again')
-assert.equal(window.location.search, '', 'reloading shows every rule too')
-assert.ok(search.focused, 'the search takes the focus from the button that went')
-
-// A tap leaves the focus alone, so a phone's keyboard doesn't open.
-search.focused = false
-showFolder('f-receipts')
-showAll(1)
-assert.equal(shown(), 'r1,r2,r3,r4')
-assert.ok(!search.focused, 'a tap doesn\'t focus the search')
-
-// A rule just added shows even when it moves no mail to the folder.
-showFolder('f-receipts')
+// Categories show the rules in any of them, whatever their capitals, and
+// with a folder too, only that folder's.
+setFilters('', ['Finance', 'Bills'])
 context.filterMailRules()
-rows = [...rows, rule('r5', 'lunch on friday?', ['f-trips'])]
-context.searchMailRulesAgain({loaded: true, rules: ['r1', 'r2', 'r3', 'r4']})
-assert.equal(folderFilter, null)
-assert.equal(shown(), 'r1,r2,r3,r4,r5', 'adding a rule shows every rule')
-console.log('Rules search: name, condition, folder, empty, redraw and one-folder searches passed.')
+assert.equal(shown(), 'r1,r3,r4', 'rules in any of the categories show')
+assert.equal(window.location.search, '', 'a list showing every folder\'s rules leaves the folder out of the address')
+setFilters('f-receipts', ['Finance'])
+context.filterMailRules()
+assert.equal(shown(), 'r1', 'with a folder, only its rules in the categories')
+assert.equal(window.location.search, '?folder=f-receipts', 'and the address names the folder again')
+setFilters('', [])
+context.filterMailRules()
+assert.equal(shown(), 'r1,r2,r3,r4', 'no filters show every rule')
+assert.ok(!('data-searching' in list.attrs), 'and rules can be dragged again')
+
+// A pill turns its filter off, Clear turns them all off, and a rule's
+// category adds it: each asks for the list with the filters changed.
+const clickOn = (attribute, value) => {
+  for (const listener of listeners.click) listener({target: {closest: selector => selector === '[' + attribute + ']' ? {getAttribute: name => name === attribute ? value : null} : null}})
+}
+// Made in the script's own context; compared as plain values.
+const asked = () => JSON.parse(JSON.stringify(requests.pop().values))
+setFilters('f-receipts', ['Finance'])
+clickOn('data-mail-rules-filter-remove', 'folder')
+assert.deepEqual(asked(), {filter_set: '1', filter_folder: '', filter_tag: 'Finance'}, 'the folder\'s pill keeps the categories')
+clickOn('data-mail-rules-filter-remove', 'tags')
+assert.deepEqual(asked(), {filter_set: '1', filter_folder: 'f-receipts', filter_tag: ''}, 'the categories\' pill keeps the folder')
+clickOn('data-mail-rules-filters-clear', '')
+assert.deepEqual(asked(), {filter_set: '1', filter_folder: '', filter_tag: ''})
+clickOn('data-mail-rule-category-filter', 'Bills')
+assert.deepEqual(asked(), {filter_set: '1', filter_folder: 'f-receipts', filter_tag: 'Finance,Bills'}, 'a rule\'s category is added')
+clickOn('data-mail-rule-category-filter', 'Finance')
+assert.equal(requests.length, 0, 'a category already chosen asks nothing')
+
+// Categories picked in the Filters menu apply once their list closes, and
+// only when they changed.
+const closeCategories = value => {
+  const form = {querySelector: selector => selector === '[data-mail-rules-filter-tags]' ? {value} : null}
+  for (const listener of listeners.toggle) listener({newState: 'closed', target: {matches: selector => selector === '[data-tui-selectbox-content]', closest: selector => selector === '[data-mail-rules-filter-form]' ? form : null}})
+}
+closeCategories('Finance,Travel')
+assert.deepEqual(asked(), {filter_set: '1', filter_folder: 'f-receipts', filter_tag: 'Finance,Travel'})
+closeCategories('Finance')
+assert.equal(requests.length, 0, 'the same categories ask nothing')
+console.log('Rules search: name, condition, folder, empty, redraw, folder and category filters passed.')

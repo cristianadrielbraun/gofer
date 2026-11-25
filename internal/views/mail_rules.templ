@@ -158,26 +158,25 @@ templ MailRuleDialogPanel(data models.MailRulesData) {
 	</div>
 }
 
-// mailRulesList is the list of rules, under a search once there are any.
-// The search is the folder picker's (folder-picker.js filter), so rules are
-// marked as its rows; it keeps what was typed when the list is drawn again
-// (hx-preserve, settings.js). Opened from a folder's menu in the sidebar,
-// the list shows only the rules that move mail into that folder, until
-// Show all; the line saying so is kept with the search.
+// mailRulesList is the list of rules, under a search and the list's filters
+// once there are any. The search is the folder picker's (folder-picker.js
+// filter), so rules are marked as its rows; it keeps what was typed when
+// the list is drawn again (hx-preserve, settings.js). The filters are drawn
+// with the list, as each request asks for them (mailRulesFilters): the
+// folder whose rules it shows, as a folder's menu in the sidebar opens it,
+// and the categories it shows rules of. Active ones are pills under the
+// search, as in the mail and contacts lists.
 templ mailRulesList(data models.MailRulesData) {
 	<div class="space-y-5">
 		if len(data.Rules) > 0 {
-			<div>
-				<div id="mail-rules-search" hx-preserve="true">
-					@folderPickerSearch(i18n.T(ctx, "rules.search"), templ.Attributes{"data-mail-rules-search": ""})
-					if name := mailRulesFolderFilterName(ctx, data.FolderFilter, data.Accounts); name != "" {
-						<div class="mt-2 flex min-w-0 items-center gap-2 rounded-md border border-border/60 bg-background/60 py-1.5 pl-3 pr-2 text-xs text-foreground" data-mail-rules-folder-filter={ data.FolderFilter }>
-							@icon.ListFilter(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
-							<span class="min-w-0 flex-1 truncate">{ i18n.T(ctx, "rules.folder_filter", "folder", name) }</span>
-							<button type="button" class="shrink-0 rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-mail-rules-folder-filter-clear>{ i18n.T(ctx, "rules.folder_filter_clear") }</button>
-						</div>
-					}
+			<div data-mail-rules-filters data-filter-folder={ mailRulesShownFolder(ctx, data) } data-filter-tags={ mailRuleDestinationsAttr(data.TagFilter) }>
+				<div class="flex items-center gap-2">
+					<div id="mail-rules-search" hx-preserve="true" class="min-w-0 flex-1">
+						@folderPickerSearch(i18n.T(ctx, "rules.search"), templ.Attributes{"data-mail-rules-search": ""})
+					</div>
+					@mailRulesFiltersMenu(data)
 				</div>
+				@mailRulesActiveFilters(data)
 				@mailRulesSelection()
 			</div>
 		}
@@ -206,6 +205,74 @@ templ mailRulesList(data models.MailRulesData) {
 					}
 				</ul>
 				<p class="hidden rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground" data-folder-picker-empty>{ i18n.T(ctx, "rules.no_match") }</p>
+			</div>
+		}
+	</div>
+}
+
+// mailRulesFiltersMenu is the Filters button beside the rules search, as
+// the mail and contacts lists have, with how many filters are on. Its
+// categories apply once their list closes (settings.js); drawing the list
+// at each pick would close the menu while choosing.
+templ mailRulesFiltersMenu(data models.MailRulesData) {
+	{{ active := mailRulesActiveFilterCount(ctx, data) }}
+	@dropdown.Dropdown(dropdown.Props{ID: "mail-rules-filters-menu"}) {
+		@dropdown.Trigger() {
+			@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"data-mail-rules-filters-trigger": "", "data-active": fmt.Sprintf("%t", active > 0), "aria-label": i18n.T(ctx, "rules.filters.label")}}) {
+				<span class="mail-list-filter-label">{ i18n.T(ctx, "mail.filters.title") }</span>
+				@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
+				if active > 0 {
+					<span class="min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground">{ strconv.Itoa(active) }</span>
+				}
+			}
+		}
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-[22rem] max-w-[calc(100vw-2rem)] max-h-none normal-case tracking-normal p-3"}) {
+			<div class="space-y-3" data-mail-rules-filter-form>
+				if active > 0 {
+					<div class="flex items-center justify-end">
+						<button type="button" class="text-[11px] font-medium text-muted-foreground hover:text-foreground" data-mail-rules-filters-clear>{ i18n.T(ctx, "common.clear") }</button>
+					</div>
+				}
+				<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+					<span>{ i18n.T(ctx, "rules.categories") }</span>
+					if len(data.Tags) == 0 {
+						<p class="text-xs font-normal">{ i18n.T(ctx, "rules.filters.no_categories") }</p>
+					} else {
+						@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "filter_tag", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "rules.filters.selected_count"), Attributes: templ.Attributes{"data-mail-rules-filter-tags": ""}}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "rules.filters.any_category"), Multiple: true, Class: "text-left"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Tags) < 8, DisableExclusive: true, Class: "mobile-sheet"}) {
+								for _, tag := range data.Tags {
+									@selectbox.Item(selectbox.ItemProps{Value: tag, Selected: slices.Contains(data.TagFilter, tag)}) {
+										{ tag }
+									}
+								}
+							}
+						}
+					}
+				</div>
+			</div>
+		}
+	}
+}
+
+// mailRulesActiveFilters are the list's filters that are on, as pills under
+// the search, each of which turns its filter off. The strip stays in the
+// page, closed, when none is on.
+templ mailRulesActiveFilters(data models.MailRulesData) {
+	{{ folder := mailRulesFolderFilterName(ctx, data.FolderFilter, data.Accounts) }}
+	<div class={ "mail-active-filter-strip rules-active-filter-strip", templ.KV("hidden", folder == "" && len(data.TagFilter) == 0) } aria-label={ i18n.T(ctx, "mail.filters.active") } data-mail-rules-active-filters>
+		if folder != "" || len(data.TagFilter) > 0 {
+			<div class="mail-active-filter-visible">
+				if folder != "" {
+					{{ text := i18n.T(ctx, "rules.filters.folder_pill", "folder", folder) }}
+					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), templ.Attributes{"data-mail-rules-filter-remove": "folder"}, nil)
+				}
+				if len(data.TagFilter) > 0 {
+					{{ text := i18n.N(ctx, "rules.filters.categories_pill", len(data.TagFilter), "categories", strings.Join(data.TagFilter, ", ")) }}
+					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), templ.Attributes{"data-mail-rules-filter-remove": "tags"}, nil)
+				}
 			</div>
 		}
 	</div>
@@ -314,10 +381,18 @@ templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
 					<ul class="mt-1.5 flex flex-wrap gap-1" aria-label={ i18n.T(ctx, "rules.categories") } data-mail-rule-categories>
 						for _, tag := range rule.Tags {
 							<li class="min-w-0 max-w-full">
-								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "max-w-full gap-1 px-1.5 py-0 text-[10px] font-medium [&>svg]:size-2.5"}) {
-									@icon.Bookmark(icon.Props{Class: "shrink-0"})
-									<span class="truncate">{ tag }</span>
-								}
+								<button
+									type="button"
+									class="flex max-w-full cursor-pointer rounded-md hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									title={ i18n.T(ctx, "rules.filters.by_category", "category", tag) }
+									aria-label={ i18n.T(ctx, "rules.filters.by_category", "category", tag) }
+									data-mail-rule-category-filter={ tag }
+								>
+									@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "max-w-full gap-1 px-1.5 py-0 text-[10px] font-medium [&>svg]:size-2.5"}) {
+										@icon.Bookmark(icon.Props{Class: "shrink-0"})
+										<span class="truncate">{ tag }</span>
+									}
+								</button>
 							</li>
 						}
 					</ul>

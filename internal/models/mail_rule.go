@@ -175,9 +175,12 @@ type MailRulesData struct {
 	// Destinations are the folders each rule moves mail into, by rule ID,
 	// as storage's MailRuleDestinations finds them. Only the list has them.
 	Destinations map[string][]string
-	// FolderFilter is the folder whose rules the list opens showing: only
-	// those that move mail into it, as a folder's menu in the sidebar asks.
+	// FolderFilter is the folder whose rules the list shows: only those that
+	// move mail into it, as a folder's menu in the sidebar asks.
 	FolderFilter string
+	// TagFilter are the tags (categories) the list shows the rules of: those
+	// with any of them. It holds only tags some rule has.
+	TagFilter []string
 	// Tags are the tags of all the owner's rules, which the rule form
 	// suggests (storage's ListMailRuleTags). People see them as categories.
 	Tags []string

@@ -455,10 +455,10 @@ func TestMailRulesPanelForFolder(t *testing.T) {
 		}
 	}
 
-	rec := identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?folder=owner-receipts", nil, nil, true)
+	rec := identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_folder=owner-receipts", nil, nil, true)
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || !strings.Contains(body, `data-mail-rules-folder-filter="owner-receipts"`) ||
-		!strings.Contains(body, "Only rules that move mail to Receipts in owner@example.com") || !strings.Contains(body, ">Show all<") {
+	if rec.Code != http.StatusOK || !strings.Contains(body, `data-filter-folder="owner-receipts"`) ||
+		!strings.Contains(body, "Moves mail to Receipts in owner@example.com") || !strings.Contains(body, `data-mail-rules-filter-remove="folder"`) {
 		t.Fatalf("panel for a folder = %d %q", rec.Code, body)
 	}
 	for _, want := range []string{`data-mail-rule-folders="[&#34;owner-receipts&#34;]"`, `data-mail-rule-folders="[&#34;owner-archive&#34;]"`, `data-mail-rule-folders="[]"`} {
@@ -467,14 +467,14 @@ func TestMailRulesPanelForFolder(t *testing.T) {
 		}
 	}
 	// A special folder is named as the sidebar names it.
-	rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?folder=owner-archive", nil, nil, true)
-	if body := rec.Body.String(); !strings.Contains(body, "Only rules that move mail to Archive in owner@example.com") {
+	rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_folder=owner-archive", nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Moves mail to Archive in owner@example.com") {
 		t.Fatalf("panel for Archive = %d %q", rec.Code, body)
 	}
 	// A folder that isn't the user's, or no folder, shows every rule.
-	for _, path := range []string{"/api/settings/rules/panel?folder=someone-elses", "/api/settings/rules/panel"} {
+	for _, path := range []string{"/api/settings/rules/panel?filter_folder=someone-elses", "/api/settings/rules/panel"} {
 		rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, path, nil, nil, true)
-		if body := rec.Body.String(); rec.Code != http.StatusOK || strings.Contains(body, "data-mail-rules-folder-filter") || !strings.Contains(body, `data-mail-rule-folders="[&#34;owner-receipts&#34;]"`) {
+		if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `data-filter-folder=""`) || strings.Contains(body, "data-mail-rules-filter-remove") || !strings.Contains(body, `data-mail-rule-folders="[&#34;owner-receipts&#34;]"`) {
 			t.Fatalf("%s = %d %q", path, rec.Code, body)
 		}
 	}
@@ -586,5 +586,73 @@ func TestMailRuleCategories(t *testing.T) {
 	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected("Travel"), false)
 	if rules, err = db.ListMailRules(ctx, "owner"); err != nil || strings.Join(rules[1].Tags, ",") != "bills" {
 		t.Fatalf("someone else's change = %d, %+v, %v", rec.Code, rules, err)
+	}
+}
+
+// The rules list's filters come with each request and the list is drawn
+// with them: the categories some rule has, as a pill and in the Filters
+// menu. A rule just added that they would hide clears them.
+func TestMailRulesListFilters(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+	for _, rule := range []models.MailRule{
+		{Name: "Receipts", Tags: []string{"Finance"}, Actions: []models.MailRuleAction{{Kind: models.MailRuleActionMove, Folder: &models.MailRuleFolderTarget{FolderID: "owner-receipts"}}}},
+		{Name: "Bank", Tags: []string{"Finance", "Bills"}, Actions: []models.MailRuleAction{{Kind: models.MailRuleActionStar}}},
+	} {
+		rule.Enabled = true
+		rule.Conditions = []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}}
+		if _, err := db.SaveMailRuleGuarded(ctx, "owner", rule, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_tag=finance,Travel&filter_folder=owner-receipts", nil, nil, true)
+	body := rec.Body.String()
+	for _, want := range []string{
+		`data-filter-tags="[&#34;Finance&#34;]"`, // spelled as the rules spell it; Travel is no category
+		"Category: Finance",
+		`data-mail-rules-filter-remove="tags"`,
+		`data-filter-folder="owner-receipts"`,
+		`data-active="true" data-mail-rules-filters-trigger=""`,
+		`data-tui-selectbox-value="Bills"`,
+		`data-mail-rule-category-filter="Bills"`,
+		`aria-label="Show only rules in Finance"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("filtered list lacks %s", want)
+		}
+	}
+	if t.Failed() {
+		t.Fatalf("filtered list = %d %q", rec.Code, body)
+	}
+	// Changes to the rules draw the list again with the filters they carry.
+	ids := []string{}
+	rules, err := db.ListMailRules(ctx, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range rules {
+		ids = append(ids, rule.ID)
+	}
+	rec = identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": {ids[0]}, "enabled": {""}, "filter_tag": {"Bills"}}, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-tags="[&#34;Bills&#34;]"`) || !strings.Contains(body, "Category: Bills") {
+		t.Fatalf("list after a change = %q", body)
+	}
+
+	// A rule added in a category being shown keeps the filters; one they
+	// would hide clears them, so it shows.
+	form := mailRuleForm(map[string]string{"name": "Card"})
+	form["tags"] = []string{"Bills"}
+	form["filter_tag"] = []string{"Bills"}
+	rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-tags="[&#34;Bills&#34;]"`) {
+		t.Fatalf("a new rule the filters show = %q", body)
+	}
+	form = mailRuleForm(map[string]string{"name": "Lunch on Friday"})
+	form["filter_tag"] = []string{"Bills"}
+	form["filter_folder"] = []string{"owner-receipts"}
+	rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-tags="[]"`) || !strings.Contains(body, `data-filter-folder=""`) || strings.Contains(body, "data-mail-rules-filter-remove") {
+		t.Fatalf("a new rule the filters hide = %q", body)
 	}
 }
