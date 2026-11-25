@@ -68,11 +68,12 @@ const context = vm.createContext({
   mailRuleOrder: {id: row => row.id, selected: row => row.box.checked},
   moveOrderSelected(kind, target, by) { moved.push(by) },
   mailRuleFold: () => null,
+  mailRuleStill: () => true,
   goferT: (key, params) => key + (params ? JSON.stringify(params) : ''),
   goferTn: (key, n) => key + ':' + n,
   cssEscapeSettings: v => v,
 })
-vm.runInContext(slice('function filterMailRules(still) {', 'document.body.addEventListener("htmx:beforeSwap"'), context)
+vm.runInContext(slice('function filterMailRules(', 'document.body.addEventListener("htmx:beforeSwap"'), context)
 const fire = (name, event) => { for (const listener of listeners[name] || []) listener(event) }
 const click = attrs => fire('click', {target: {closest: s => {
   for (const [key, value] of Object.entries(attrs)) if (s === `[${key}]`) return {disabled: false, getAttribute: () => value}

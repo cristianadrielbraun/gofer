@@ -169,7 +169,15 @@ templ MailRuleDialogPanel(data models.MailRulesData) {
 templ mailRulesList(data models.MailRulesData) {
 	<div class="space-y-5">
 		if len(data.Rules) > 0 {
-			<div data-mail-rules-filters data-filter-folder={ mailRulesShownFolder(ctx, data) } data-filter-tags={ mailRuleDestinationsAttr(data.TagFilter) }>
+			<div
+				data-mail-rules-filters
+				data-filter-folder={ mailRulesShownFolder(ctx, data) }
+				data-filter-folder-pill={ mailRulesFolderPill(ctx, data) }
+				data-filter-tags={ mailRuleJSONList(data.TagFilter) }
+				data-filter-accounts={ mailRuleJSONList(data.AccountFilter) }
+				data-filter-status={ data.StatusFilter }
+				data-filter-actions={ mailRuleJSONList(data.ActionFilter) }
+			>
 				<div class="flex items-center gap-2">
 					<div id="mail-rules-search" hx-preserve="true" class="min-w-0 flex-1">
 						@folderPickerSearch(i18n.T(ctx, "rules.search"), templ.Attributes{"data-mail-rules-search": ""})
@@ -194,7 +202,10 @@ templ mailRulesList(data models.MailRulesData) {
 				<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "rules.empty") }</p>
 			</div>
 		} else {
-			<div>
+			// Rules leaving fade out on copies under the others (settings.js
+			// slideMailRules), placed here rather than in the list, which
+			// hides when no rule is left to show.
+			<div class="relative isolate" data-mail-rules-list-host>
 				// A gap rather than margins, so the last rule shown while
 				// searching has no space under it. Rules can't be dragged
 				// while some are hidden: where one lands among them would be
@@ -211,9 +222,11 @@ templ mailRulesList(data models.MailRulesData) {
 }
 
 // mailRulesFiltersMenu is the Filters button beside the rules search, as
-// the mail and contacts lists have, with how many filters are on. Its
-// categories apply once their list closes (settings.js); drawing the list
-// at each pick would close the menu while choosing.
+// the mail and contacts lists have, with how many filters are on: the
+// categories, accounts and kinds of action to show rules of, and whether
+// to show rules turned on or off. Each applies once its list closes
+// (settings.js); drawing the list at each pick would close the menu while
+// choosing. Accounts show only with more than one to choose from.
 templ mailRulesFiltersMenu(data models.MailRulesData) {
 	{{ active := mailRulesActiveFilterCount(ctx, data) }}
 	@dropdown.Dropdown(dropdown.Props{ID: "mail-rules-filters-menu"}) {
@@ -221,18 +234,17 @@ templ mailRulesFiltersMenu(data models.MailRulesData) {
 			@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"data-mail-rules-filters-trigger": "", "data-active": fmt.Sprintf("%t", active > 0), "aria-label": i18n.T(ctx, "rules.filters.label")}}) {
 				<span class="mail-list-filter-label">{ i18n.T(ctx, "mail.filters.title") }</span>
 				@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
-				if active > 0 {
-					<span class="min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground">{ strconv.Itoa(active) }</span>
-				}
+				// Kept, hidden, with no filter on, for settings.js to count them.
+				<span class="min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground" hidden?={ active == 0 } data-mail-rules-filter-count>{ strconv.Itoa(active) }</span>
 			}
 		}
 		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-[22rem] max-w-[calc(100vw-2rem)] max-h-none normal-case tracking-normal p-3"}) {
-			<div class="space-y-3" data-mail-rules-filter-form>
-				if active > 0 {
-					<div class="flex items-center justify-end">
-						<button type="button" class="text-[11px] font-medium text-muted-foreground hover:text-foreground" data-mail-rules-filters-clear>{ i18n.T(ctx, "common.clear") }</button>
-					</div>
-				}
+			<div class="relative space-y-3" data-mail-rules-filter-form>
+				// Always there, as in the contacts list's menu, so the fields don't
+				// move as filters come and go; with none on, there's nothing to
+				// clear. It sits in the corner, on the first field's label line,
+				// rather than on a line of its own.
+				<button type="button" class="absolute right-0 top-0 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40" disabled?={ active == 0 } data-mail-rules-filters-clear>{ i18n.T(ctx, "common.clear") }</button>
 				<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 					<span>{ i18n.T(ctx, "rules.categories") }</span>
 					if len(data.Tags) == 0 {
@@ -252,6 +264,65 @@ templ mailRulesFiltersMenu(data models.MailRulesData) {
 						}
 					}
 				</div>
+				if accounts := mailRulesFilterAccounts(data.Accounts); len(accounts) > 1 {
+					<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+						<span>{ i18n.T(ctx, "rules.filters.accounts") }</span>
+						@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "filter_account", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "rules.filters.selected_count"), Attributes: templ.Attributes{"data-mail-rules-filter-accounts": ""}}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "rules.filters.any_account"), Multiple: true, Class: "text-left"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: len(accounts) < 8, DisableExclusive: true, Class: "mobile-sheet"}) {
+								for _, account := range accounts {
+									@selectbox.Item(selectbox.ItemProps{Value: account.ID, Selected: slices.Contains(data.AccountFilter, account.ID)}) {
+										// The account's marker, as the Signatures dialog's list
+										// shows it; the field's pills take only the name.
+										<span class="inline-flex min-w-0 items-center gap-2">
+											<span class="account-color-marker size-3 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></span>
+											<span class="min-w-0 truncate">{ mailRuleAccountTitle(account) }</span>
+										</span>
+									}
+								}
+							}
+						}
+					</div>
+				}
+				<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+					<span>{ i18n.T(ctx, "rules.filters.actions") }</span>
+					@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "filter_action", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "rules.filters.selected_count"), Attributes: templ.Attributes{"data-mail-rules-filter-actions": ""}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "rules.filters.any_action"), Multiple: true, Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "mobile-sheet"}) {
+							for _, kind := range mailRuleActionKinds {
+								@selectbox.Item(selectbox.ItemProps{Value: kind, Selected: slices.Contains(data.ActionFilter, kind)}) {
+									{ mailRuleActionLabel(ctx, kind) }
+								}
+							}
+						}
+					}
+				</div>
+				<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+					<span>{ i18n.T(ctx, "rules.filters.status") }</span>
+					@selectbox.SelectBox() {
+						// Stays open on a pick, as the other lists do, and keeps one
+						// choice: picking the one chosen again leaves it chosen.
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "filter_status", Class: "h-8 bg-background text-xs", DisableClear: true, Required: true, KeepOpen: true, Attributes: templ.Attributes{"data-mail-rules-filter-status": ""}}) {
+							@selectbox.Value(selectbox.ValueProps{Class: "text-left"})
+						}
+						// Not exclusive: opening it would close the Filters menu it is in.
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "mobile-sheet"}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "any", Selected: data.StatusFilter == ""}) {
+								{ i18n.T(ctx, "rules.filters.status_any") }
+							}
+							@selectbox.Item(selectbox.ItemProps{Value: "on", Selected: data.StatusFilter == "on"}) {
+								{ i18n.T(ctx, "rules.filters.status_on") }
+							}
+							@selectbox.Item(selectbox.ItemProps{Value: "off", Selected: data.StatusFilter == "off"}) {
+								{ i18n.T(ctx, "rules.filters.status_off") }
+							}
+						}
+					}
+				</div>
 			</div>
 		}
 	}
@@ -259,23 +330,40 @@ templ mailRulesFiltersMenu(data models.MailRulesData) {
 
 // mailRulesActiveFilters are the list's filters that are on, as pills under
 // the search, each of which turns its filter off. The strip stays in the
-// page, closed, when none is on.
+// page, closed, when none is on. As filters change, settings.js draws the
+// pills again from the template under it (syncFilterPills, app.js).
 templ mailRulesActiveFilters(data models.MailRulesData) {
 	{{ folder := mailRulesFolderFilterName(ctx, data.FolderFilter, data.Accounts) }}
-	<div class={ "mail-active-filter-strip rules-active-filter-strip", templ.KV("hidden", folder == "" && len(data.TagFilter) == 0) } aria-label={ i18n.T(ctx, "mail.filters.active") } data-mail-rules-active-filters>
-		if folder != "" || len(data.TagFilter) > 0 {
+	{{ active := mailRulesActiveFilterCount(ctx, data) > 0 }}
+	<div class={ "mail-active-filter-strip rules-active-filter-strip", templ.KV("hidden", !active) } aria-label={ i18n.T(ctx, "mail.filters.active") } data-mail-rules-active-filters>
+		if active {
 			<div class="mail-active-filter-visible">
 				if folder != "" {
 					{{ text := i18n.T(ctx, "rules.filters.folder_pill", "folder", folder) }}
-					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), templ.Attributes{"data-mail-rules-filter-remove": "folder"}, nil)
+					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), mailRulesPillAttributes("folder", text), mailRulesPillTooltip)
 				}
 				if len(data.TagFilter) > 0 {
 					{{ text := i18n.N(ctx, "rules.filters.categories_pill", len(data.TagFilter), "categories", strings.Join(data.TagFilter, ", ")) }}
-					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), templ.Attributes{"data-mail-rules-filter-remove": "tags"}, nil)
+					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), mailRulesPillAttributes("tags", text), mailRulesPillTooltip)
+				}
+				if len(data.AccountFilter) > 0 {
+					{{ text := i18n.N(ctx, "rules.filters.accounts_pill", len(data.AccountFilter), "accounts", mailRulesFilterAccountNames(data)) }}
+					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), mailRulesPillAttributes("accounts", text), mailRulesPillTooltip)
+				}
+				if len(data.ActionFilter) > 0 {
+					{{ text := i18n.N(ctx, "rules.filters.actions_pill", len(data.ActionFilter), "actions", mailRulesFilterActionNames(ctx, data)) }}
+					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), mailRulesPillAttributes("actions", text), mailRulesPillTooltip)
+				}
+				if data.StatusFilter != "" {
+					{{ text := i18n.T(ctx, "rules.filters."+data.StatusFilter+"_pill") }}
+					@activeFilterPill(text, i18n.T(ctx, "rules.filters.remove_pill", "filter", text), mailRulesPillAttributes("status", text), mailRulesPillTooltip)
 				}
 			</div>
 		}
 	</div>
+	<template data-mail-rules-filter-pill-template>
+		@activeFilterPill("", "", mailRulesPillAttributes("", ""), mailRulesPillTooltip)
+	</template>
 }
 
 // mailRulesSelection is the bar over the rules, which opens once a rule is
@@ -346,7 +434,7 @@ templ mailRulesSelectionItem(action string, destructive bool) {
 }
 
 templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
-	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) } data-mail-rule-folders={ mailRuleDestinationsAttr(data.Destinations[rule.ID]) } data-mail-rule-tags={ mailRuleDestinationsAttr(rule.Tags) }>
+	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) } data-mail-rule-folders={ mailRuleJSONList(data.Destinations[rule.ID]) } data-mail-rule-tags={ mailRuleJSONList(rule.Tags) } data-mail-rule-accounts={ mailRuleAccountsList(rule) } data-mail-rule-on={ fmt.Sprintf("%t", rule.Enabled) } data-mail-rule-actions={ mailRuleActionsList(rule) }>
 		<div class="mail-rule-card flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
 			@checkbox.Checkbox(checkbox.Props{Value: rule.ID, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "rules.select_named", "name", rule.Name), "data-mail-rule-select": ""}})
 			<button

@@ -181,6 +181,15 @@ type MailRulesData struct {
 	// TagFilter are the tags (categories) the list shows the rules of: those
 	// with any of them. It holds only tags some rule has.
 	TagFilter []string
+	// AccountFilter are the accounts the list shows the rules of: rules that
+	// run on any of them, which a rule for every account does.
+	AccountFilter []string
+	// StatusFilter is "on" or "off" for the list to show only the rules
+	// turned on, or off, and "" to show both.
+	StatusFilter string
+	// ActionFilter are the kinds of action the list shows the rules of:
+	// rules that do any of them.
+	ActionFilter []string
 	// Tags are the tags of all the owner's rules, which the rule form
 	// suggests (storage's ListMailRuleTags). People see them as categories.
 	Tags []string

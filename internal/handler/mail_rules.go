@@ -73,38 +73,80 @@ func (h *Handler) loadMailRulesData(w http.ResponseWriter, r *http.Request) (mod
 
 // mailRulesFilters reads the filters the rules list had when a request was
 // made (settings.js sends them with each), so the list drawn again keeps
-// them: the folder whose rules it shows (filter_folder), and the categories
-// it shows rules of (filter_tag, separated by commas, which a category
-// can't hold). A category no rule has any more is dropped.
+// them: the folder whose rules it shows (filter_folder), the categories,
+// accounts and kinds of action it shows rules of (filter_tag,
+// filter_account, filter_action, each separated by commas, which none of
+// them holds), and whether it shows rules turned on or off (filter_status).
+// A value that names nothing there is any more, such as a category no rule
+// has, is dropped.
 func mailRulesFilters(r *http.Request, data *models.MailRulesData) {
 	data.FolderFilter = strings.TrimSpace(r.FormValue("filter_folder"))
-	data.TagFilter = nil
-	for _, value := range r.Form["filter_tag"] {
-		for _, tag := range strings.Split(value, ",") {
-			for _, known := range data.Tags {
-				if strings.EqualFold(strings.TrimSpace(tag), known) && !slices.Contains(data.TagFilter, known) {
-					data.TagFilter = append(data.TagFilter, known)
-				}
+	data.TagFilter = mailRulesFilterValues(r, "filter_tag", func(tag string) (string, bool) {
+		for _, known := range data.Tags {
+			if strings.EqualFold(tag, known) {
+				return known, true
 			}
 		}
+		return "", false
+	})
+	data.AccountFilter = mailRulesFilterValues(r, "filter_account", func(id string) (string, bool) {
+		for _, account := range data.Accounts {
+			if account.ID == id && account.Provider != providers.ProviderLocal {
+				return id, true
+			}
+		}
+		return "", false
+	})
+	data.ActionFilter = mailRulesFilterValues(r, "filter_action", func(kind string) (string, bool) {
+		return kind, views.MailRuleActionKnown(kind)
+	})
+	switch status := r.FormValue("filter_status"); status {
+	case "on", "off":
+		data.StatusFilter = status
+	default:
+		data.StatusFilter = ""
 	}
 }
 
+// mailRulesFilterValues are the values of a filter separated by commas,
+// each once, as known keeps them; known drops one that names nothing.
+func mailRulesFilterValues(r *http.Request, name string, known func(string) (string, bool)) []string {
+	var values []string
+	for _, value := range r.Form[name] {
+		for _, part := range strings.Split(value, ",") {
+			if kept, ok := known(strings.TrimSpace(part)); ok && !slices.Contains(values, kept) {
+				values = append(values, kept)
+			}
+		}
+	}
+	return values
+}
+
+// mailRulesFiltering reports whether any of the list's filters is on.
+func mailRulesFiltering(data models.MailRulesData) bool {
+	return data.FolderFilter != "" || len(data.TagFilter) > 0 || len(data.AccountFilter) > 0 || data.StatusFilter != "" || len(data.ActionFilter) > 0
+}
+
 // mailRuleFiltered reports whether the list's filters would hide a rule:
-// it moves no mail into the folder, or has none of the categories.
+// it moves no mail into the folder, has none of the categories, runs on
+// none of the accounts, is turned on or off the other way, or does none of
+// the kinds of action.
 func mailRuleFiltered(data models.MailRulesData, rule models.MailRule, destinations []string) bool {
 	if data.FolderFilter != "" && !slices.Contains(destinations, data.FolderFilter) {
 		return true
 	}
-	if len(data.TagFilter) == 0 {
-		return false
+	if len(data.TagFilter) > 0 && !slices.ContainsFunc(rule.Tags, func(tag string) bool {
+		return slices.ContainsFunc(data.TagFilter, func(t string) bool { return strings.EqualFold(t, tag) })
+	}) {
+		return true
 	}
-	for _, tag := range rule.Tags {
-		if slices.ContainsFunc(data.TagFilter, func(t string) bool { return strings.EqualFold(t, tag) }) {
-			return false
-		}
+	if len(data.AccountFilter) > 0 && rule.AccountsChosen && !slices.ContainsFunc(rule.AccountIDs, func(id string) bool { return slices.Contains(data.AccountFilter, id) }) {
+		return true
 	}
-	return true
+	if (data.StatusFilter == "on" && !rule.Enabled) || (data.StatusFilter == "off" && rule.Enabled) {
+		return true
+	}
+	return len(data.ActionFilter) > 0 && !slices.ContainsFunc(rule.Actions, func(action models.MailRuleAction) bool { return slices.Contains(data.ActionFilter, action.Kind) })
 }
 
 // renderMailRulesPanel draws the list of rules, each with the folders it
@@ -445,13 +487,13 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 	}
 	// A rule just added shows even when the list's filters would hide it:
 	// they are cleared, as the search is (settings.js).
-	if rule.ID == "" && (data.FolderFilter != "" || len(data.TagFilter) > 0) {
+	if rule.ID == "" && mailRulesFiltering(data) {
 		destinations, err := h.db.MailRuleDestinations(r.Context(), h.userID(r.Context()), []models.MailRule{saved})
 		if err != nil {
 			log.Printf("folders of a new mail rule: %v", err)
 		}
 		if err != nil || mailRuleFiltered(data, saved, destinations[saved.ID]) {
-			data.FolderFilter, data.TagFilter = "", nil
+			data.FolderFilter, data.TagFilter, data.AccountFilter, data.StatusFilter, data.ActionFilter = "", nil, nil, "", nil
 		}
 	}
 	h.renderMailRulesDone(w, r, data)

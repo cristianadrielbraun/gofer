@@ -28,6 +28,10 @@ type TriggerProps struct {
 	Disabled          bool
 	DisableClear      bool
 	Required          bool // Keep one option selected in a single-select control.
+	// KeepOpen keeps a single-select's list open once an option is picked,
+	// as a multiple-select's stays, for a list among others in a menu that
+	// apply as they change.
+	KeepOpen          bool
 	HasError          bool
 	Multiple          bool
 	ShowPills         bool
@@ -215,6 +219,7 @@ templ Trigger(props ...TriggerProps) {
 				templ.Attributes{
 					"data-tui-selectbox-multiple":            strconv.FormatBool(p.Multiple),
 					"data-tui-selectbox-required":            utils.If(p.Required, "true"),
+					"data-tui-selectbox-keep-open":           utils.If(p.KeepOpen, "true"),
 					"data-tui-selectbox-show-pills":          strconv.FormatBool(p.ShowPills),
 					"data-tui-selectbox-selected-count-text": p.SelectedCountText,
 					"tabindex":                               "0",

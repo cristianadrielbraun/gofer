@@ -11,6 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/a-h/templ"
+
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -72,6 +74,12 @@ func mailRuleOperatorLabel(ctx context.Context, operator string) string {
 		return i18n.T(ctx, "rules.op."+operator)
 	}
 	return operator
+}
+
+// MailRuleActionKnown reports whether kind is a kind of action a rule can
+// have, for the list's filters.
+func MailRuleActionKnown(kind string) bool {
+	return slices.Contains(mailRuleActionKinds, kind)
 }
 
 func mailRuleActionLabel(ctx context.Context, kind string) string {
@@ -146,6 +154,25 @@ func mailRuleFolderChoiceName(folder models.MailRuleFolderChoice) string {
 	return folder.Name
 }
 
+// mailRulesPillAttributes mark a pill of the rules list's filters: the
+// filter it turns off, and its key, for settings.js to tell a pill already
+// shown from a new one.
+func mailRulesPillAttributes(filter, text string) templ.Attributes {
+	return templ.Attributes{"data-mail-rules-filter-remove": filter, "data-mail-rules-filter-key": filter + ":" + text}
+}
+
+// mailRulesPillTooltip marks the text of a rules pill's tooltip.
+var mailRulesPillTooltip = templ.Attributes{"data-mail-rules-filter-tooltip": ""}
+
+// mailRulesFolderPill is the text of the pill for the folder whose rules the
+// list shows, or "" when it shows every folder's.
+func mailRulesFolderPill(ctx context.Context, data models.MailRulesData) string {
+	if name := mailRulesFolderFilterName(ctx, data.FolderFilter, data.Accounts); name != "" {
+		return i18n.T(ctx, "rules.filters.folder_pill", "folder", name)
+	}
+	return ""
+}
+
 // mailRulesShownFolder is the folder whose rules the list shows, or "" when
 // it shows every folder's or no account has the folder asked for.
 func mailRulesShownFolder(ctx context.Context, data models.MailRulesData) string {
@@ -159,11 +186,10 @@ func mailRulesShownFolder(ctx context.Context, data models.MailRulesData) string
 // the Filters button.
 func mailRulesActiveFilterCount(ctx context.Context, data models.MailRulesData) int {
 	count := 0
-	if mailRulesShownFolder(ctx, data) != "" {
-		count++
-	}
-	if len(data.TagFilter) > 0 {
-		count++
+	for _, on := range []bool{mailRulesShownFolder(ctx, data) != "", len(data.TagFilter) > 0, len(data.AccountFilter) > 0, data.StatusFilter != "", len(data.ActionFilter) > 0} {
+		if on {
+			count++
+		}
 	}
 	return count
 }
@@ -196,10 +222,66 @@ func mailRuleCategoryRemoveLabel(ctx context.Context) string {
 	return i18n.T(ctx, "rules.categories.remove_one", "category", "{tag}")
 }
 
-// mailRuleDestinationsAttr is a list a rule's row carries for the list's
-// filters (settings.js filterMailRules): the folders it moves mail into, or
-// its categories.
-func mailRuleDestinationsAttr(ids []string) string {
+// mailRuleAccountsList is the accounts a rule runs on, as its row carries
+// them for the list's filters: "*" for every account.
+func mailRuleAccountsList(rule models.MailRule) string {
+	if !rule.AccountsChosen {
+		return `["*"]`
+	}
+	return mailRuleJSONList(rule.AccountIDs)
+}
+
+// mailRuleActionsList is the kinds of action a rule has, as its row carries
+// them for the list's filters.
+func mailRuleActionsList(rule models.MailRule) string {
+	var kinds []string
+	for _, action := range rule.Actions {
+		if !slices.Contains(kinds, action.Kind) {
+			kinds = append(kinds, action.Kind)
+		}
+	}
+	return mailRuleJSONList(kinds)
+}
+
+// mailRulesFilterAccounts are the accounts the list can be filtered by:
+// those rules run on, which leaves out Local folders.
+func mailRulesFilterAccounts(accounts []models.MailRuleAccount) []models.MailRuleAccount {
+	var watched []models.MailRuleAccount
+	for _, account := range accounts {
+		if mailRuleWatchable(account) {
+			watched = append(watched, account)
+		}
+	}
+	return watched
+}
+
+// mailRulesFilterAccountNames names the accounts the list is filtered by.
+func mailRulesFilterAccountNames(data models.MailRulesData) string {
+	var names []string
+	for _, account := range data.Accounts {
+		if slices.Contains(data.AccountFilter, account.ID) {
+			names = append(names, mailRuleAccountTitle(account))
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// mailRulesFilterActionNames names the kinds of action the list is
+// filtered by, in the order the rule form offers them.
+func mailRulesFilterActionNames(ctx context.Context, data models.MailRulesData) string {
+	var names []string
+	for _, kind := range mailRuleActionKinds {
+		if slices.Contains(data.ActionFilter, kind) {
+			names = append(names, mailRuleActionLabel(ctx, kind))
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// mailRuleJSONList is a list a rule's row, or the list, carries for the
+// list's filters (settings.js filterMailRules): the folders a rule moves
+// mail into, its categories, or the values a filter has.
+func mailRuleJSONList(ids []string) string {
 	if len(ids) == 0 {
 		return "[]"
 	}

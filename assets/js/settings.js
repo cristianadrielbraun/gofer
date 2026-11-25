@@ -1088,39 +1088,41 @@ document.addEventListener("htmx:afterRequest", function (e) {
 })
 
 // Each request about rules carries the list's filters, so the list it
-// draws again keeps them (handler mailRulesFilters), unless it sets them
-// itself (showMailRulesFiltered). Before the list is first drawn, the
-// folder comes from the address: a folder's menu in the sidebar opens
-// /settings/rules?folder=<folder>.
+// draws again keeps them (handler mailRulesFilters). Before the list is
+// first drawn, the folder comes from the address: a folder's menu in the
+// sidebar opens /settings/rules?folder=<folder>.
 document.body.addEventListener("htmx:configRequest", function (e) {
   var detail = e.detail
-  if (!detail || String(detail.path || "").indexOf("/api/settings/rules") !== 0 || detail.parameters.filter_set) return
+  if (!detail || String(detail.path || "").indexOf("/api/settings/rules") !== 0) return
   var panel = document.getElementById("mail-rules-panel")
   var state = panel && panel.querySelector("[data-mail-rules-filters]") ?
     mailRulesFilterState(panel) :
-    { folder: new URLSearchParams(window.location.search).get("folder") || "", tags: [] }
-  if (state.folder) detail.parameters.filter_folder = state.folder
-  if (state.tags.length) detail.parameters.filter_tag = state.tags.join(",")
+    { folder: new URLSearchParams(window.location.search).get("folder") || "", tags: [], accounts: [], status: "", actions: [] }
+  var params = mailRulesFilterParams(state)
+  Object.keys(params).forEach(function (name) {
+    if (params[name]) detail.parameters[name] = params[name]
+  })
 })
 
 // filterMailRules shows the rules the rules search finds, with the folder
 // picker's search (mailRulesList), and of those, only the ones the list's
 // filters let through: rules that move mail into its folder, and rules in
 // any of its categories. While either hides rules, rules can't be dragged.
-function filterMailRules(still) {
+// The rules move to their new places from where they were (slideMailRules):
+// where they are now, or before, the places of a list drawn again.
+function filterMailRules(still, before) {
   var panel = document.getElementById("mail-rules-panel")
   if (!panel || !window.goferFolderPicker) return
+  if (before === undefined) before = mailRulesPlaces(panel)
   var state = mailRulesFilterState(panel)
-  var wanted = state.tags.map(function (tag) { return String(tag).toLowerCase() })
   Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) {
-    var otherFolder = state.folder !== "" && mailRuleFolders(row).indexOf(state.folder) < 0
-    var otherTags = wanted.length > 0 && !mailRuleTags(row).some(function (tag) { return wanted.indexOf(String(tag).toLowerCase()) >= 0 })
-    row.toggleAttribute("data-folder-picker-out", otherFolder || otherTags)
+    row.toggleAttribute("data-folder-picker-out", !mailRulePassesFilters(row, state))
   })
   var typed = window.goferFolderPicker.filter(panel)
   var list = panel.querySelector("[data-mail-rule-order-list]")
-  if (list) list.toggleAttribute("data-searching", typed !== "" || state.folder !== "" || wanted.length > 0)
+  if (list) list.toggleAttribute("data-searching", typed !== "" || mailRulesFiltered(state))
   if (panel.querySelector("[data-mail-rules-filters]")) keepMailRulesFolderInAddress(state.folder)
+  slideMailRules(panel, before)
   // Only rules in view stay selected, so nothing hidden is changed.
   Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) {
     var box = row.hidden && row.querySelector("[data-mail-rule-select]")
@@ -1129,24 +1131,274 @@ function filterMailRules(still) {
   updateMailRuleSelection(still)
 }
 
+// Rules the search or the filters show or hide come and go as the mail
+// list's cards do when it is filtered (virtual-scroll.js
+// animateListTransition), more simply: rules that stay slide to their new
+// places, rules that go fade out where they were, under the others, and
+// rules that come fade in, dropping into place.
+
+// mailRulesPlaces are where the rules shown are, from the top of the panel,
+// which stays put as the strip of filters above the rules opens and
+// closes, by rule ID, with each rule to copy should it go and whether its
+// handle was hidden, as it is while some rules are. With no motion it is
+// null; with no rule shown, empty, so those coming back still move in.
+function mailRulesPlaces(panel) {
+  if (!panel || mailRuleStill()) return null
+  var places = new Map()
+  var origin = panel.getBoundingClientRect().top
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  var handleHidden = !!(list && list.hasAttribute("data-searching"))
+  mailRuleRowsShown(panel).forEach(function (row) {
+    var rect = row.getBoundingClientRect()
+    places.set(mailRuleOrder.id(row), { top: rect.top - origin, height: rect.height, row: row, handleHidden: handleHidden })
+  })
+  return places
+}
+
+// slideMailRules moves the rules shown from the places they had before. The
+// copies of rules going are placed beside the list, in what holds it, which
+// stays in view when the list hides for having no rule left to show.
+function slideMailRules(panel, before) {
+  var host = panel.querySelector("[data-mail-rules-list-host]")
+  if (!before || !host || mailRuleStill()) return
+  var origin = panel.getBoundingClientRect().top
+  var hostTop = host.getBoundingClientRect().top - origin
+  var staying = new Set()
+  var moving = []
+  var entering = []
+  // Every rule is measured before any moves, so the page is laid out once.
+  mailRuleRowsShown(panel).forEach(function (row) {
+    var id = mailRuleOrder.id(row)
+    var was = before.get(id)
+    if (!was) {
+      entering.push(row)
+      return
+    }
+    staying.add(id)
+    var dy = was.top - (row.getBoundingClientRect().top - origin)
+    if (Math.abs(dy) >= 1) moving.push({ row: row, dy: dy })
+  })
+  var leaving = 0
+  before.forEach(function (was, id) {
+    if (staying.has(id) || !was.row) return
+    var copy = mailRuleLeavingCopy(was.row, was.handleHidden)
+    copy.style.cssText += ";position:absolute;left:0;right:0;margin:0;z-index:-1;pointer-events:none;top:" + (was.top - hostTop) + "px;height:" + was.height + "px"
+    host.appendChild(copy)
+    leaving++
+    // Gone at once rather than fading slowly: it is mostly clear within the
+    // first frames, shrinking a little as it goes.
+    var fade = copy.animate([
+      { opacity: 1, scale: "1", translate: "0 0" },
+      { opacity: 0.15, offset: 0.5 },
+      { opacity: 0, scale: "0.96", translate: "0 4px" },
+    ], { duration: 100, easing: "ease-in", fill: "forwards" })
+    var drop = function () { copy.remove() }
+    fade.finished.then(drop, drop)
+  })
+  moving.forEach(function (move) {
+    move.row.animate([{ translate: "0 " + move.dy + "px" }, { translate: "0 0" }], { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" })
+  })
+  // The rules coming in pop in, solid within their first frames, once those
+  // going are mostly gone.
+  entering.forEach(function (row) {
+    row.animate([
+      { opacity: 0, scale: "0.96", translate: "0 -4px" },
+      { opacity: 1, offset: 0.4 },
+      { opacity: 1, scale: "1", translate: "0 0" },
+    ], { duration: 120, delay: leaving ? 40 : 0, easing: "ease-out", fill: "backwards" })
+  })
+}
+
+// mailRuleLeavingCopy is a rule as it looked, to fade out where it was: a
+// copy that nothing finds as a rule, picks, sends or reads aloud. Out of the
+// list, its handle shows unless handleHidden says the list hid it.
+function mailRuleLeavingCopy(row, handleHidden) {
+  var copy = row.cloneNode(true)
+  copy.hidden = false
+  copy.inert = true
+  copy.setAttribute("aria-hidden", "true")
+  var handle = handleHidden && copy.querySelector("[data-mail-rule-order-handle]")
+  if (handle) handle.style.visibility = "hidden"
+  var kept = ["id", "name", "for", "data-mail-rule-row", "data-mail-rule-id", "data-folder-picker-row", "data-folder-picker-out", "data-mail-rule-select",
+    "data-mail-rule-order-handle", "data-mail-rule-enabled", "data-mail-rule-delete", "data-mail-rule-category-filter"]
+  ;[copy].concat(Array.prototype.slice.call(copy.querySelectorAll("*"))).forEach(function (el) {
+    kept.forEach(function (name) { el.removeAttribute(name) })
+    Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+      if (attr.name.indexOf("hx-") === 0) el.removeAttribute(attr.name)
+    })
+  })
+  return copy
+}
+
 // mailRulesFilterState is the list's filters as it was drawn: the folder
-// whose rules it shows, or "", and the categories it shows rules of.
+// whose rules it shows, or "", the categories, accounts and kinds of action
+// it shows rules of, and "on" or "off" to show only rules turned on, or off.
 function mailRulesFilterState(panel) {
   var filters = panel && panel.querySelector("[data-mail-rules-filters]")
   return {
     folder: filters ? filters.getAttribute("data-filter-folder") || "" : "",
     tags: filters ? mailRuleRowList(filters, "data-filter-tags") : [],
+    accounts: filters ? mailRuleRowList(filters, "data-filter-accounts") : [],
+    status: filters ? filters.getAttribute("data-filter-status") || "" : "",
+    actions: filters ? mailRuleRowList(filters, "data-filter-actions") : [],
   }
 }
 
-// showMailRulesFiltered draws the list again with the filters given.
-function showMailRulesFiltered(state) {
-  if (!window.htmx) return
-  window.htmx.ajax("GET", "/api/settings/rules/panel", {
-    target: "#mail-rules-panel",
-    swap: "outerHTML",
-    values: { filter_set: "1", filter_folder: state.folder || "", filter_tag: (state.tags || []).join(",") },
+// mailRulesFiltered reports whether any of the filters is on.
+function mailRulesFiltered(state) {
+  return !!(state.folder || state.tags.length || state.accounts.length || state.status || state.actions.length)
+}
+
+// mailRulesFilterParams are the filters as requests send them, each list
+// separated by commas, which none of its values holds.
+function mailRulesFilterParams(state) {
+  return {
+    filter_folder: state.folder || "",
+    filter_tag: (state.tags || []).join(","),
+    filter_account: (state.accounts || []).join(","),
+    filter_status: state.status || "",
+    filter_action: (state.actions || []).join(","),
+  }
+}
+
+// mailRulePassesFilters reports whether the filters show a rule: it moves
+// mail into their folder, is in any of their categories, runs on any of
+// their accounts (a rule for every account does), is turned on or off as
+// they ask, and does any of their kinds of action. On or off is as the
+// list was drawn, so a rule switched meanwhile stays in view.
+function mailRulePassesFilters(row, state) {
+  var anyOf = function (have, wanted, fold) {
+    if (!wanted.length) return true
+    var norm = function (value) { return fold ? String(value).toLowerCase() : String(value) }
+    var want = wanted.map(norm)
+    return have.some(function (value) { return want.indexOf(norm(value)) >= 0 })
+  }
+  var accounts = mailRuleRowList(row, "data-mail-rule-accounts")
+  return (!state.folder || mailRuleFolders(row).indexOf(state.folder) >= 0) &&
+    anyOf(mailRuleTags(row), state.tags, true) &&
+    (accounts.indexOf("*") >= 0 || anyOf(accounts, state.accounts, false)) &&
+    (!state.status || (row.getAttribute("data-mail-rule-on") === "true") === (state.status === "on")) &&
+    anyOf(mailRuleRowList(row, "data-mail-rule-actions"), state.actions, false)
+}
+
+// The list's filters change in the page, as the contacts list's do: the
+// rules hide or show, the pills under the search and the Filters button's
+// count follow, and the Filters menu stays open. The list keeps them in its
+// data-filter-* attributes, which requests send (htmx:configRequest above),
+// so a list the server draws again for anything else keeps them. Each
+// filter's field in the menu is a selectbox whose hidden input holds it.
+var mailRulesFilterFields = {
+  folder: { attribute: "data-filter-folder" },
+  tags: { attribute: "data-filter-tags", input: "data-mail-rules-filter-tags", list: true },
+  accounts: { attribute: "data-filter-accounts", input: "data-mail-rules-filter-accounts", list: true },
+  status: { attribute: "data-filter-status", input: "data-mail-rules-filter-status" },
+  actions: { attribute: "data-filter-actions", input: "data-mail-rules-filter-actions", list: true },
+}
+
+// Set while setMailRulesFilters fills the menu's fields, which would
+// otherwise apply them again as they change.
+var settingMailRulesFilters = false
+
+// setMailRulesFilters changes the filters named in changes, { tags: [...] }
+// and so on, in the list and in the menu's fields, and applies them.
+function setMailRulesFilters(changes) {
+  var panel = document.getElementById("mail-rules-panel")
+  var filters = panel && panel.querySelector("[data-mail-rules-filters]")
+  if (!filters) return
+  settingMailRulesFilters = true
+  try {
+    Object.keys(changes).forEach(function (name) {
+      var field = mailRulesFilterFields[name]
+      if (!field) return
+      var value = changes[name]
+      filters.setAttribute(field.attribute, field.list ? JSON.stringify(value) : value)
+      if (name === "folder" && !value) filters.setAttribute("data-filter-folder-pill", "")
+      var input = field.input && filters.querySelector("[" + field.input + "]")
+      if (!input) return
+      var next = field.list ? value.join(",") : value || (name === "status" ? "any" : "")
+      if (input.value === next) return
+      input.value = next
+      // The selectbox shows what its input holds once told.
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  } finally {
+    settingMailRulesFilters = false
+  }
+  filterMailRules()
+  syncMailRulesFilterUI(panel)
+}
+
+// A pick in the Filters menu applies at once.
+document.addEventListener("input", function (e) {
+  var input = e.target
+  if (settingMailRulesFilters || !input || !input.closest || !input.closest("[data-mail-rules-filter-form]")) return
+  var changes = {}
+  Object.keys(mailRulesFilterFields).forEach(function (name) {
+    var field = mailRulesFilterFields[name]
+    if (!field.input || !input.hasAttribute || !input.hasAttribute(field.input)) return
+    var values = String(input.value || "").split(",").filter(Boolean)
+    changes[name] = field.list ? values : (values[0] === "any" ? "" : values[0] || "")
   })
+  if (Object.keys(changes).length) setMailRulesFilters(changes)
+})
+
+// syncMailRulesFilterUI shows the filters that are on: a pill for each
+// under the search (syncFilterPills, app.js), the Filters button's count,
+// and Clear in the menu. Each pill names what its filter shows, as the
+// menu's fields name it.
+function syncMailRulesFilterUI(panel) {
+  var filters = panel && panel.querySelector("[data-mail-rules-filters]")
+  if (!filters) return
+  var state = mailRulesFilterState(panel)
+  var pills = []
+  var pill = function (name, text) {
+    pills.push({ name: name, text: text, label: goferT("js.settings.rules.filter_remove", { filter: text }) })
+  }
+  var folderPill = filters.getAttribute("data-filter-folder-pill") || ""
+  if (state.folder && folderPill) pill("folder", folderPill)
+  if (state.tags.length) pill("tags", goferTn("js.settings.rules.filter_categories", state.tags.length, { categories: state.tags.join(", ") }))
+  if (state.accounts.length) {
+    var accounts = mailRulesFilterNames(filters, "data-mail-rules-filter-accounts", state.accounts)
+    pill("accounts", goferTn("js.settings.rules.filter_accounts", accounts.length, { accounts: accounts.join(", ") }))
+  }
+  if (state.actions.length) {
+    var actions = mailRulesFilterNames(filters, "data-mail-rules-filter-actions", state.actions)
+    pill("actions", goferTn("js.settings.rules.filter_actions", actions.length, { actions: actions.join(", ") }))
+  }
+  if (state.status) pill("status", mailRulesFilterNames(filters, "data-mail-rules-filter-status", [state.status]).join(""))
+  var count = pills.length
+  var trigger = filters.querySelector("[data-mail-rules-filters-trigger]")
+  if (trigger) trigger.setAttribute("data-active", count > 0 ? "true" : "false")
+  var badge = filters.querySelector("[data-mail-rules-filter-count]")
+  if (badge) {
+    badge.textContent = String(count)
+    badge.hidden = count === 0
+  }
+  var clear = filters.querySelector("[data-mail-rules-filters-clear]")
+  if (clear) clear.disabled = count === 0
+  if (window.goferSyncFilterPills) {
+    window.goferSyncFilterPills(panel.querySelector("[data-mail-rules-active-filters]"), panel.querySelector("[data-mail-rules-filter-pill-template]"), pills, {
+      remove: "data-mail-rules-filter-remove", key: "data-mail-rules-filter-key", tooltip: "data-mail-rules-filter-tooltip",
+    })
+  }
+}
+
+// mailRulesFilterNames names values of a filter as its field in the menu
+// does, in the field's order; a value it doesn't list stays as it is.
+function mailRulesFilterNames(filters, attribute, values) {
+  var input = filters.querySelector("[" + attribute + "]")
+  var container = input && input.closest(".select-container")
+  var names = []
+  var named = []
+  Array.prototype.forEach.call(container ? container.querySelectorAll("[data-tui-selectbox-value]") : [], function (item) {
+    var value = item.getAttribute("data-tui-selectbox-value")
+    if (values.indexOf(value) < 0 || named.indexOf(value) >= 0) return
+    var text = item.querySelector(".select-item-text") || item
+    names.push(text.textContent.trim())
+    named.push(value)
+  })
+  values.forEach(function (value) { if (named.indexOf(value) < 0) names.push(value) })
+  return names
 }
 
 // mailRuleFolders are the folders a rule moves mail into.
@@ -1179,19 +1431,6 @@ function keepMailRulesFolderInAddress(folder) {
   var query = params.toString()
   history.replaceState(history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash)
 }
-
-// Categories chosen in the Filters menu apply once their list closes:
-// drawing the list at each pick would close the menu while choosing.
-document.addEventListener("toggle", function (e) {
-  if (e.newState !== "closed" || !e.target.matches || !e.target.matches("[data-tui-selectbox-content]")) return
-  var form = e.target.closest && e.target.closest("[data-mail-rules-filter-form]")
-  var input = form && form.querySelector("[data-mail-rules-filter-tags]")
-  if (!input) return
-  var tags = String(input.value || "").split(",").filter(Boolean)
-  var state = mailRulesFilterState(document.getElementById("mail-rules-panel"))
-  if (tags.join(",") === state.tags.join(",")) return
-  showMailRulesFiltered({ folder: state.folder, tags: tags })
-}, true)
 
 // mailRuleRowsShown are the rules the search shows.
 function mailRuleRowsShown(panel) {
@@ -1257,23 +1496,31 @@ document.addEventListener("click", function (e) {
     updateMailRuleSelection()
     return
   }
-  // A filter's pill turns it off; Clear turns them all off; a rule's
-  // category shows the rules in it too.
-  var state = mailRulesFilterState(panel)
+  // A filter's pill turns it off once its exit has played, as the contacts
+  // list's do; Clear turns them all off; a rule's category shows the rules
+  // in it too.
   var pill = target.closest("[data-mail-rules-filter-remove]")
   if (pill) {
     var removed = pill.getAttribute("data-mail-rules-filter-remove")
-    showMailRulesFiltered({ folder: removed === "folder" ? "" : state.folder, tags: removed === "tags" ? [] : state.tags })
+    var off = {}
+    off[removed] = removed === "folder" || removed === "status" ? "" : []
+    if (mailRuleStill()) {
+      setMailRulesFilters(off)
+      return
+    }
+    pill.classList.add("mail-active-filter-pill-exiting")
+    setTimeout(function () { setMailRulesFilters(off) }, 140)
     return
   }
   if (target.closest("[data-mail-rules-filters-clear]")) {
-    showMailRulesFiltered({ folder: "", tags: [] })
+    setMailRulesFilters({ folder: "", tags: [], accounts: [], status: "", actions: [] })
     return
   }
   var category = target.closest("[data-mail-rule-category-filter]")
   if (category) {
+    var tags = mailRulesFilterState(panel).tags
     var tag = category.getAttribute("data-mail-rule-category-filter")
-    if (state.tags.indexOf(tag) < 0) showMailRulesFiltered({ folder: state.folder, tags: state.tags.concat([tag]) })
+    if (tags.indexOf(tag) < 0) setMailRulesFilters({ tags: tags.concat([tag]) })
     return
   }
   var item = target.closest("[data-mail-rules-selection-action]")
@@ -1382,7 +1629,9 @@ function searchMailRulesAgain(swap) {
     })
     if (added) search.value = ""
   }
-  filterMailRules(true)
+  // A list the server draws again keeps its rules where it draws them; the
+  // filters move them only as they change in the page.
+  filterMailRules(true, null)
 }
 
 document.body.addEventListener("htmx:beforeSwap", function (e) {

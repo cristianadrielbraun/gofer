@@ -610,10 +610,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // The strip under the search with a pill for each active filter, the mail
-    // list's own (styles and open/close transition included). A pill's text is
-    // the label of the matching entry in the filter form, which the server
-    // draws with the same names.
-    var contactPillClearTimer = null
+    // list's own (syncFilterPills). A pill's text is the label of the matching
+    // entry in the filter form, which the server draws with the same names.
 
     function activeFilterPills(filters) {
       var pills = []
@@ -641,44 +639,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function syncActiveFilterChips(filters) {
-      var strip = document.querySelector("[data-contact-active-filter-pills]")
-      if (!strip) return
-      if (contactPillClearTimer) { clearTimeout(contactPillClearTimer); contactPillClearTimer = null }
-      var pills = activeFilterPills(filters)
-      if (pills.length === 0) {
-        // The pills stay while the strip closes, then go.
-        strip.classList.add("hidden")
-        contactPillClearTimer = setTimeout(function () {
-          contactPillClearTimer = null
-          if (strip.classList.contains("hidden")) strip.innerHTML = ""
-        }, 190)
-        return
-      }
-      var existing = Object.create(null)
-      strip.querySelectorAll("[data-contact-active-filter-key]").forEach(function (pill) {
-        existing[pill.getAttribute("data-contact-active-filter-key")] = true
+      var pills = activeFilterPills(filters).map(function (pill) {
+        return { name: pill.name, text: pill.text, label: goferT("js.contacts.filter.remove", { filter: pill.text }) }
       })
-      // Each pill is the server's own, tooltip included, from its template.
-      var template = document.querySelector("[data-contact-active-filter-pill-template]")
-      var visible = document.createElement("div")
-      visible.className = "mail-active-filter-visible"
-      pills.forEach(function (pill) {
-        var key = pill.name + ":" + pill.text
-        var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
-        var button = node && node.querySelector("[data-contact-active-filter-remove]")
-        if (!button) return
-        button.setAttribute("data-contact-active-filter-remove", pill.name)
-        button.setAttribute("data-contact-active-filter-key", key)
-        button.setAttribute("aria-label", goferT("js.contacts.filter.remove", { filter: pill.text }))
-        button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
-        var label = button.querySelector(".mail-active-filter-pill-label")
-        if (label) label.textContent = pill.text
-        var tip = node.querySelector("[data-contact-active-filter-tooltip]")
-        if (tip) tip.textContent = pill.text
-        visible.appendChild(node)
+      syncFilterPills(document.querySelector("[data-contact-active-filter-pills]"), document.querySelector("[data-contact-active-filter-pill-template]"), pills, {
+        remove: "data-contact-active-filter-remove", key: "data-contact-active-filter-key", tooltip: "data-contact-active-filter-tooltip",
       })
-      strip.replaceChildren(visible)
-      strip.classList.remove("hidden")
     }
 
     // The sidebar item that stands for the filters, as the server picks it.
@@ -25748,6 +25714,54 @@ document.addEventListener("click", function (e) {
     if (item) loadFolderRulesCount(badge, item.getAttribute("data-folder-id"))
   }, 0)
 })
+
+// syncFilterPills draws a list's active filters as pills in strip, the mail
+// list's strip under its search (styles and open/close transition
+// included), each a copy of template's pill, the server's own, tooltip and
+// all. pills are { name, text, label }; attrs names the pill's attributes
+// for its filter's name (remove) and its key (key), and its tooltip's text
+// (tooltip). A pill already shown stays still and a new one drops in. With
+// none, the pills stay while the strip closes, then go. The contacts list
+// and the rules list in Settings use it.
+function syncFilterPills(strip, template, pills, attrs) {
+  if (!strip) return
+  if (strip._goferPillsClearing) {
+    clearTimeout(strip._goferPillsClearing)
+    strip._goferPillsClearing = null
+  }
+  if (pills.length === 0) {
+    strip.classList.add("hidden")
+    strip._goferPillsClearing = setTimeout(function () {
+      strip._goferPillsClearing = null
+      if (strip.classList.contains("hidden")) strip.innerHTML = ""
+    }, 190)
+    return
+  }
+  var existing = Object.create(null)
+  strip.querySelectorAll("[" + attrs.key + "]").forEach(function (pill) {
+    existing[pill.getAttribute(attrs.key)] = true
+  })
+  var visible = document.createElement("div")
+  visible.className = "mail-active-filter-visible"
+  pills.forEach(function (pill) {
+    var key = pill.name + ":" + pill.text
+    var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
+    var button = node && node.querySelector("[" + attrs.remove + "]")
+    if (!button) return
+    button.setAttribute(attrs.remove, pill.name)
+    button.setAttribute(attrs.key, key)
+    button.setAttribute("aria-label", pill.label)
+    button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
+    var label = button.querySelector(".mail-active-filter-pill-label")
+    if (label) label.textContent = pill.text
+    var tip = node.querySelector("[" + attrs.tooltip + "]")
+    if (tip) tip.textContent = pill.text
+    visible.appendChild(node)
+  })
+  strip.replaceChildren(visible)
+  strip.classList.remove("hidden")
+}
+window.goferSyncFilterPills = syncFilterPills
 
 // A button in the account settings' folders dialog runs the folder action
 // it names, as the sidebar's menu does.
