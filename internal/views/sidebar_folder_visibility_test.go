@@ -1,7 +1,9 @@
 package views
 
 import (
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -88,19 +90,110 @@ func TestSidebarFolderVisibilityHiddenRootAndSystemProtection(t *testing.T) {
 	}
 }
 
-func TestSidebarFolderVisibilityOnlyIMAP(t *testing.T) {
-	for _, provider := range []string{"gmail", "local", "jmap"} {
+func TestSidebarFolderVisibilityOnEveryAccountType(t *testing.T) {
+	for _, provider := range []string{"imap", "outlook", "jmap", "local"} {
 		t.Run(provider, func(t *testing.T) {
 			account := models.Account{
 				Provider: provider,
 				Folders: []models.Folder{
-					{ID: "unaffected", Role: "custom", Hidden: true},
+					{ID: "inbox", Role: "inbox"},
+					{ID: "receipts", Role: "custom", Hidden: true},
 				},
 			}
+			if got := sidebarVisibilityIDs(sidebarFoldersForAccount(account)); !slices.Equal(got, []string{"inbox"}) {
+				t.Fatalf("sidebar folders = %v, want [inbox]", got)
+			}
+		})
+	}
+}
 
-			result := sidebarFoldersForAccount(account)
-			if len(result) != 1 || result[0].ID != "unaffected" {
-				t.Fatalf("non-IMAP folders were filtered: %+v", result)
+// Any account's tags can be hidden, and the tags of all accounts apart from
+// them: hiding Work's Travel leaves the unified Travel, and the other way
+// round.
+func TestSidebarHidesHiddenTags(t *testing.T) {
+	gmail := models.Account{ID: "mail", Provider: "gmail", EmailSyncEnabled: true, Labels: []models.Label{
+		{ID: "receipts", Name: "Receipts", Hidden: true},
+		{ID: "family", Name: "Family"},
+	}}
+	work := models.Account{ID: "work", Provider: "imap", EmailSyncEnabled: true, Labels: []models.Label{
+		{ID: "travel", Name: "Travel", Hidden: true},
+	}}
+	settings := map[string]string{models.TagVisibleKey(models.UnifiedTagID("Family"), true): "false"}
+
+	names := func(labels []models.Label) []string {
+		var got []string
+		for _, label := range labels {
+			got = append(got, label.Name)
+		}
+		return got
+	}
+	if got := names(sidebarLabels(gmail.Labels)); !slices.Equal(got, []string{"Family"}) {
+		t.Fatalf("Gmail's tags = %v, want [Family]", got)
+	}
+	if got := names(sidebarLabels(work.Labels)); len(got) != 0 {
+		t.Fatalf("Work's tags = %v, want none", got)
+	}
+	all := unifiedSidebarLabels([]models.Account{gmail, work}, settings)
+	if got := names(all); !slices.Equal(got, []string{"Family", "Receipts", "Travel"}) {
+		t.Fatalf("unified tags = %v, want all three for Settings", got)
+	}
+	if got := names(sidebarLabels(all)); !slices.Equal(got, []string{"Receipts", "Travel"}) {
+		t.Fatalf("unified tags in the sidebar = %v, want [Receipts Travel]", got)
+	}
+}
+
+// Settings → Appearance lists hidden tags too, with their switch off, as
+// that's where they are shown again.
+func TestTagAppearanceSettingsShowsHiddenTags(t *testing.T) {
+	accounts := []models.Account{{ID: "work", Name: "Work", Provider: "imap", EmailSyncEnabled: true, Labels: []models.Label{
+		{ID: "travel", AccountID: "work", Name: "Travel", Hidden: true},
+		{ID: "clients", AccountID: "work", Name: "Clients"},
+	}}}
+	settings := map[string]string{models.TagVisibleKey(models.UnifiedTagID("Clients"), true): "false"}
+	var out strings.Builder
+	if err := TagAppearanceSettings(accounts, settings).Render(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	switches := regexp.MustCompile(`<input[^>]*data-tag-visibility="([^"]*)"[^>]*>`).FindAllStringSubmatch(out.String(), -1)
+	got := map[string]bool{}
+	for _, m := range switches {
+		got[m[1]] = strings.Contains(m[0], " checked")
+	}
+	want := map[string]bool{
+		"travel":                       false,
+		"clients":                      true,
+		models.UnifiedTagID("Travel"):  true,
+		models.UnifiedTagID("Clients"): false,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("switches = %v, want %v", got, want)
+	}
+	for id, on := range want {
+		if shown, ok := got[id]; !ok || shown != on {
+			t.Errorf("switch %s = %v (present %v), want %v", id, shown, ok, on)
+		}
+	}
+}
+
+func TestFolderRowActionsHideAndShow(t *testing.T) {
+	account := models.Account{ID: "acc", Provider: "jmap"}
+	for _, tc := range []struct {
+		name       string
+		folder     models.Folder
+		inHidden   bool
+		hide, show bool
+	}{
+		{"a shown folder", models.Folder{Role: "custom"}, false, true, false},
+		{"a hidden folder", models.Folder{Role: "custom", Hidden: true}, false, false, true},
+		{"a folder inside a hidden one", models.Folder{Role: "custom"}, true, false, false},
+		{"a hidden folder inside a hidden one", models.Folder{Role: "custom", Hidden: true}, true, false, true},
+		{"Inbox", models.Folder{Role: "inbox"}, false, false, false},
+		{"Inbox with an old hidden setting", models.Folder{Role: "inbox", Hidden: true}, false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := folderRowActionsFor(account, tc.folder, false, tc.inHidden)
+			if got.Hide != tc.hide || got.Show != tc.show {
+				t.Fatalf("Hide=%v Show=%v, want Hide=%v Show=%v", got.Hide, got.Show, tc.hide, tc.show)
 			}
 		})
 	}

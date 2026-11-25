@@ -268,3 +268,158 @@ func TestFolderVisibilitySystemRoleOverridesSavedPreference(t *testing.T) {
 		t.Fatal("original custom visibility preference was lost")
 	}
 }
+
+func TestFolderVisibilityOnEveryAccountType(t *testing.T) {
+	// Gmail's own folders are only its special ones; its labels have
+	// TestLabelVisibility.
+	for _, provider := range []string{"imap", "outlook", "jmap", "local"} {
+		t.Run(provider, func(t *testing.T) {
+			db := seedManagedFolders(t)
+			ctx := t.Context()
+			if _, err := db.Write().ExecContext(ctx, `UPDATE accounts SET provider = ? WHERE id = 'acc'`, provider); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.SetFolderVisibility(ctx, "default", "acc_trips", false); err != nil {
+				t.Fatalf("hide: %v", err)
+			}
+			tree, err := db.AccountFolderTree(ctx, "acc")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if folder, ok := findVisibilityTestFolder(tree, "acc_trips"); !ok || !folder.Hidden {
+				t.Fatalf("Trips on %s isn't hidden: %+v", provider, folder)
+			}
+		})
+	}
+}
+
+// seedVisibilityLabels gives the default user a Gmail account with one of
+// its own labels and one of Gmail's, and an IMAP account with two keywords:
+// Travel, which Gmail has too, and $Junk, which the sidebar never shows.
+func seedVisibilityLabels(t *testing.T) *DB {
+	t.Helper()
+	db := newContactsTestDB(t)
+	ctx := t.Context()
+	for _, stmt := range []string{
+		`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('mail', 'default', 'gmail', 'alex@example.com')`,
+		`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('work', 'default', 'imap', 'alex@example.org')`,
+		`INSERT INTO labels (id, account_id, name, provider_id, provider_type) VALUES ('travel-label', 'mail', 'Travel', 'Label_1', 'gmail')`,
+		`INSERT INTO labels (id, account_id, name, provider_id, provider_type, is_system) VALUES ('important', 'mail', 'Important', 'IMPORTANT', 'gmail', 1)`,
+		`INSERT INTO labels (id, account_id, name, provider_id, provider_type) VALUES ('travel-keyword', 'work', 'Travel', 'Travel', 'imap_keyword')`,
+		`INSERT INTO labels (id, account_id, name, provider_id, provider_type) VALUES ('junk', 'work', '$Junk', '$Junk', 'imap_keyword')`,
+	} {
+		if _, err := db.Write().ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("seed labels: %v", err)
+		}
+	}
+	return db
+}
+
+// visibilitySettingCount counts the hidden tags' settings.
+func visibilitySettingCount(t *testing.T, db *DB) int {
+	t.Helper()
+	var count int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM app_settings WHERE key LIKE 'tag_visible:%' OR key LIKE 'unified_tag_visible:%'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+// Every account's tags can be hidden, not only Gmail's, and the tag of all
+// accounts with the same name is hidden apart from them.
+func TestTagVisibility(t *testing.T) {
+	db := seedVisibilityLabels(t)
+	ctx := t.Context()
+	unified := models.UnifiedTagID("Travel")
+
+	hidden := func() map[string]bool {
+		t.Helper()
+		accounts, err := db.GetAccounts(ctx, "default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, account := range accounts {
+			for _, label := range account.Labels {
+				got[label.ID] = label.Hidden
+			}
+		}
+		listed, err := db.ProviderLabels(ctx, "mail", LabelProviderGmail)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, label := range listed {
+			if label.Hidden != got[label.ID] {
+				t.Fatalf("the Folders dialog and the sidebar disagree about %s", label.ID)
+			}
+		}
+		settings := db.GetUISettings(ctx, "default")
+		got["unified"] = models.UnifiedTagAppearance(models.Label{Name: "Travel"}, settings).Hidden
+		return got
+	}
+
+	if got := hidden(); got["travel-label"] || got["travel-keyword"] || got["unified"] {
+		t.Fatalf("tags must show by default: %v", got)
+	}
+	if err := db.SetTagVisibility(ctx, "default", "travel-keyword", false); err != nil {
+		t.Fatalf("hide the IMAP keyword: %v", err)
+	}
+	if got := hidden(); !got["travel-keyword"] || got["travel-label"] || got["unified"] {
+		t.Fatalf("after hiding Work's Travel: %v", got)
+	}
+	if err := db.SetTagVisibility(ctx, "default", "travel-label", false); err != nil {
+		t.Fatalf("hide the Gmail label: %v", err)
+	}
+	if err := db.SetUnifiedTagVisibility(ctx, "default", unified, false); err != nil {
+		t.Fatalf("hide the unified tag: %v", err)
+	}
+	if got := hidden(); !got["travel-label"] || !got["unified"] {
+		t.Fatalf("after hiding all three: %v", got)
+	}
+	if err := db.SetUnifiedTagVisibility(ctx, "default", unified, true); err != nil {
+		t.Fatalf("show the unified tag: %v", err)
+	}
+	if got := hidden(); got["unified"] || !got["travel-label"] || !got["travel-keyword"] {
+		t.Fatalf("showing the unified tag changed the accounts' copies: %v", got)
+	}
+	for _, id := range []string{"travel-keyword", "travel-label"} {
+		if err := db.SetTagVisibility(ctx, "default", id, true); err != nil {
+			t.Fatalf("show %s: %v", id, err)
+		}
+	}
+	// Showing is the default, so it leaves no setting behind.
+	if count := visibilitySettingCount(t, db); count != 0 {
+		t.Fatalf("settings left: %d", count)
+	}
+}
+
+func TestTagVisibilityRefusesTagsTheSidebarHasNot(t *testing.T) {
+	db := seedVisibilityLabels(t)
+	ctx := t.Context()
+
+	for _, tc := range []struct {
+		name, owner, id string
+		unified         bool
+	}{
+		{"another user's", "someone-else", "travel-label", false},
+		{"one of Gmail's own", "default", "important", false},
+		{"Junk", "default", "junk", false},
+		{"an unknown one", "default", "missing", false},
+		{"another user's unified", "someone-else", models.UnifiedTagID("Travel"), true},
+		{"a unified one no account has", "default", models.UnifiedTagID("Lunch on Friday"), true},
+		{"a unified one by an account's ID", "default", "travel-label", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			set := db.SetTagVisibility
+			if tc.unified {
+				set = db.SetUnifiedTagVisibility
+			}
+			if err := set(ctx, tc.owner, tc.id, false); !errors.Is(err, ErrFolderNotManaged) {
+				t.Fatalf("hide = %v, want ErrFolderNotManaged", err)
+			}
+		})
+	}
+	if count := visibilitySettingCount(t, db); count != 0 {
+		t.Fatalf("refused tags saved %d settings", count)
+	}
+}

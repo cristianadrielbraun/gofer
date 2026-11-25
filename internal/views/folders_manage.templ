@@ -81,12 +81,16 @@ templ FoldersPanel(data models.FoldersData) {
 						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 							@TagAppearanceIcon(label)
 						</span>
-						<span class="min-w-0 flex-1 truncate text-sm">{ label.Name }</span>
+						<span class={ "min-w-0 flex-1 truncate text-sm", templ.KV("text-muted-foreground", label.Hidden) }>{ label.Name }</span>
+						if label.Hidden {
+							@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden"))
+						}
 						@folderActionsMenu(label.ID, label.Name) {
 							@folderActionsItem("folder-appearance", data.Account.ID, label.ID, label.Name, false, templ.Attributes{"data-tag-appearance": "", "data-tag-appearance-unified": label.IsUnified}) {
 								@icon.Palette(icon.Props{Class: "size-3.5"})
 								{ i18n.T(ctx, "mail.folder_menu.appearance") }
 							}
+							@folderVisibilityItem("tag", data.Account.ID, label.ID, label.Name, label.Hidden, templ.Attributes{"data-tag-appearance": ""})
 							@folderActionsItem("rename-label", data.Account.ID, label.ID, label.Name, false, nil) {
 								@icon.Pencil(icon.Props{Class: "size-3.5"})
 								{ i18n.T(ctx, "mail.folder_menu.rename_label") }
@@ -101,7 +105,7 @@ templ FoldersPanel(data models.FoldersData) {
 				}
 				</div>
 			} else {
-				@foldersOrderList(data.Account, data.Folders, 0, false)
+				@foldersOrderList(data.Account, data.Folders, 0, false, false)
 			}
 		</div>
 	</div>
@@ -109,22 +113,27 @@ templ FoldersPanel(data models.FoldersData) {
 
 // folderRowActions are what a folder's menu in the Folders dialog offers.
 type folderRowActions struct {
-	Appearance, NewSubfolder, Rules, Restore, Move, Rename, Delete bool
+	Appearance, Hide, Show, NewSubfolder, Rules, Restore, Move, Rename, Delete bool
 }
 
 func (a folderRowActions) any() bool {
-	return a.Appearance || a.NewSubfolder || a.Rules || a.Restore || a.Move || a.Rename || a.Delete
+	return a.Appearance || a.Hide || a.Show || a.NewSubfolder || a.Rules || a.Restore || a.Move || a.Rename || a.Delete
 }
 
 // folderRowActionsFor is what a folder's menu offers, as the sidebar's
 // menu does for it (fillSidebarContextMenu, app.js). Starred is a view, not
-// a folder. Only folders without a role can be renamed or deleted; one
-// inside Trash can be moved back out, and Local folders' own can move.
-func folderRowActionsFor(account models.Account, folder models.Folder, inTrash bool) folderRowActions {
+// a folder. Only folders without a role can be renamed, deleted or hidden
+// from the sidebar; one inside Trash can be moved back out, and Local
+// folders' own can move. The sidebar has no Show, as a hidden folder isn't
+// there; one inside a hidden folder has no Hide either, as it's hidden with
+// it.
+func folderRowActionsFor(account models.Account, folder models.Folder, inTrash, inHidden bool) folderRowActions {
 	custom := folder.Role == "custom"
 	view := folder.Role == "starred"
 	return folderRowActions{
 		Appearance:   !view,
+		Hide:         custom && !folder.Hidden && !inHidden,
+		Show:         custom && folder.Hidden,
 		NewSubfolder: !view,
 		Rules:        folderTakesRuleMail(folder.Role),
 		Restore:      custom && inTrash,
@@ -176,14 +185,15 @@ func newFolderAction(provider string) string {
 }
 
 // foldersOrderList holds folders next to each other, each with the folders
-// inside it, so each can be put in order among them.
-templ foldersOrderList(account models.Account, folders []models.Folder, depth int, inTrash bool) {
+// inside it, so each can be put in order among them. inHidden is set inside
+// a folder hidden from the sidebar.
+templ foldersOrderList(account models.Account, folders []models.Folder, depth int, inTrash, inHidden bool) {
 	<div data-folder-order-list data-account-id={ account.ID }>
 		for _, folder := range folders {
 			<div class="transition-transform duration-200 ease-out" data-folder-order-item data-folder-id={ folder.ID }>
-				@foldersPanelRow(account, folder, depth, inTrash)
+				@foldersPanelRow(account, folder, depth, inTrash, inHidden)
 				if len(folder.Children) > 0 {
-					@foldersOrderList(account, folder.Children, depth+1, inTrash || folder.Role == "trash")
+					@foldersOrderList(account, folder.Children, depth+1, inTrash || folder.Role == "trash", inHidden || folderHiddenInSidebar(folder))
 				}
 			</div>
 		}
@@ -192,17 +202,24 @@ templ foldersOrderList(account models.Account, folders []models.Folder, depth in
 
 // foldersPanelRow is one folder. Only folders without a role can be renamed
 // or deleted; one inside Trash can be moved back out. Local folders' own can
-// move anywhere in the account.
-templ foldersPanelRow(account models.Account, folder models.Folder, depth int, inTrash bool) {
+// move anywhere in the account. A folder hidden from the sidebar, or inside
+// one, has its name dimmed and a mark that says so.
+templ foldersPanelRow(account models.Account, folder models.Folder, depth int, inTrash, inHidden bool) {
 	{{ accountID := account.ID }}
-	{{ actions := folderRowActionsFor(account, folder, inTrash) }}
+	{{ actions := folderRowActionsFor(account, folder, inTrash, inHidden) }}
+	{{ hidden := folderHiddenInSidebar(folder) || (inHidden && folder.Role == "custom") }}
 	{{ name := i18n.FolderName(ctx, folder.Role, folder.Name) }}
 	<div class="flex items-center gap-2 rounded-md bg-background/60 py-1.5 pr-1 hover:bg-accent" style={ mailMoveIndent(depth) } data-folder-order-row>
 		@OrderHandle("data-folder-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", name))
 		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 			@FolderAppearanceIcon(folder)
 		</span>
-		<span class="min-w-0 flex-1 truncate text-sm">{ name }</span>
+		<span class={ "min-w-0 flex-1 truncate text-sm", templ.KV("text-muted-foreground", hidden) }>{ name }</span>
+		if folderHiddenInSidebar(folder) {
+			@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden"))
+		} else if hidden {
+			@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden_by_parent"))
+		}
 		if actions.any() {
 			@folderActionsMenu(folder.ID, name) {
 				if actions.Appearance {
@@ -210,6 +227,9 @@ templ foldersPanelRow(account models.Account, folder models.Folder, depth int, i
 						@icon.Palette(icon.Props{Class: "size-3.5"})
 						{ i18n.T(ctx, "mail.folder_menu.appearance") }
 					}
+				}
+				if actions.Hide || actions.Show {
+					@folderVisibilityItem("folder", accountID, folder.ID, folder.Name, actions.Show, nil)
 				}
 				if actions.NewSubfolder {
 					@folderActionsItem("new-subfolder", accountID, folder.ID, folder.Name, false, nil) {
@@ -258,6 +278,37 @@ templ foldersPanelRow(account models.Account, folder models.Folder, depth int, i
 			<span class="size-7 shrink-0" aria-hidden="true"></span>
 		}
 	</div>
+}
+
+// folderHiddenInSidebar reports whether the user hid the folder from the
+// sidebar. Special folders always show, whatever was saved for them before.
+func folderHiddenInSidebar(folder models.Folder) bool {
+	return folder.Role == "custom" && folder.Hidden
+}
+
+// folderHiddenMark is the eye-off beside a folder or label hidden from the
+// sidebar, with why as its name.
+templ folderHiddenMark(why string) {
+	<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground" title={ why } role="img" aria-label={ why } data-folder-hidden-mark>
+		@icon.EyeOff(icon.Props{Class: "size-3.5"})
+	</span>
+}
+
+// folderVisibilityItem hides a folder ("folder") or a tag ("tag", with its
+// data-tag-appearance in attrs) from the sidebar, or shows a hidden one
+// again.
+templ folderVisibilityItem(kind, accountID, id, name string, hidden bool, attrs templ.Attributes) {
+	if hidden {
+		@folderActionsItem("show-"+kind, accountID, id, name, false, attrs) {
+			@icon.Eye(icon.Props{Class: "size-3.5"})
+			{ i18n.T(ctx, "mail.folder_menu.show_in_sidebar") }
+		}
+	} else {
+		@folderActionsItem("hide-"+kind, accountID, id, name, false, attrs) {
+			@icon.EyeOff(icon.Props{Class: "size-3.5"})
+			{ i18n.T(ctx, "mail.folder_menu.hide_from_sidebar") }
+		}
+	}
 }
 
 // folderActionsMenu holds a folder's or a label's actions under one

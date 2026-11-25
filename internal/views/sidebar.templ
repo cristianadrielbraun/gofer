@@ -94,6 +94,12 @@ templ SidebarContextMenu() {
 			@sidebarContextItem("folder-appearance", i18n.T(ctx, "mail.folder_menu.appearance"), "") {
 				@icon.Palette(icon.Props{Class: "size-4"})
 			}
+			@sidebarContextItem("hide-folder", i18n.T(ctx, "mail.folder_menu.hide_from_sidebar"), "") {
+				@icon.EyeOff(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("hide-tag", i18n.T(ctx, "mail.folder_menu.hide_from_sidebar"), "") {
+				@icon.EyeOff(icon.Props{Class: "size-4"})
+			}
 			@sidebarContextItem("rename-folder", i18n.T(ctx, "mail.folder_menu.rename_folder"), "") {
 				@icon.FolderPen(icon.Props{Class: "size-4"})
 			}
@@ -997,7 +1003,7 @@ templ SidebarScheduledFolder(activeFolder string, scheduledCount int, uiSettings
 
 templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
 	{{ folders := unifiedFolders(accounts, uiSettings) }}
-	{{ labels := unifiedSidebarLabels(accounts, uiSettings) }}
+	{{ labels := sidebarLabels(unifiedSidebarLabels(accounts, uiSettings)) }}
 	if len(folders) > 0 || len(labels) > 0 {
 		{{ active := unifiedHasActiveFolder(activeFolder, uiSettings, filters) }}
 		{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
@@ -1048,7 +1054,7 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 				for _, folder := range sidebarFoldersForAccount(account) {
 					@SidebarFolderItem(folder, activeFolder, account.ID, uiSettings)
 				}
-				@SidebarTagGroup(account.Labels, activeFolder, filters, account.ID, uiSettings)
+				@SidebarTagGroup(sidebarLabels(account.Labels), activeFolder, filters, account.ID, uiSettings)
 			</div>
 		</div>
 	</div>

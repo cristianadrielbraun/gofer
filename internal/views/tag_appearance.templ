@@ -3,6 +3,7 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -18,6 +19,9 @@ templ TagAppearanceButton(label models.Label) {
 	</button>
 }
 
+// tagAppearanceSettingRow is one tag: its look, and a switch for whether it
+// shows in the sidebar, which is where a hidden tag is shown again
+// (toggleTagSidebarVisibility, app.js).
 templ tagAppearanceSettingRow(label models.Label) {
 	<div class="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/40">
 		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
@@ -25,6 +29,17 @@ templ tagAppearanceSettingRow(label models.Label) {
 		</span>
 		<span class="min-w-0 flex-1 truncate text-sm">{ label.Name }</span>
 		@TagAppearanceButton(label)
+		@switchcomp.Switch(switchcomp.Props{
+			Checked: !label.Hidden,
+			Attributes: templ.Attributes{
+				"aria-label":               i18n.T(ctx, "appearance.tag_in_sidebar", "name", label.Name),
+				"data-tag-visibility":      label.ID,
+				"data-tag-visibility-account": label.AccountID,
+				"data-tag-visibility-name": label.Name,
+				"data-tag-visibility-unified": label.IsUnified,
+				"data-on-change":           onAction("toggleTagSidebarVisibility", actionElement),
+			},
+		})
 	</div>
 }
 

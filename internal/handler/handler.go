@@ -601,6 +601,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tags/{id}/appearance", h.handleSaveTagAppearance)
 	mux.HandleFunc("GET /api/unified-tags/{id}/appearance", h.handleUnifiedTagAppearance)
 	mux.HandleFunc("POST /api/unified-tags/{id}/appearance", h.handleSaveUnifiedTagAppearance)
+	mux.HandleFunc("POST /api/tags/{id}/visibility", h.handleSaveTagVisibility)
+	mux.HandleFunc("POST /api/unified-tags/{id}/visibility", h.handleSaveUnifiedTagVisibility)
 	mux.HandleFunc("POST /api/virtual-folders/{id}/appearance", h.handleSaveVirtualFolderAppearance)
 	mux.HandleFunc("GET /api/folders/{id}/appearance", h.handleFolderAppearance)
 	mux.HandleFunc("POST /api/folders/{id}/appearance", h.handleSaveFolderAppearance)

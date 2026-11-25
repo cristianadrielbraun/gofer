@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 func TestFolderVisibilityHTTPPersistence(t *testing.T) {
@@ -190,5 +194,143 @@ func TestFolderVisibilityHTTPRestrictions(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("rejected operations wrote %d preferences", count)
+	}
+}
+
+// A folder hidden from the sidebar stays in the Folders dialog, dimmed with
+// a mark, and its menu shows it again. A folder inside it is marked too,
+// with nothing to hide, and Inbox under it can't be hidden at all. The same
+// goes for a Gmail label.
+func TestFoldersDialogShowsHiddenFolders(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := t.Context()
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO folders (id, account_id, parent_id, remote_id, name, role, selectable, sort_order) VALUES
+		('f-inbox', 'victim-account', NULL, 'INBOX', 'Inbox', 'inbox', 1, 0),
+		('f-trips', 'victim-account', NULL, 'Trips', 'Trips', 'custom', 1, 1),
+		('f-coast', 'victim-account', 'f-trips', 'Trips/Coast', 'Coast', 'custom', 1, 2),
+		('f-plans', 'victim-account', NULL, 'Plans', 'Plans', 'custom', 1, 3)`); err != nil {
+		t.Fatalf("insert folders: %v", err)
+	}
+	account := map[string]string{"id": "victim-account"}
+	hide := func(handler http.HandlerFunc, kind, id string) {
+		t.Helper()
+		rec := identityRequest(t, h, handler, http.MethodPost, "/api/"+kind+"/"+id+"/visibility", map[string]string{"id": id}, url.Values{"visible": {"false"}}, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("hide %s = %d %q", id, rec.Code, rec.Body.String())
+		}
+	}
+	hide(h.handleSaveFolderVisibility, "folders", "f-trips")
+
+	rec := identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/", account, nil, true)
+	body := rec.Body.String()
+	actions := folderMenuActions(body)
+	for _, want := range []string{"show-folder f-trips", "hide-folder f-plans"} {
+		if !actions[want] {
+			t.Errorf("menus lack %s: %v", want, actions)
+		}
+	}
+	for _, unwanted := range []string{"hide-folder f-trips", "hide-folder f-coast", "show-folder f-coast", "hide-folder f-inbox", "show-folder f-plans"} {
+		if actions[unwanted] {
+			t.Errorf("menus have %s", unwanted)
+		}
+	}
+	if got := strings.Count(body, "data-folder-hidden-mark"); got != 2 {
+		t.Errorf("hidden marks = %d, want 2 (Trips and Coast)", got)
+	}
+	if !strings.Contains(body, `aria-label="Hidden from the sidebar with the folder it&#39;s in"`) {
+		t.Errorf("Coast doesn't say why it's hidden: %q", body)
+	}
+
+	if _, err := db.Write().ExecContext(ctx, `UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertLabels(ctx, []storage.LabelInput{
+		{AccountID: "victim-account", Name: "Receipts", ProviderID: "Label_1", ProviderType: storage.LabelProviderGmail},
+		{AccountID: "victim-account", Name: "Travel", ProviderID: "Label_2", ProviderType: storage.LabelProviderGmail},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	labels, err := db.ProviderLabels(ctx, "victim-account", storage.LabelProviderGmail)
+	if err != nil || len(labels) != 2 {
+		t.Fatalf("labels = %v, %v", labels, err)
+	}
+	ids := map[string]string{}
+	for _, label := range labels {
+		ids[label.Name] = label.ID
+	}
+	hide(h.handleSaveTagVisibility, "tags", ids["Receipts"])
+
+	rec = identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/", account, nil, true)
+	body = rec.Body.String()
+	actions = folderMenuActions(body)
+	if !actions["show-tag "+ids["Receipts"]] || !actions["hide-tag "+ids["Travel"]] || actions["hide-tag "+ids["Receipts"]] {
+		t.Errorf("label menus = %v", actions)
+	}
+	if got := strings.Count(body, "data-folder-hidden-mark"); got != 1 {
+		t.Errorf("hidden marks = %d, want 1 (Receipts)", got)
+	}
+}
+
+// Any of the owner's tags can be hidden, an IMAP keyword as well as a Gmail
+// label, and a tag of all accounts on its own; another user's can't.
+func TestTagVisibilityHTTP(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := t.Context()
+	if err := db.UpsertLabels(ctx, []storage.LabelInput{
+		{AccountID: "victim-account", Name: "Clients", ProviderID: "Clients", ProviderType: "imap_keyword"},
+		{AccountID: "attacker-account", Name: "Receipts", ProviderID: "Label_1", ProviderType: storage.LabelProviderGmail},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	rows, err := db.Read().QueryContext(ctx, `SELECT account_id, id FROM labels`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var accountID, id string
+		if err := rows.Scan(&accountID, &id); err != nil {
+			t.Fatal(err)
+		}
+		ids[accountID] = id
+	}
+	rows.Close()
+
+	post := func(handler http.HandlerFunc, id string) int {
+		t.Helper()
+		return identityRequest(t, h, handler, http.MethodPost, "/visibility", map[string]string{"id": id}, url.Values{"visible": {"false"}}, true).Code
+	}
+	if code := post(h.handleSaveTagVisibility, ids["victim-account"]); code != http.StatusOK {
+		t.Fatalf("hide the IMAP keyword = %d", code)
+	}
+	if code := post(h.handleSaveUnifiedTagVisibility, models.UnifiedTagID("Clients")); code != http.StatusOK {
+		t.Fatalf("hide the unified Clients = %d", code)
+	}
+	for name, code := range map[string]int{
+		"another user's tag":         post(h.handleSaveTagVisibility, ids["attacker-account"]),
+		"another user's unified tag": post(h.handleSaveUnifiedTagVisibility, models.UnifiedTagID("Receipts")),
+		"an unknown tag":             post(h.handleSaveTagVisibility, "missing"),
+	} {
+		if code != http.StatusNotFound {
+			t.Errorf("%s: HTTP %d, want 404", name, code)
+		}
+	}
+	var keys []string
+	rows, err = db.Read().QueryContext(ctx, `SELECT key FROM app_settings WHERE key LIKE '%tag_visible:%' ORDER BY key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, key)
+	}
+	rows.Close()
+	want := []string{"tag_visible:" + ids["victim-account"], "unified_tag_visible:" + models.UnifiedTagID("Clients")}
+	if strings.Join(keys, " ") != strings.Join(want, " ") {
+		t.Fatalf("settings = %v, want %v", keys, want)
 	}
 }
