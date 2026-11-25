@@ -187,6 +187,18 @@ func GroupConditions(rule *models.MailRule) {
 // grouped, with lower-case values where case doesn't matter. Its error is
 // shown to the person who wrote the rule.
 func Validate(rule *models.MailRule) error {
+	return validate(rule, false)
+}
+
+// ValidateImported checks a rule read from a rules file, as Validate does,
+// but also takes what the import couldn't find here: folders with no ID
+// (MailRuleFolderTarget.Missing), and no account left of the accounts it
+// was for. Such a rule is kept to be fixed, and doesn't run until it is.
+func ValidateImported(rule *models.MailRule) error {
+	return validate(rule, true)
+}
+
+func validate(rule *models.MailRule, imported bool) error {
 	GroupConditions(rule)
 	rule.Name = strings.TrimSpace(rule.Name)
 	accounts := rule.AccountIDs[:0]
@@ -198,7 +210,7 @@ func Validate(rule *models.MailRule) error {
 	rule.AccountIDs = accounts
 	if !rule.AccountsChosen {
 		rule.AccountIDs = nil
-	} else if len(rule.AccountIDs) == 0 {
+	} else if len(rule.AccountIDs) == 0 && !imported {
 		return errors.New("choose the accounts the rule is for")
 	}
 	if rule.Name == "" {
@@ -219,7 +231,7 @@ func Validate(rule *models.MailRule) error {
 		return fmt.Errorf("a rule can have at most %d conditions", MaxConditions)
 	}
 	for i := range rule.Conditions {
-		if err := validateCondition(&rule.Conditions[i]); err != nil {
+		if err := validateCondition(&rule.Conditions[i], imported); err != nil {
 			return err
 		}
 	}
@@ -233,7 +245,7 @@ func Validate(rule *models.MailRule) error {
 	location := ""
 	for i := range rule.Actions {
 		action := &rule.Actions[i]
-		if err := validateAction(action); err != nil {
+		if err := validateAction(action, imported); err != nil {
 			return err
 		}
 		if MovesMessage(action.Kind) {
@@ -261,7 +273,7 @@ func MovesMessage(kind string) bool {
 	return false
 }
 
-func validateCondition(condition *models.MailRuleCondition) error {
+func validateCondition(condition *models.MailRuleCondition, imported bool) error {
 	condition.Field = strings.TrimSpace(condition.Field)
 	condition.Operator = strings.TrimSpace(condition.Operator)
 	if condition.Field == models.MailRuleFieldFolder {
@@ -269,7 +281,7 @@ func validateCondition(condition *models.MailRuleCondition) error {
 			return errors.New("a folder condition can only be \"is\" or \"is not\"")
 		}
 		condition.Value = ""
-		return validateFolderTarget(condition.Folder)
+		return validateFolderTarget(condition.Folder, imported)
 	}
 	condition.Folder = nil
 	switch condition.Field {
@@ -298,7 +310,7 @@ func validateCondition(condition *models.MailRuleCondition) error {
 	return nil
 }
 
-func validateAction(action *models.MailRuleAction) error {
+func validateAction(action *models.MailRuleAction, imported bool) error {
 	action.Kind = strings.TrimSpace(action.Kind)
 	if action.Kind != models.MailRuleActionMove {
 		action.ForGood = false
@@ -312,7 +324,7 @@ func validateAction(action *models.MailRuleAction) error {
 		if action.Folder.Role == "sent" || action.Folder.Role == "drafts" {
 			return errors.New("mail can't be moved to Sent or Drafts")
 		}
-		if err := validateFolderTarget(action.Folder); err != nil {
+		if err := validateFolderTarget(action.Folder, imported); err != nil {
 			return err
 		}
 		// A folder named by role is in the message's own account, where a
@@ -339,13 +351,14 @@ func validateAction(action *models.MailRuleAction) error {
 	return nil
 }
 
-func validateFolderTarget(target *models.MailRuleFolderTarget) error {
+func validateFolderTarget(target *models.MailRuleFolderTarget, imported bool) error {
 	if target == nil {
 		return errors.New("choose a folder")
 	}
 	target.Role = strings.TrimSpace(target.Role)
 	target.FolderID = strings.TrimSpace(target.FolderID)
 	target.Path = strings.TrimSpace(target.Path)
+	target.AccountName = strings.TrimSpace(target.AccountName)
 	if target.Role != "" {
 		if target.Role == "spam" {
 			target.Role = "junk"
@@ -357,13 +370,18 @@ func validateFolderTarget(target *models.MailRuleFolderTarget) error {
 		if !valid {
 			return fmt.Errorf("unknown folder %q", target.Role)
 		}
-		target.FolderID, target.Path, target.AccountID = "", "", ""
+		target.FolderID, target.Path, target.AccountID, target.AccountName = "", "", "", ""
 		return nil
 	}
-	if target.FolderID == "" {
+	target.AccountID = strings.TrimSpace(target.AccountID)
+	if target.FolderID != "" {
+		target.AccountName = ""
+		return nil
+	}
+	// A folder an import didn't find is kept by its name, to show it.
+	if !imported || target.Path == "" {
 		return errors.New("choose a folder")
 	}
-	target.AccountID = strings.TrimSpace(target.AccountID)
 	return nil
 }
 

@@ -190,6 +190,64 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 			return models.MailRule{}, err
 		}
 	}
+	saved, err := saveMailRuleTx(ctx, tx, userID, rule)
+	if err != nil {
+		return models.MailRule{}, err
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return models.MailRule{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return models.MailRule{}, err
+	}
+	return saved, nil
+}
+
+// ImportMailRulesGuarded adds rules read from a rules file after the
+// owner's own, in the order given, all in one change, and returns them as
+// stored. Each is checked as mailrules.ValidateImported checks it, so a
+// rule may name folders the import didn't find, or be left for no account;
+// the folders and accounts it does name must be the owner's, as when a rule
+// is saved. Nothing is added when one rule is refused, or when they would
+// take the owner past the most rules one may have (ErrTooManyMailRules).
+func (db *DB) ImportMailRulesGuarded(ctx context.Context, userID string, rules []models.MailRule, guard func(*sql.Tx) error) ([]models.MailRule, error) {
+	rules = slices.Clone(rules)
+	for i := range rules {
+		rules[i].ID = ""
+		if err := mailrules.ValidateImported(&rules[i]); err != nil {
+			return nil, fmt.Errorf("rule %q: %w", rules[i].Name, err)
+		}
+	}
+	var saved []models.MailRule
+	err := db.mailRuleWrite(ctx, guard, func(tx *sql.Tx) error {
+		saved = make([]models.MailRule, 0, len(rules))
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mail_rules WHERE user_id = ?`, userID).Scan(&count); err != nil {
+			return err
+		}
+		if count+len(rules) > mailrules.MaxRulesPerOwner {
+			return ErrTooManyMailRules
+		}
+		for _, rule := range rules {
+			stored, err := saveMailRuleTx(ctx, tx, userID, rule)
+			if err != nil {
+				return fmt.Errorf("rule %q: %w", rule.Name, err)
+			}
+			saved = append(saved, stored)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return saved, nil
+}
+
+// saveMailRuleTx stores a rule already checked, as SaveMailRuleGuarded
+// says.
+func saveMailRuleTx(ctx context.Context, tx *sql.Tx, userID string, rule models.MailRule) (models.MailRule, error) {
 	for _, accountID := range rule.AccountIDs {
 		var owned bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0)`,
@@ -213,6 +271,18 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 	}
 	for _, entry := range targets {
 		target := entry.target
+		if target != nil && target.Missing() && target.AccountID != "" {
+			// A folder an import didn't find keeps the account it was in,
+			// when that account is here.
+			var owned bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0)`,
+				target.AccountID, userID).Scan(&owned); err != nil {
+				return models.MailRule{}, err
+			}
+			if !owned {
+				return models.MailRule{}, sql.ErrNoRows
+			}
+		}
 		if target == nil || target.FolderID == "" {
 			continue
 		}
@@ -274,19 +344,7 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 	if err := saveMailRuleTagsTx(ctx, tx, userID, rule.ID, rule.Tags); err != nil {
 		return models.MailRule{}, err
 	}
-	saved, err := scanMailRule(tx.QueryRowContext(ctx, `SELECT `+mailRuleColumns+` FROM mail_rules WHERE id = ?`, rule.ID).Scan)
-	if err != nil {
-		return models.MailRule{}, err
-	}
-	if guard != nil {
-		if err := guard(tx); err != nil {
-			return models.MailRule{}, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return models.MailRule{}, err
-	}
-	return saved, nil
+	return scanMailRule(tx.QueryRowContext(ctx, `SELECT `+mailRuleColumns+` FROM mail_rules WHERE id = ?`, rule.ID).Scan)
 }
 
 // SetMailRuleEnabledGuarded turns one of the owner's rules on or off.

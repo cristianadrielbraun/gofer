@@ -67,6 +67,34 @@ type MailRuleFolderTarget struct {
 	// before a rule could name another account's folder leave it empty: the
 	// folder is then in the account the message is in.
 	AccountID string `json:"account_id,omitempty"`
+	// AccountName is set, with no FolderID, on a folder an imported rule
+	// names that wasn't found here: it is the address, or the name, of the
+	// account the folder was in, which may not be here either (AccountID is
+	// then empty). Such a folder is shown by Path and AccountName until
+	// another is chosen; the rule doesn't run until then.
+	AccountName string `json:"account_name,omitempty"`
+}
+
+// Missing reports whether the target names a folder that an import didn't
+// find: one with neither a role nor an ID.
+func (t MailRuleFolderTarget) Missing() bool {
+	return t.Role == "" && t.FolderID == ""
+}
+
+// MissingFolders reports whether a condition or an action of the rule names
+// a folder that an import didn't find, which keeps the rule from running.
+func (r MailRule) MissingFolders() bool {
+	for _, condition := range r.Conditions {
+		if condition.Folder != nil && condition.Folder.Missing() {
+			return true
+		}
+	}
+	for _, action := range r.Actions {
+		if action.Folder != nil && action.Folder.Missing() {
+			return true
+		}
+	}
+	return false
 }
 
 // WatchesAccount reports whether the rule runs on an account's mail.

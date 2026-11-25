@@ -204,6 +204,11 @@ func (db *DB) newMailRuleRunner(ctx context.Context, accountID string, only []mo
 		return nil, err
 	}
 	for _, rule := range rules {
+		// An imported rule that names a folder the import didn't find waits
+		// for another to be chosen; it is turned off, and the list says why.
+		if rule.MissingFolders() {
+			continue
+		}
 		// A folder named by ID may have a new ID since, after being renamed
 		// outside Gofer; its name finds it.
 		for i := range rule.Conditions {
@@ -270,7 +275,10 @@ func (r *mailRuleRunner) findFolder(target models.MailRuleFolderTarget) (mailRul
 	if folder, ok := r.folders[target.FolderID]; ok {
 		return folder, true
 	}
-	if target.Path != "" {
+	// The name only finds again a folder whose ID changed. A folder an
+	// import didn't find has no ID, and its name is only shown: a folder of
+	// the same name in this account is not the one the rule was written for.
+	if target.FolderID != "" && target.Path != "" {
 		for _, folder := range r.folders {
 			if folder.remoteID == target.Path {
 				return folder, true
