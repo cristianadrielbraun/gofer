@@ -27,24 +27,33 @@ const calDAVLunchStored = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example//
 	"BEGIN:VEVENT\r\nUID:lunch\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20261205T100000Z\r\nDTEND:20261205T110000Z\r\nSUMMARY:Lunch\r\nEND:VEVENT\r\n" +
 	"END:VCALENDAR\r\n"
 
+const calDAVReviewInvalidExpansion = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example//Test//EN\r\n" +
+	"BEGIN:VEVENT\r\nUID:review\r\nDTSTAMP:20260101T000000Z\r\n" +
+	"RECURRENCE-ID:20261202T080000Z\r\nDTSTART:20261202T080000Z\r\n" +
+	"DTEND:20261202T090000Z\r\nDURATION:PT1H\r\nSUMMARY:Review\r\nEND:VEVENT\r\n" +
+	"END:VCALENDAR\r\n"
+
 // cannotExpandServer answers like Baïkal with a calendar whose timezone its
 // admin pages stored: every request that asks to expand fails. With
 // ignoresExpand it accepts those requests instead and answers them with the
-// events as stored, as some servers do.
+// events as stored, as some servers do. With invalidExpansion it sends
+// an expanded instance with both DTEND and DURATION.
 type cannotExpandServer struct {
-	ignoresExpand bool
-	mu            sync.Mutex
-	expanded      int // expanding requests, all refused or left unexpanded
-	plain         int // requests for the events as stored
+	ignoresExpand    bool
+	invalidExpansion bool
+	mu               sync.Mutex
+	expanded         int // expanding requests, all refused or left unexpanded
+	plain            int // requests for the events as stored
 }
 
 func (s *cannotExpandServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.Contains(string(body), "expand") {
+	expanding := strings.Contains(string(body), "expand")
+	if expanding {
 		s.expanded++
-		if !s.ignoresExpand {
+		if !s.ignoresExpand && !s.invalidExpansion {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -54,6 +63,9 @@ func (s *cannotExpandServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resources := map[string]string{"/cal/review.ics": calDAVReviewStored, "/cal/lunch.ics": calDAVLunchStored}
 	if strings.Contains(string(body), "calendar-multiget") {
 		resources = map[string]string{"/cal/review.ics": calDAVReviewStored}
+	}
+	if expanding && s.invalidExpansion {
+		resources["/cal/review.ics"] = calDAVReviewInvalidExpansion
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusMultiStatus)
@@ -80,6 +92,9 @@ func (s *cannotExpandServer) counts() (expanded, plain int) {
 func TestCalDAVSyncExpandsItselfWhenTheServerCannot(t *testing.T) {
 	t.Run("server fails", func(t *testing.T) { testCalDAVSyncExpandsItself(t, &cannotExpandServer{}) })
 	t.Run("server answers unexpanded", func(t *testing.T) { testCalDAVSyncExpandsItself(t, &cannotExpandServer{ignoresExpand: true}) })
+	t.Run("server expands with conflicting end fields", func(t *testing.T) {
+		testCalDAVSyncExpandsItself(t, &cannotExpandServer{invalidExpansion: true})
+	})
 }
 
 func testCalDAVSyncExpandsItself(t *testing.T, fake *cannotExpandServer) {
