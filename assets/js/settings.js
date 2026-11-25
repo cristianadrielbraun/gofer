@@ -1126,9 +1126,19 @@ function mailRulesFolderFilter(panel) {
 
 // mailRuleFolders are the folders a rule moves mail into.
 function mailRuleFolders(row) {
+  return mailRuleRowList(row, "data-mail-rule-folders")
+}
+
+// mailRuleTags are a rule's categories.
+function mailRuleTags(row) {
+  return mailRuleRowList(row, "data-mail-rule-tags")
+}
+
+// mailRuleRowList is a list a rule's row carries as JSON in attribute.
+function mailRuleRowList(row, attribute) {
   try {
-    var folders = JSON.parse(row.getAttribute("data-mail-rule-folders") || "[]")
-    return Array.isArray(folders) ? folders : []
+    var list = JSON.parse(row.getAttribute(attribute) || "[]")
+    return Array.isArray(list) ? list : []
   } catch (err) {
     return []
   }
@@ -1160,13 +1170,17 @@ function mailRuleRowsSelected(panel) {
 // can be done to them. The bar opens with the first rule selected and
 // closes with the last, unless still, as when the list is drawn again with
 // rules already selected. Moving them is off while searching, since where
-// they would go among the hidden rules can't be seen.
+// they would go among the hidden rules can't be seen, and removing
+// categories is off when none of them has one.
 function updateMailRuleSelection(still) {
   var panel = document.getElementById("mail-rules-panel")
   var bar = panel && panel.querySelector("[data-mail-rules-selection]")
   if (!bar) return
   var shown = mailRuleRowsShown(panel)
-  var selected = shown.filter(function (row) { return mailRuleOrder.selected(row) }).length
+  var chosen = shown.filter(function (row) { return mailRuleOrder.selected(row) })
+  var selected = chosen.length
+  var removeTags = document.querySelector('[data-mail-rules-selection-action="tags-remove"]')
+  if (removeTags) removeTags.disabled = !chosen.some(function (row) { return mailRuleTags(row).length > 0 })
   var all = bar.querySelector("[data-mail-rules-select-all]")
   if (all) {
     all.checked = shown.length > 0 && selected === shown.length
@@ -1228,8 +1242,18 @@ document.addEventListener("click", function (e) {
     changeSelectedMailRules("enabled", rows, { enabled: action === "on" ? "1" : "" })
   } else if (action === "delete") {
     deleteSelectedMailRules(rows)
+  } else if (action === "tags-add" || action === "tags-remove") {
+    openMailRuleTagChange(rows, action === "tags-remove")
   }
 })
+
+// openMailRuleTagChange opens the dialog that adds categories to the
+// selected rules, or with remove, takes some off them.
+function openMailRuleTagChange(rows, remove) {
+  if (!window.htmx) return
+  var query = "rule_ids=" + encodeURIComponent(rows.map(mailRuleOrder.id).join(",")) + (remove ? "&remove=1" : "")
+  window.htmx.ajax("GET", "/api/settings/rules/selected/tags?" + query, { target: "#mail-rule-dialog-container", swap: "innerHTML" })
+}
 
 // showMailRuleSelection opens or closes the selection bar, folding it as
 // the list's rules fold in and out. Changing course midway goes straight

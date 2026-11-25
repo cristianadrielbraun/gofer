@@ -39,18 +39,27 @@ func CleanTag(tag string) string {
 	return strings.TrimSpace(strings.TrimLeft(tag, "#"))
 }
 
-// CheckTag cleans a tag and says why it can't be one: there's nothing left
-// of it, it is too long, or it has a comma, which the tags field separates
-// tags with. Its error is shown to the person who wrote the tag.
+// TagError is a tag refused, or too many tags, saying why for the person who
+// wrote them to change them.
+type TagError string
+
+func (e TagError) Error() string { return string(e) }
+
+// ErrTooManyTags is a rule given more tags than one may have.
+var ErrTooManyTags = TagError(fmt.Sprintf("a rule can have at most %d tags", MaxTagsPerRule))
+
+// CheckTag cleans a tag and says why it can't be one, as a TagError: there's
+// nothing left of it, it is too long, or it has a comma, which the tags
+// field separates tags with.
 func CheckTag(tag string) (string, error) {
 	tag = CleanTag(tag)
 	switch {
 	case tag == "":
-		return "", errors.New("enter the tag to add")
+		return "", TagError("enter the tag to add")
 	case strings.Contains(tag, ","):
-		return "", errors.New("a tag can't contain a comma")
+		return "", TagError("a tag can't contain a comma")
 	case utf8.RuneCountInString(tag) > MaxTagLength:
-		return "", fmt.Errorf("a tag can be at most %d characters", MaxTagLength)
+		return "", TagError(fmt.Sprintf("a tag can be at most %d characters", MaxTagLength))
 	}
 	return tag, nil
 }
@@ -74,7 +83,7 @@ func checkTags(tags []string) ([]string, error) {
 		}
 	}
 	if len(kept) > MaxTagsPerRule {
-		return nil, fmt.Errorf("a rule can have at most %d tags", MaxTagsPerRule)
+		return nil, ErrTooManyTags
 	}
 	if len(kept) == 0 {
 		return nil, nil

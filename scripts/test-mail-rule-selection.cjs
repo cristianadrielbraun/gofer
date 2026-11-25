@@ -26,14 +26,15 @@ assert.equal(step('abcde', 'ace', -1), 'acbed', 'the top one stays, the others m
 
 // The list: three rules, a box that selects them all, and the bar.
 const box = () => ({checked: false, matches: s => s === '[data-mail-rule-select]'})
-const rule = (id, name) => {
+const rule = (id, name, tags = []) => {
   const each = box()
   return {id, name, box: each, hidden: false, attrs: {},
     toggleAttribute(n, on) { if (on) this.attrs[n] = ''; else delete this.attrs[n] },
-    getAttribute: n => n === 'data-mail-rule-id' ? id : null,
+    getAttribute: n => n === 'data-mail-rule-id' ? id : n === 'data-mail-rule-tags' ? JSON.stringify(tags) : null,
     querySelector: s => s === '[data-mail-rule-select]' ? each : s === '[data-mail-rule-name]' ? {getAttribute: () => name} : null}
 }
-const rows = [rule('r1', 'Offers'), rule('r2', 'Orders'), rule('r3', 'Lunch on Friday')]
+const rows = [rule('r1', 'Offers'), rule('r2', 'Orders', ['Shopping']), rule('r3', 'Lunch on Friday')]
+const removeTags = {disabled: false}
 const all = {checked: false, indeterminate: false, disabled: false, matches: s => s === '[data-mail-rules-select-all]'}
 const count = {textContent: ''}
 const moves = [{disabled: false}, {disabled: false}]
@@ -54,6 +55,7 @@ const context = vm.createContext({
     getElementById: id => id === 'mail-rules-panel' ? panel : null,
     querySelectorAll: s => s.includes('data-mail-rules-selection-action="up"') ? moves : [],
     querySelector: s => {
+      if (s === '[data-mail-rules-selection-action="tags-remove"]') return removeTags
       const id = /data-mail-rule-id="([^"]+)"\] \[data-mail-rule-select\]$/.exec(s)
       return id ? (rows.find(r => r.id === id[1]) || {}).box || null : null
     },
@@ -126,6 +128,18 @@ pick(rows[2], false)
 click({'data-mail-rules-selection-action': 'delete'})
 assert.match(confirms.pop().message, /Offers/, 'deleting one names it')
 
+// Categories: the dialogs load for the selected rules, and removing is off
+// until one of them has a category.
+click({'data-mail-rules-selection-clear': ''})
+pick(rows[0], true)
+assert.equal(removeTags.disabled, true, 'no selected rule has a category: nothing to remove')
+pick(rows[1], true)
+assert.equal(removeTags.disabled, false, 'one does: its categories can be removed')
+click({'data-mail-rules-selection-action': 'tags-add'})
+assert.deepEqual(requests.pop(), {method: 'GET', url: '/api/settings/rules/selected/tags?rule_ids=r1%2Cr2', values: undefined})
+click({'data-mail-rules-selection-action': 'tags-remove'})
+assert.equal(requests.pop().url, '/api/settings/rules/selected/tags?rule_ids=r1%2Cr2&remove=1')
+
 click({'data-mail-rules-selection-clear': ''})
 assert.deepEqual(rows.map(r => r.box.checked), [false, false, false], 'clear selects none')
 assert.equal(bar.hidden, true)
@@ -134,4 +148,4 @@ assert.equal(bar.hidden, true)
 context.searchMailRulesAgain({loaded: true, rules: ['r1', 'r2', 'r3'], selected: ['r2', 'gone']})
 assert.deepEqual(rows.map(r => r.box.checked), [false, true, false], 'a redrawn list keeps the selection')
 assert.equal(count.textContent, 'js.settings.rules.selected:1')
-console.log('Rules selection: select all, search, menu actions, moving several and redraws passed.')
+console.log('Rules selection: select all, search, menu actions, categories, moving several and redraws passed.')

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
@@ -22,6 +23,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/skeleton"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
+	"github.com/cristianadrielbraun/gofer/components/tagsinput"
 )
 
 // SettingsRulesTab loads the rules once the tab shows.
@@ -115,6 +117,10 @@ templ MailRuleDialog(data models.MailRulesData) {
 				@dialog.Title() {
 					if data.Run != nil {
 						{ i18n.T(ctx, "rules.run.title", "name", data.Run.Rule.Name) }
+					} else if data.TagChange != nil && data.TagChange.Remove {
+						{ i18n.T(ctx, "rules.categories.remove_title") }
+					} else if data.TagChange != nil {
+						{ i18n.T(ctx, "rules.categories.add_title") }
 					} else if data.Editing != nil && data.Editing.ID != "" {
 						{ i18n.T(ctx, "rules.edit_title") }
 					} else {
@@ -124,6 +130,10 @@ templ MailRuleDialog(data models.MailRulesData) {
 				@dialog.Description() {
 					if data.Run != nil {
 						<span data-mail-rule-run-summary>{ mailRuleRunSummary(ctx, data.Run.Rule, data.Accounts) }</span>
+					} else if data.TagChange != nil && data.TagChange.Remove {
+						{ i18n.N(ctx, "rules.categories.remove_description", len(data.TagChange.RuleIDs), "count", i18n.Number(ctx, len(data.TagChange.RuleIDs))) }
+					} else if data.TagChange != nil {
+						{ i18n.N(ctx, "rules.categories.add_description", len(data.TagChange.RuleIDs), "count", i18n.Number(ctx, len(data.TagChange.RuleIDs))) }
 					} else {
 						{ i18n.T(ctx, "rules.description") }
 					}
@@ -140,6 +150,8 @@ templ MailRuleDialogPanel(data models.MailRulesData) {
 	<div id="mail-rule-dialog-panel" class="flex min-h-0 min-w-0 flex-1 flex-col" data-mail-rule-dialog-panel>
 		if data.Run != nil {
 			@mailRuleRunView(data)
+		} else if data.TagChange != nil {
+			@mailRuleTagChangeForm(data)
 		} else if data.Editing != nil {
 			@mailRuleForm(data, *data.Editing)
 		}
@@ -238,6 +250,15 @@ templ mailRulesSelection() {
 						{ i18n.T(ctx, "rules.bulk.move_down") }
 					}
 					@dropdown.Separator()
+					@mailRulesSelectionItem("tags-add", false) {
+						@icon.BookmarkPlus(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.tags_add") }
+					}
+					@mailRulesSelectionItem("tags-remove", false) {
+						@icon.BookmarkMinus(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.tags_remove") }
+					}
+					@dropdown.Separator()
 					@mailRulesSelectionItem("delete", true) {
 						@icon.Trash2(icon.Props{Class: "size-3.5"})
 						{ i18n.T(ctx, "rules.bulk.delete") }
@@ -258,7 +279,7 @@ templ mailRulesSelectionItem(action string, destructive bool) {
 }
 
 templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
-	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) } data-mail-rule-folders={ mailRuleDestinationsAttr(data.Destinations[rule.ID]) }>
+	<li data-mail-rule-row data-mail-rule-id={ rule.ID } data-folder-picker-row data-search-text={ mailRuleSearchText(ctx, rule, data.Accounts) } data-mail-rule-folders={ mailRuleDestinationsAttr(data.Destinations[rule.ID]) } data-mail-rule-tags={ mailRuleDestinationsAttr(rule.Tags) }>
 		<div class="mail-rule-card flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
 			@checkbox.Checkbox(checkbox.Props{Value: rule.ID, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "rules.select_named", "name", rule.Name), "data-mail-rule-select": ""}})
 			<button
@@ -289,6 +310,18 @@ templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
 					}
 					<span class="truncate">{ mailRuleListSummary(ctx, rule, data.Accounts) }</span>
 				</p>
+				if len(rule.Tags) > 0 {
+					<ul class="mt-1.5 flex flex-wrap gap-1" aria-label={ i18n.T(ctx, "rules.categories") } data-mail-rule-categories>
+						for _, tag := range rule.Tags {
+							<li class="min-w-0 max-w-full">
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "max-w-full gap-1 px-1.5 py-0 text-[10px] font-medium [&>svg]:size-2.5"}) {
+									@icon.Bookmark(icon.Props{Class: "shrink-0"})
+									<span class="truncate">{ tag }</span>
+								}
+							</li>
+						}
+					</ul>
+				}
 			</div>
 			<div class="flex shrink-0 items-center gap-1">
 				@switchcomp.Switch(switchcomp.Props{
@@ -394,6 +427,11 @@ templ mailRuleForm(data models.MailRulesData, rule models.MailRule) {
 						}
 					</div>
 				</div>
+				<div>
+					<label class={ mailRuleFieldLabelClass } for="mail-rule-tags">{ i18n.T(ctx, "rules.categories") }</label>
+					@tagsinput.TagsInput(tagsinput.Props{ID: "mail-rule-tags", Name: "tags", Value: rule.Tags, Suggestions: data.Tags, Placeholder: i18n.T(ctx, "rules.categories_placeholder"), RemoveLabel: mailRuleCategoryRemoveLabel(ctx), Class: "bg-background"})
+					<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "rules.categories_note") }</p>
+				</div>
 				<fieldset class="min-w-0 space-y-3" data-mail-rule-conditions>
 					<legend class="space-y-1">
 						<span class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "rules.when") }</span>
@@ -464,6 +502,63 @@ templ mailRuleForm(data models.MailRulesData, rule models.MailRule) {
 				<button type="submit" class={ mailRulePrimaryButton } data-mail-rule-save>
 					@icon.Save(icon.Props{Class: "size-3.5"})
 					{ i18n.T(ctx, "common.save") }
+				</button>
+			}
+		}
+	</form>
+}
+
+// mailRuleTagChangeForm adds categories (tags) to the rules selected in the
+// list, typed or picked from the owner's, or takes off those chosen among
+// the ones the selected rules have.
+templ mailRuleTagChangeForm(data models.MailRulesData) {
+	{{ change := data.TagChange }}
+	<form
+		class={ dataDialogFormClass }
+		hx-post={ mailRulePath("/selected/tags") }
+		hx-target="#mail-rule-dialog-panel"
+		hx-swap="outerHTML"
+		data-mail-rule-tag-change
+	>
+		<input type="hidden" name="rule_ids" value={ strings.Join(change.RuleIDs, ",") }/>
+		if change.Remove {
+			<input type="hidden" name="remove" value="1"/>
+		}
+		@dataDialogScroll("space-y-2 pb-5") {
+			if !change.Remove {
+				<label class={ mailRuleFieldLabelClass } for="mail-rule-tag-change">{ i18n.T(ctx, "rules.categories") }</label>
+				@tagsinput.TagsInput(tagsinput.Props{ID: "mail-rule-tag-change", Name: "tags", Value: change.Tags, Suggestions: data.Tags, Placeholder: i18n.T(ctx, "rules.categories_placeholder"), RemoveLabel: mailRuleCategoryRemoveLabel(ctx), Class: "bg-background"})
+			} else if len(change.Present) == 0 {
+				<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "rules.categories.none") }</p>
+			} else {
+				<fieldset class="space-y-0.5">
+					<legend class="sr-only">{ i18n.T(ctx, "rules.categories") }</legend>
+					for _, present := range change.Present {
+						<label class="flex items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+							@checkbox.Checkbox(checkbox.Props{Name: "tags", Value: present.Tag, Checked: slices.Contains(change.Tags, present.Tag)})
+							<span class="min-w-0 flex-1 truncate">{ present.Tag }</span>
+							<span class="shrink-0 text-xs text-muted-foreground">{ mailRuleCountOf(ctx, "rules.categories.on_rules", present.Rules) }</span>
+						</label>
+					}
+				</fieldset>
+			}
+		}
+		@dataDialogFooter() {
+			if data.Error != "" {
+				<p class="text-xs text-destructive sm:mr-auto sm:self-center" role="alert" data-mail-rule-error>{ data.Error }</p>
+			}
+			@mailRuleFooterButtons() {
+				@dialog.Close() {
+					<button type="button" class={ mailRuleCancelButton }>{ i18n.T(ctx, "common.cancel") }</button>
+				}
+				<button type="submit" class={ mailRulePrimaryButton } disabled?={ change.Remove && len(change.Present) == 0 } data-mail-rule-tag-change-submit>
+					if change.Remove {
+						@icon.BookmarkMinus(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.categories.remove") }
+					} else {
+						@icon.BookmarkPlus(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.categories.add") }
+					}
 				</button>
 			}
 		}

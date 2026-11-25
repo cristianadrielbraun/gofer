@@ -35,7 +35,11 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	if err != nil {
 		return models.MailRulesData{}, fmt.Errorf("folders: %w", err)
 	}
-	data := models.MailRulesData{Rules: rules}
+	tags, err := db.ListMailRuleTags(ctx, userID)
+	if err != nil {
+		return models.MailRulesData{}, fmt.Errorf("tags: %w", err)
+	}
+	data := models.MailRulesData{Rules: rules, Tags: tags}
 	for _, account := range accounts {
 		// Local folders are only somewhere to move mail to; the form
 		// doesn't offer them as an account to watch.
@@ -298,6 +302,7 @@ func mailRuleFromForm(r *http.Request) (models.MailRule, []bool) {
 		Enabled:        r.FormValue("enabled") != "",
 		MatchAll:       true,
 		StopProcessing: r.FormValue("stop_processing") != "",
+		Tags:           r.PostForm["tags"],
 	}
 	at := func(values []string, i int) string {
 		if i < len(values) {
@@ -507,6 +512,99 @@ func (h *Handler) handleMailRulesEnabled(w http.ResponseWriter, r *http.Request)
 	h.renderMailRulesPanel(w, r, data)
 }
 
+// mailRuleTagChangeData is the dialog that adds tags to the rules selected
+// in the list, or takes them off, with the tags those rules have.
+func mailRuleTagChangeData(data *models.MailRulesData, remove bool, ids []string) {
+	change := &models.MailRuleTagChange{Remove: remove, RuleIDs: ids}
+	counts := map[string]int{}
+	for _, rule := range data.Rules {
+		if slices.Contains(ids, rule.ID) {
+			for _, tag := range rule.Tags {
+				counts[tag]++
+			}
+		}
+	}
+	for _, tag := range data.Tags {
+		if counts[tag] > 0 {
+			change.Present = append(change.Present, models.MailRuleTagCount{Tag: tag, Rules: counts[tag]})
+		}
+	}
+	data.TagChange = change
+}
+
+// handleMailRuleTagDialog shows the dialog that adds categories (tags) to
+// the rules selected in the list, or with remove, takes some off them.
+func (h *Handler) handleMailRuleTagDialog(w http.ResponseWriter, r *http.Request) {
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	mailRuleTagChangeData(&data, r.FormValue("remove") != "", ids)
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Cache-Control", "no-store")
+	views.MailRuleDialog(data).Render(r.Context(), w)
+}
+
+// handleMailRulesTags adds the tags given to the rules selected in the list,
+// or with remove, takes them off, and shows the list again saying how many
+// rules changed. A tag that can't be one shows the dialog again, saying why.
+func (h *Handler) handleMailRulesTags(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	remove := r.FormValue("remove") != ""
+	tags := r.PostForm["tags"]
+	userID := h.userID(r.Context())
+	var changed int
+	var err error
+	switch {
+	case remove && len(tags) == 0:
+		err = mailrules.TagError("choose the categories to remove")
+	case remove:
+		changed, err = h.db.RemoveMailRulesTagsGuarded(r.Context(), userID, ids, tags, h.signatureGuard)
+	default:
+		changed, err = h.db.AddMailRulesTagsGuarded(r.Context(), userID, ids, tags, h.signatureGuard)
+	}
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	if err != nil {
+		// The dialog stays open with what was typed or chosen, saying why.
+		mailRuleTagChangeData(&data, remove, ids)
+		data.TagChange.Tags = tags
+		var refused mailrules.TagError
+		if errors.As(err, &refused) {
+			data.Error = serverText(r.Context(), sentence(refused.Error()))
+		} else {
+			log.Printf("change the tags of %d mail rules: %v", len(ids), err)
+			data.Error = i18n.T(r.Context(), "rules.bulk.failed")
+		}
+		h.renderMailRuleDialogPanel(w, r, data)
+		return
+	}
+	switch {
+	case remove:
+		data.Notice = i18n.N(r.Context(), "rules.categories.removed", changed)
+	case changed == 0:
+		data.Notice = i18n.T(r.Context(), "rules.categories.added_none")
+	default:
+		data.Notice = i18n.N(r.Context(), "rules.categories.added", changed)
+	}
+	h.renderMailRulesDone(w, r, data)
+}
+
 // handleDeleteMailRules removes the rules selected in the list, and shows
 // the list again saying how many went.
 func (h *Handler) handleDeleteMailRules(w http.ResponseWriter, r *http.Request) {
@@ -582,6 +680,8 @@ var mailRuleLocalRoutes = []mailRuleRoute{
 	{"POST /api/settings/rules/order", func(h *Handler) http.HandlerFunc { return h.handleMailRuleOrder }},
 	{"POST /api/settings/rules/selected/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRulesEnabled }},
 	{"POST /api/settings/rules/selected/delete", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRules }},
+	{"GET /api/settings/rules/selected/tags", func(h *Handler) http.HandlerFunc { return h.handleMailRuleTagDialog }},
+	{"POST /api/settings/rules/selected/tags", func(h *Handler) http.HandlerFunc { return h.handleMailRulesTags }},
 	{"DELETE /api/settings/rules/{id}", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRule }},
 	{"POST /api/settings/rules/{id}/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRuleEnabled }},
 	{"GET /api/settings/rules/activity", func(h *Handler) http.HandlerFunc { return h.handleMailRuleActivity }},

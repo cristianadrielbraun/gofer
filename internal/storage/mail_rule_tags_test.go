@@ -156,39 +156,52 @@ func TestAddAndRemoveMailRulesTag(t *testing.T) {
 		return rule.Tags
 	}
 
-	if n, err := db.AddMailRulesTagGuarded(ctx, "default", []string{ids[0], ids[1], ids[1], "missing", other.ID}, " #Shopping", nil); err != nil || n != 2 {
+	if n, err := db.AddMailRulesTagsGuarded(ctx, "default", []string{ids[0], ids[1], ids[1], "missing", other.ID}, []string{" #Shopping"}, nil); err != nil || n != 2 {
 		t.Fatalf("add = %d, %v", n, err)
 	}
-	if n, err := db.AddMailRulesTagGuarded(ctx, "default", ids[1:], "shopping", nil); err != nil || n != 1 {
+	// Several at once, spelled as the owner already spells them; a rule
+	// that has them all already is not counted.
+	if n, err := db.AddMailRulesTagsGuarded(ctx, "default", ids[1:], []string{"shopping", "Bills", "", "bills"}, nil); err != nil || n != 2 {
 		t.Fatalf("add again = %d, %v", n, err)
 	}
-	for _, id := range ids {
-		if got := tagsOf(id); !slices.Equal(got, []string{"Shopping"}) {
-			t.Fatalf("tags of %s = %q", id, got)
+	if n, err := db.AddMailRulesTagsGuarded(ctx, "default", ids[1:2], []string{"SHOPPING"}, nil); err != nil || n != 0 {
+		t.Fatalf("add what the rule has = %d, %v", n, err)
+	}
+	for id, want := range map[string][]string{ids[0]: {"Shopping"}, ids[1]: {"Bills", "Shopping"}, ids[2]: {"Bills", "Shopping"}} {
+		if got := tagsOf(id); !slices.Equal(got, want) {
+			t.Fatalf("tags of %s = %q, want %q", id, got, want)
 		}
 	}
 	if got := tagsOf(other.ID); len(got) != 0 {
 		t.Fatalf("another owner's rule got %q", got)
 	}
-	if _, err := db.AddMailRulesTagGuarded(ctx, "default", ids, "  ", nil); err == nil || !strings.Contains(err.Error(), "enter the tag") {
-		t.Fatalf("empty tag = %v", err)
+	for _, empty := range [][]string{nil, {"  ", "#"}} {
+		if _, err := db.AddMailRulesTagsGuarded(ctx, "default", ids, empty, nil); err == nil || !strings.Contains(err.Error(), "enter the tag") {
+			t.Fatalf("no tag %q = %v", empty, err)
+		}
+	}
+	if _, err := db.AddMailRulesTagsGuarded(ctx, "default", ids, []string{"a,b"}, nil); err == nil || !strings.Contains(err.Error(), "comma") {
+		t.Fatalf("a tag with a comma = %v", err)
 	}
 
-	// A rule with as many tags as it may takes no more, and then no rule
-	// changes.
+	// A rule that would have more tags than it may takes none, and then no
+	// rule changes.
 	full := saveTestRule(t, db, models.MailRule{Name: "Full", Conditions: fromBakery(), Actions: star,
-		Tags: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}})
-	if n, err := db.AddMailRulesTagGuarded(ctx, "default", []string{ids[0], full.ID}, "Travel", nil); !errors.Is(err, ErrTooManyMailRuleTags) || n != 0 {
+		Tags: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}})
+	if n, err := db.AddMailRulesTagsGuarded(ctx, "default", []string{ids[0], full.ID}, []string{"Travel", "Trips"}, nil); !errors.Is(err, ErrTooManyMailRuleTags) || n != 0 {
 		t.Fatalf("add to a full rule = %d, %v", n, err)
 	}
 	if got := tagsOf(ids[0]); !slices.Equal(got, []string{"Shopping"}) {
 		t.Fatalf("a refused change still tagged a rule: %q", got)
 	}
 
-	if n, err := db.RemoveMailRulesTagGuarded(ctx, "default", []string{ids[0], ids[2], "missing", other.ID}, "SHOPPING", nil); err != nil || n != 2 {
+	if n, err := db.RemoveMailRulesTagsGuarded(ctx, "default", []string{ids[0], ids[2], "missing", other.ID}, []string{"SHOPPING", "bills"}, nil); err != nil || n != 2 {
 		t.Fatalf("remove = %d, %v", n, err)
 	}
-	if a, b, c := tagsOf(ids[0]), tagsOf(ids[1]), tagsOf(ids[2]); len(a) != 0 || !slices.Equal(b, []string{"Shopping"}) || len(c) != 0 {
+	if a, b, c := tagsOf(ids[0]), tagsOf(ids[1]), tagsOf(ids[2]); len(a) != 0 || !slices.Equal(b, []string{"Bills", "Shopping"}) || len(c) != 0 {
 		t.Fatalf("tags after removing = %q %q %q", a, b, c)
+	}
+	if n, err := db.RemoveMailRulesTagsGuarded(ctx, "default", ids, []string{"Travel"}, nil); err != nil || n != 0 {
+		t.Fatalf("remove a tag no rule has = %d, %v", n, err)
 	}
 }

@@ -493,3 +493,98 @@ func TestMailRulesPanelForFolder(t *testing.T) {
 		}
 	}
 }
+
+// A rule's categories are set in its form, shown in the list, and added to
+// or taken off several rules at once in their own dialog, which says what
+// is wrong with a category it can't add.
+func TestMailRuleCategories(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+
+	// The form sends its categories, and drawing it again keeps them.
+	form := mailRuleForm(nil)
+	form["tags"] = []string{"#Shopping", "Receipts"}
+	rec := identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, form, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `name="tags" value="#Shopping"`) || !strings.Contains(body, `aria-label="Remove Receipts"`) {
+		t.Fatalf("form drawn again = %d %q", rec.Code, body)
+	}
+	rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save = %d %q", rec.Code, rec.Body.String())
+	}
+	form = mailRuleForm(map[string]string{"name": "Orders"})
+	form["tags"] = []string{"shopping"}
+	if rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true); rec.Code != http.StatusOK {
+		t.Fatalf("save another = %d %q", rec.Code, rec.Body.String())
+	}
+	if rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, mailRuleForm(map[string]string{"name": "Lunch on Friday"}), true); rec.Code != http.StatusOK {
+		t.Fatalf("save a third = %d %q", rec.Code, rec.Body.String())
+	}
+	rules, err := db.ListMailRules(ctx, "owner")
+	if err != nil || len(rules) != 3 || strings.Join(rules[0].Tags, ",") != "Receipts,Shopping" || strings.Join(rules[1].Tags, ",") != "Shopping" || len(rules[2].Tags) != 0 {
+		t.Fatalf("saved rules = %+v, %v", rules, err)
+	}
+	ids := []string{rules[0].ID, rules[1].ID, rules[2].ID}
+
+	// The list shows each rule's categories, and the form suggests them.
+	rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel", nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-mail-rule-tags="[&#34;Receipts&#34;,&#34;Shopping&#34;]"`) || !strings.Contains(body, `aria-label="Categories"`) {
+		t.Fatalf("list = %q", body)
+	}
+	rec = identityRequest(t, h, h.handleMailRuleDialog, http.MethodGet, "/api/settings/rules/dialog?edit="+ids[2], nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-tui-tagsinput-suggestion-value="Receipts"`) || !strings.Contains(body, `data-tui-tagsinput-suggestion-value="Shopping"`) {
+		t.Fatalf("form suggestions = %q", rec.Body.String())
+	}
+
+	// Taking categories off lists only those the selected rules have, with
+	// how many of them have each.
+	rec = identityRequest(t, h, h.handleMailRuleTagDialog, http.MethodGet, "/api/settings/rules/selected/tags?remove=1&rule_ids="+ids[1]+","+ids[2], nil, nil, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Remove categories") || !strings.Contains(body, "From the 2 selected rules.") ||
+		!strings.Contains(body, `value="Shopping"`) || strings.Contains(body, `value="Receipts"`) || !strings.Contains(body, "on 1 rule") {
+		t.Fatalf("remove dialog = %d %q", rec.Code, body)
+	}
+	rec = identityRequest(t, h, h.handleMailRuleTagDialog, http.MethodGet, "/api/settings/rules/selected/tags?rule_ids="+ids[2], nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Add categories") || !strings.Contains(body, "To the selected rule.") || !strings.Contains(body, `data-tui-tagsinput-suggestion-value="Receipts"`) {
+		t.Fatalf("add dialog = %q", body)
+	}
+
+	selected := func(tags ...string) url.Values {
+		return url.Values{"rule_ids": {ids[1] + "," + ids[2]}, "tags": tags}
+	}
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected("Travel", "bills"), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Categories added to 2 rules.") || rec.Header().Get("HX-Trigger") != "mail-rule-dialog-done" {
+		t.Fatalf("add = %d %q", rec.Code, body)
+	}
+	// What can't be a category keeps the dialog open, saying why, with
+	// what was typed.
+	for tag, want := range map[string]string{"a,b": "A category can&#39;t contain a comma.", "  ": "Enter the category to add."} {
+		rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected(tag), true)
+		if body := rec.Body.String(); !strings.Contains(body, want) || !strings.Contains(body, "data-mail-rule-tag-change") || rec.Header().Get("HX-Trigger") != "" {
+			t.Errorf("add %q = %q, want %q", tag, body, want)
+		}
+	}
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected("1", "2", "3", "4", "5", "6", "7", "8", "9"), true)
+	if body := rec.Body.String(); !strings.Contains(body, "A rule can have at most 10 categories.") || !strings.Contains(body, `name="tags" value="9"`) {
+		t.Fatalf("too many = %q", body)
+	}
+	remove := selected()
+	remove.Set("remove", "1")
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, remove, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Choose the categories to remove.") {
+		t.Fatalf("remove nothing = %q", body)
+	}
+	remove["tags"] = []string{"Travel", "Shopping"}
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, remove, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Categories removed from 2 rules.") {
+		t.Fatalf("remove = %q", body)
+	}
+	rules, err = db.ListMailRules(ctx, "owner")
+	if err != nil || strings.Join(rules[0].Tags, ",") != "Receipts,Shopping" || strings.Join(rules[1].Tags, ",") != "bills" || strings.Join(rules[2].Tags, ",") != "bills" {
+		t.Fatalf("rules after the changes = %+v, %v", rules, err)
+	}
+	// Another person's rules change neither way.
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected("Travel"), false)
+	if rules, err = db.ListMailRules(ctx, "owner"); err != nil || strings.Join(rules[1].Tags, ",") != "bills" {
+		t.Fatalf("someone else's change = %d, %+v, %v", rec.Code, rules, err)
+	}
+}

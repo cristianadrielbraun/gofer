@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -25,9 +24,9 @@ const mailRuleTagsTableSQL = `CREATE TABLE IF NOT EXISTS mail_rule_tags (
 // tag can't hold it, as it holds no control characters.
 const mailRuleTagSeparator = "\x1f"
 
-// ErrTooManyMailRuleTags means a tag was to be added to a rule that has as
-// many tags as one may.
-var ErrTooManyMailRuleTags = fmt.Errorf("a rule can have at most %d tags", mailrules.MaxTagsPerRule)
+// ErrTooManyMailRuleTags means tags were to be added to a rule that would
+// then have more tags than one may.
+var ErrTooManyMailRuleTags = mailrules.ErrTooManyTags
 
 // migrateV152ToV153 lets rules have tags. Rules have none at first.
 func migrateV152ToV153(db *sql.DB) error {
@@ -155,26 +154,43 @@ func (db *DB) ListMailRuleTags(ctx context.Context, userID string) ([]string, er
 	return tags, nil
 }
 
-// AddMailRulesTagGuarded gives a tag to the owner's rules named by ids, all
-// in one change, and reports how many rules it was added to. The tag is
-// cleaned as a rule's own tags are, and spelled as the owner's rules
-// already spell it. A rule that has it already, or an ID that names none of
-// the owner's rules, is skipped. If a rule already has as many tags as one
-// may, nothing changes and it is ErrTooManyMailRuleTags.
-func (db *DB) AddMailRulesTagGuarded(ctx context.Context, userID string, ids []string, tag string, guard func(*sql.Tx) error) (int, error) {
-	tag, err := mailrules.CheckTag(tag)
-	if err != nil {
+// AddMailRulesTagsGuarded gives tags to the owner's rules named by ids, all
+// in one change, and reports how many rules got at least one of them. The
+// tags are cleaned as a rule's own tags are, and spelled as the owner's
+// rules already spell them. A tag a rule has already, or an ID that names
+// none of the owner's rules, is skipped. If a rule would have more tags than
+// one may, nothing changes and it is ErrTooManyMailRuleTags.
+func (db *DB) AddMailRulesTagsGuarded(ctx context.Context, userID string, ids, tags []string, guard func(*sql.Tx) error) (int, error) {
+	var cleaned []string
+	for _, tag := range tags {
+		if mailrules.CleanTag(tag) == "" {
+			continue
+		}
+		tag, err := mailrules.CheckTag(tag)
+		if err != nil {
+			return 0, err
+		}
+		if !slices.ContainsFunc(cleaned, func(t string) bool { return strings.EqualFold(t, tag) }) {
+			cleaned = append(cleaned, tag)
+		}
+	}
+	if len(cleaned) == 0 {
+		_, err := mailrules.CheckTag("")
 		return 0, err
 	}
-	added := 0
-	err = db.mailRuleWrite(ctx, guard, func(tx *sql.Tx) error {
-		added = 0
+	changed := 0
+	err := db.mailRuleWrite(ctx, guard, func(tx *sql.Tx) error {
+		changed = 0
 		spellings, err := mailRuleTagSpellings(ctx, tx, userID, "")
 		if err != nil {
 			return err
 		}
-		if spelled, ok := spellings[strings.ToLower(tag)]; ok {
-			tag = spelled
+		adding := make([]string, len(cleaned))
+		for i, tag := range cleaned {
+			adding[i] = tag
+			if spelled, ok := spellings[strings.ToLower(tag)]; ok {
+				adding[i] = spelled
+			}
 		}
 		seen := map[string]bool{}
 		for _, id := range ids {
@@ -182,54 +198,76 @@ func (db *DB) AddMailRulesTagGuarded(ctx context.Context, userID string, ids []s
 				continue
 			}
 			seen[id] = true
-			tags, owned, err := mailRuleTagsTx(ctx, tx, userID, id)
+			have, owned, err := mailRuleTagsTx(ctx, tx, userID, id)
 			if err != nil {
 				return err
 			}
-			if !owned || slices.ContainsFunc(tags, func(t string) bool { return strings.EqualFold(t, tag) }) {
+			if !owned {
 				continue
 			}
-			if len(tags) >= mailrules.MaxTagsPerRule {
+			var added []string
+			for _, tag := range adding {
+				if !slices.ContainsFunc(have, func(t string) bool { return strings.EqualFold(t, tag) }) {
+					added = append(added, tag)
+				}
+			}
+			if len(added) == 0 {
+				continue
+			}
+			if len(have)+len(added) > mailrules.MaxTagsPerRule {
 				return ErrTooManyMailRuleTags
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO mail_rule_tags (rule_id, tag) VALUES (?, ?)`, id, tag); err != nil {
-				return err
+			for _, tag := range added {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO mail_rule_tags (rule_id, tag) VALUES (?, ?)`, id, tag); err != nil {
+					return err
+				}
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE mail_rules SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id); err != nil {
 				return err
 			}
-			added++
+			changed++
 		}
 		return nil
 	})
 	if err != nil {
 		return 0, err
 	}
-	return added, nil
+	return changed, nil
 }
 
-// RemoveMailRulesTagGuarded takes a tag, whatever its capitals, off the
+// RemoveMailRulesTagsGuarded takes tags, whatever their capitals, off the
 // owner's rules named by ids, all in one change, and reports how many rules
-// had it. An ID that names none of the owner's rules is skipped.
-func (db *DB) RemoveMailRulesTagGuarded(ctx context.Context, userID string, ids []string, tag string, guard func(*sql.Tx) error) (int, error) {
-	tag = mailrules.CleanTag(tag)
-	if tag == "" {
+// had at least one of them. An ID that names none of the owner's rules is
+// skipped.
+func (db *DB) RemoveMailRulesTagsGuarded(ctx context.Context, userID string, ids, tags []string, guard func(*sql.Tx) error) (int, error) {
+	var removing []string
+	for _, tag := range tags {
+		if tag = mailrules.CleanTag(tag); tag != "" {
+			removing = append(removing, tag)
+		}
+	}
+	if len(removing) == 0 {
 		return 0, nil
 	}
 	return db.mailRulesWrite(ctx, guard, ids, func(tx *sql.Tx, id string) (sql.Result, error) {
-		tags, owned, err := mailRuleTagsTx(ctx, tx, userID, id)
-		if err != nil {
-			return nil, err
+		have, owned, err := mailRuleTagsTx(ctx, tx, userID, id)
+		if err != nil || !owned {
+			return noRowsChanged{}, err
 		}
-		for _, t := range tags {
-			if owned && strings.EqualFold(t, tag) {
-				if _, err := tx.ExecContext(ctx, `UPDATE mail_rules SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id); err != nil {
-					return nil, err
-				}
-				return tx.ExecContext(ctx, `DELETE FROM mail_rule_tags WHERE rule_id = ? AND tag = ?`, id, t)
+		removed := false
+		for _, t := range have {
+			if !slices.ContainsFunc(removing, func(tag string) bool { return strings.EqualFold(t, tag) }) {
+				continue
 			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM mail_rule_tags WHERE rule_id = ? AND tag = ?`, id, t); err != nil {
+				return nil, err
+			}
+			removed = true
 		}
-		return noRowsChanged{}, nil
+		if !removed {
+			return noRowsChanged{}, nil
+		}
+		return tx.ExecContext(ctx, `UPDATE mail_rules SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
 	})
 }
 

@@ -3,6 +3,8 @@
 package tagsinput
 
 import (
+	"strings"
+
 	"github.com/cristianadrielbraun/gofer/components/badge"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/popover"
@@ -21,6 +23,18 @@ type Props struct {
 	Disabled    bool
 	Readonly    bool
 	Suggestions []string
+	// RemoveLabel names each chip's remove button, with {tag} standing for
+	// the chip's tag, such as "Remove {tag}". Left empty, it is "Remove"
+	// and the tag.
+	RemoveLabel string
+}
+
+// removeLabel is the name of the remove button of a chip for tag.
+func removeLabel(label, tag string) string {
+	if label == "" {
+		return "Remove " + tag
+	}
+	return strings.ReplaceAll(label, "{tag}", tag)
 }
 
 templ TagsInput(props ...Props) {
@@ -54,6 +68,9 @@ templ TagsInput(props ...Props) {
 		data-tui-tagsinput
 		data-tui-tagsinput-name={ p.Name }
 		data-tui-tagsinput-form={ p.Form }
+		if p.RemoveLabel != "" {
+			data-tui-tagsinput-remove-label={ p.RemoveLabel }
+		}
 		if len(p.Suggestions) > 0 {
 			data-tui-tagsinput-suggestions-id={ suggestionsID }
 		}
@@ -70,6 +87,7 @@ templ TagsInput(props ...Props) {
 						type="button"
 						class="ml-1 text-current hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
 						disabled?={ p.Disabled }
+						aria-label={ removeLabel(p.RemoveLabel, tag) }
 						data-tui-tagsinput-remove
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

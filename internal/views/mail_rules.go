@@ -168,8 +168,15 @@ func mailRulesFolderFilterName(ctx context.Context, folderID string, accounts []
 	return ""
 }
 
-// mailRuleDestinationsAttr is the folders a rule moves mail into, as its
-// row carries them for the folder filter (settings.js filterMailRules).
+// mailRuleCategoryRemoveLabel names a category's remove button in a
+// categories field, {tag} standing for the category (tagsinput).
+func mailRuleCategoryRemoveLabel(ctx context.Context) string {
+	return i18n.T(ctx, "rules.categories.remove_one", "category", "{tag}")
+}
+
+// mailRuleDestinationsAttr is a list a rule's row carries for the list's
+// filters (settings.js filterMailRules): the folders it moves mail into, or
+// its categories.
 func mailRuleDestinationsAttr(ids []string) string {
 	if len(ids) == 0 {
 		return "[]"
@@ -248,6 +255,7 @@ func mailRuleSearchText(ctx context.Context, rule models.MailRule, accounts []mo
 			parts = append(parts, action.Folder.Path)
 		}
 	}
+	parts = append(parts, rule.Tags...)
 	return strings.ToLower(strings.Join(parts, " "))
 }
 
@@ -368,6 +376,9 @@ func mailRuleRunScopeOpen(run *models.MailRuleRunData) bool {
 func mailRuleDialogWidth(data models.MailRulesData) string {
 	if data.Run != nil {
 		return "sm:max-w-xl"
+	}
+	if data.TagChange != nil {
+		return "sm:max-w-md"
 	}
 	return "sm:max-w-3xl"
 }

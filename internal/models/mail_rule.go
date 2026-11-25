@@ -178,6 +178,30 @@ type MailRulesData struct {
 	// FolderFilter is the folder whose rules the list opens showing: only
 	// those that move mail into it, as a folder's menu in the sidebar asks.
 	FolderFilter string
+	// Tags are the tags of all the owner's rules, which the rule form
+	// suggests (storage's ListMailRuleTags). People see them as categories.
+	Tags []string
+	// TagChange is the dialog that adds tags to the rules selected in the
+	// list, or takes some off them.
+	TagChange *MailRuleTagChange
+}
+
+// MailRuleTagChange is the dialog that adds tags to the rules selected in
+// the list, or with Remove set, takes some off them.
+type MailRuleTagChange struct {
+	Remove  bool
+	RuleIDs []string
+	// Tags are the tags typed to add, or chosen to take off.
+	Tags []string
+	// Present are the tags the selected rules have, with how many of them
+	// have each, to choose from when taking tags off.
+	Present []MailRuleTagCount
+}
+
+// MailRuleTagCount is a tag and how many of the selected rules have it.
+type MailRuleTagCount struct {
+	Tag   string
+	Rules int
 }
 
 // MailRuleAccount is an account a rule can be limited to, with the folders
