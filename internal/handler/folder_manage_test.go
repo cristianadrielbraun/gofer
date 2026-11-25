@@ -315,11 +315,11 @@ func TestManageFoldersDialog(t *testing.T) {
 	labels := 0
 	for action := range folderMenuActions(body) {
 		labels++
-		if name, _, _ := strings.Cut(action, " "); name != "folder-appearance" && name != "rename-label" && name != "delete-label" {
+		if name, _, _ := strings.Cut(action, " "); name != "folder-appearance" && name != "hide-tag" && name != "rename-label" && name != "delete-label" {
 			t.Errorf("label menu has %s", action)
 		}
 	}
-	if labels != 3 {
+	if labels != 4 {
 		t.Errorf("label menu = %v", folderMenuActions(body))
 	}
 }

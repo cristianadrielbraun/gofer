@@ -4465,6 +4465,13 @@ document.addEventListener("DOMContentLoaded", function () {
         "new-label": target.kind === "account" && target.provider === "gmail",
         "new-subfolder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role !== "starred",
         "folder-appearance": document.documentElement.getAttribute("data-theme") !== "express" && ((target.kind === "tag" && !!target.labelID) || (target.kind === "folder" && (target.virtual || (!!target.accountID && target.role !== "starred" && !/^starred(-|$)/.test(target.folderID))))),
+        // Only folders without a role can be hidden, so Inbox and the other
+        // special folders always show. Hidden ones aren't in the sidebar to
+        // show again: the Folders dialog does that.
+        "hide-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
+        // Any tag can be hidden, of an account or of all accounts, as any
+        // can be given a color. Settings → Appearance shows them again.
+        "hide-tag": target.kind === "tag" && !!target.labelID,
         "rename-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "delete-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "restore-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom" && target.inTrash,
@@ -4504,6 +4511,8 @@ document.addEventListener("DOMContentLoaded", function () {
       else if (action === "new-folder") createMailFolder(target.accountID, "", "")
       else if (action === "new-subfolder") createMailFolder(target.accountID, target.folderID, target.name)
       else if (action === "folder-appearance") window.goferOpenFolderAppearance(target)
+      else if (action === "hide-folder") setSidebarVisibility(target, false)
+      else if (action === "hide-tag") setSidebarVisibility(target, false)
       else if (action === "rename-folder") renameMailFolder(target)
       else if (action === "delete-folder") deleteMailFolder(target)
       else if (action === "restore-folder") restoreMailFolder(target)
@@ -4552,13 +4561,14 @@ document.addEventListener("DOMContentLoaded", function () {
         .finally(function () { folderChangeBusy = false })
     }
 
-    function folderChangeDone(id, title, accountID, refreshList) {
+    // description, when given, goes under the toast's title.
+    function folderChangeDone(id, title, accountID, refreshList, description) {
       if (accountID && window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(accountID)
       document.dispatchEvent(new CustomEvent("gofer:folders-changed", { detail: { accountID: accountID } }))
       if (refreshList && virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
         virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
       }
-      showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+      showGoferToast({ id: id, title: title, description: description || "", variant: "success", icon: "success", position: "bottom-right", duration: description ? 6000 : 3000, dismissible: true })
     }
 
     // The rules that move mail into a folder, in Settings → Rules.
@@ -4566,8 +4576,34 @@ document.addEventListener("DOMContentLoaded", function () {
       window.location.assign("/settings/rules?folder=" + encodeURIComponent(target.folderID))
     }
 
+    // Hiding a folder or a tag only takes it out of the sidebar, so the
+    // toast says where to show it again: the account's Folders dialog for a
+    // folder, Settings → Appearance for a tag, unless that's where it was
+    // hidden (quiet). It resolves true once saved.
+    function setSidebarVisibility(target, visible, quiet) {
+      var tag = !!target.tag
+      var url = tag
+        ? (target.unifiedTag ? "/api/unified-tags/" : "/api/tags/") + encodeURIComponent(target.labelID)
+        : "/api/folders/" + encodeURIComponent(target.folderID)
+      return runFolderChange("mail-folder-visibility", goferT(tag ? "js.folders.tag_visibility_failed" : "js.folders.visibility_failed"), function () {
+        return postFolderChange(url + "/visibility", { visible: visible ? "true" : "false" }).then(function () {
+          var title = goferT(visible ? "js.folders.shown" : "js.folders.hidden", { name: target.name })
+          var description = visible || quiet ? "" : goferT(tag ? "js.folders.hidden_tag_where" : "js.folders.hidden_where")
+          folderChangeDone("mail-folder-visibility", title, target.accountID, false, description)
+          // A tag of all accounts is in no account's part of the sidebar.
+          if (tag && !target.accountID && window.goferRefreshMailSidebarBody) window.goferRefreshMailSidebarBody()
+          return true
+        })
+      })
+    }
+    window.goferSetSidebarVisibility = setSidebarVisibility
+
     // The account settings' folders dialog runs these too.
     window.goferFolderActions = {
+      "hide-folder": function (t) { setSidebarVisibility(t, false) },
+      "show-folder": function (t) { setSidebarVisibility(t, true) },
+      "hide-tag": function (t) { setSidebarVisibility(t, false) },
+      "show-tag": function (t) { setSidebarVisibility(t, true) },
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
       "folder-rules": openFolderRules,
       "new-subfolder": function (t) { createMailFolder(t.accountID, t.folderID, t.name) },
@@ -25778,6 +25814,23 @@ function manageFolderAction(button) {
     virtual: button.hasAttribute("data-folder-appearance-virtual"),
     tag: button.hasAttribute("data-tag-appearance"),
     unifiedTag: button.hasAttribute("data-tag-appearance-unified"),
+  })
+}
+
+// A tag's switch in Settings → Appearance shows it in the sidebar, or hides
+// it; it turns back when that fails.
+function toggleTagSidebarVisibility(input) {
+  if (!input || !window.goferSetSidebarVisibility) return
+  var visible = input.checked
+  var target = {
+    tag: true,
+    unifiedTag: input.hasAttribute("data-tag-visibility-unified"),
+    labelID: input.getAttribute("data-tag-visibility") || "",
+    accountID: input.getAttribute("data-tag-visibility-account") || "",
+    name: input.getAttribute("data-tag-visibility-name") || "",
+  }
+  Promise.resolve(window.goferSetSidebarVisibility(target, visible, true)).then(function (saved) {
+    if (!saved && input.isConnected) input.checked = !visible
   })
 }
 
