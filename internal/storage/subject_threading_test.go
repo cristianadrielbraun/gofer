@@ -151,6 +151,38 @@ func TestSubjectThreadingSizeLimit(t *testing.T) {
 	assertGroups(t, db, "aaabb", notices...)
 }
 
+// A reply joins the conversation it answers however long ago that was,
+// unless the user turns that off; other mail still keeps to the window.
+func TestSubjectThreadingLateReplies(t *testing.T) {
+	for _, tc := range []struct {
+		lateReplies string
+		want        string
+	}{
+		{"", "aaab"},
+		{"true", "aaab"},
+		{"false", "abcd"},
+	} {
+		t.Run("late_replies="+tc.lateReplies, func(t *testing.T) {
+			db := newFolderThreadTestDB(t)
+			settings := map[string]string{"subject_threading": "true", "subject_threading_window_days": "7", "subject_threading_max_messages": "100"}
+			if tc.lateReplies != "" {
+				settings["subject_threading_late_replies"] = tc.lateReplies
+			}
+			if err := db.MergeUISettings(t.Context(), "reader", settings); err != nil {
+				t.Fatal(err)
+			}
+			first := notice(1, "lena@example.test", "Garden club", noticeDay)
+			reply := notice(2, "omar@example.test", "Re: Garden club", noticeDay.Add(40*24*time.Hour))
+			reply.CCRecipients = []Recipient{{Email: "lena@example.test"}}
+			again := notice(3, "lena@example.test", "AW: Garden club", noticeDay.Add(200*24*time.Hour))
+			again.ToRecipients = []Recipient{{Email: "omar@example.test"}}
+			later := notice(4, "lena@example.test", "Garden club", noticeDay.Add(300*24*time.Hour))
+			syncNotices(t, db, first, reply, again, later)
+			assertGroups(t, db, tc.want, first, reply, again, later)
+		})
+	}
+}
+
 func TestRegroupSubjectThreads(t *testing.T) {
 	db := newFolderThreadTestDB(t)
 	// A chain where each notice is within the window only of its
@@ -181,17 +213,79 @@ func TestRegroupSubjectThreads(t *testing.T) {
 
 func TestParseSubjectThreading(t *testing.T) {
 	for _, tc := range []struct {
-		enabled, window, max string
-		want                 SubjectThreading
+		enabled, window, max, late string
+		want                       SubjectThreading
 	}{
-		{"", "", "", SubjectThreading{false, 7, 100}},
-		{"true", "30", "0", SubjectThreading{true, 30, 0}},
-		{"true", "0", "1", SubjectThreading{true, 1, 2}},
-		{"true", "9999", "99999", SubjectThreading{true, 365, 10000}},
-		{"true", "week", "-5", SubjectThreading{true, 7, 100}},
+		{"", "", "", "", SubjectThreading{false, 7, 100, true}},
+		{"true", "30", "0", "false", SubjectThreading{true, 30, 0, false}},
+		{"true", "0", "1", "true", SubjectThreading{true, 1, 2, true}},
+		{"true", "9999", "99999", "", SubjectThreading{true, 365, 10000, true}},
+		{"true", "week", "-5", "maybe", SubjectThreading{true, 7, 100, true}},
 	} {
-		if got := ParseSubjectThreading(tc.enabled, tc.window, tc.max); got != tc.want {
-			t.Errorf("ParseSubjectThreading(%q, %q, %q) = %+v, want %+v", tc.enabled, tc.window, tc.max, got, tc.want)
+		if got := ParseSubjectThreading(tc.enabled, tc.window, tc.max, tc.late); got != tc.want {
+			t.Errorf("ParseSubjectThreading(%q, %q, %q, %q) = %+v, want %+v", tc.enabled, tc.window, tc.max, tc.late, got, tc.want)
 		}
+	}
+}
+
+// replyToMissing is a notice whose reply headers point only to a message
+// the mailbox does not have, a different one for each notice.
+func replyToMissing(uid uint32, from, subject string, sent time.Time) SyncMessage {
+	m := notice(uid, from, subject, sent)
+	m.InReplyTo = fmt.Sprintf("<missing-%d@example.test>", uid)
+	m.References = m.InReplyTo
+	return m
+}
+
+// Mail whose reply headers lead nowhere is grouped by subject like mail
+// without them, and only when the user groups by subject.
+func TestSubjectThreadingGroupsMailWithMissingReferences(t *testing.T) {
+	for _, tc := range []struct {
+		enabled bool
+		want    string
+	}{
+		{true, "aab"},
+		{false, "abc"},
+	} {
+		db := newFolderThreadTestDB(t)
+		setSubjectThreading(t, db, tc.enabled, "7", "100")
+		a := replyToMissing(1, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay)
+		b := replyToMissing(2, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay.Add(24*time.Hour))
+		other := replyToMissing(3, "news@shop.example.test", "Ticket 42: Printer jams", noticeDay.Add(48*time.Hour))
+		syncNotices(t, db, a, b, other)
+		assertGroups(t, db, tc.want, a, b, other)
+	}
+}
+
+// Reply headers that lead to saved mail still win over the subject.
+func TestSubjectThreadingKeepsReferencesToSavedMail(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	setSubjectThreading(t, db, true, "7", "100")
+	first := notice(1, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay)
+	saved := notice(2, "lena@example.test", "Toner order", noticeDay.Add(time.Hour))
+	answer := notice(3, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay.Add(2*time.Hour))
+	answer.InReplyTo, answer.References = saved.MessageID, saved.MessageID
+	syncNotices(t, db, first, saved, answer)
+	assertGroups(t, db, "abb", first, saved, answer)
+}
+
+// Regroup applies grouping by subject to saved mail whose reply headers
+// lead nowhere, and splits it again.
+func TestRegroupSubjectThreadsWithMissingReferences(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	a := replyToMissing(1, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay)
+	b := replyToMissing(2, "desk@support.example.test", "Ticket 42: Printer jams", noticeDay.Add(24*time.Hour))
+	syncNotices(t, db, a, b)
+	assertGroups(t, db, "ab", a, b)
+
+	setSubjectThreading(t, db, true, "7", "100")
+	regroup(t, db)
+	assertGroups(t, db, "aa", a, b)
+
+	setSubjectThreading(t, db, false, "7", "100")
+	regroup(t, db)
+	assertGroups(t, db, "ab", a, b)
+	if n := threadRowCount(t, db); n != 2 {
+		t.Fatalf("%d thread rows after splitting, want 2", n)
 	}
 }

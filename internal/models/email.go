@@ -451,6 +451,10 @@ type EmailFilters struct {
 	// ByMessage lists each message on its own row instead of each
 	// conversation once. It is how the list is shown, not a filter.
 	ByMessage bool
+	// KeepRead are messages read while the Unread filter was on. Their rows
+	// stay in that list until the filters change, so a message opened there
+	// is marked read without leaving the list under the reader.
+	KeepRead []int64
 }
 
 type ThreadItem struct {

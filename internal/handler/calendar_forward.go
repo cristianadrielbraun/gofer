@@ -242,11 +242,19 @@ func calendarForwardICS(source *ical.Calendar, recipients []*mail.Address) (stri
 	return encodeCalendarReply(cal)
 }
 
-func calendarForwardMessage(ctx context.Context, fromName, fromEmail, summary, comment, invitation string, recipients []*mail.Address) *message.OutgoingMessage {
+// calendarMailSummary gives an event title fit for an email subject: on one
+// line, and "Meeting" when the event has no title, so a subject never ends
+// in an empty "Invitation: ".
+func calendarMailSummary(ctx context.Context, summary string) string {
 	summary = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(summary))
 	if summary == "" {
-		summary = i18n.T(ctx, "mail.outgoing.calendar.meeting")
+		return i18n.T(ctx, "mail.outgoing.calendar.meeting")
 	}
+	return summary
+}
+
+func calendarForwardMessage(ctx context.Context, fromName, fromEmail, summary, comment, invitation string, recipients []*mail.Address) *message.OutgoingMessage {
+	summary = calendarMailSummary(ctx, summary)
 	sender := strings.TrimSpace(fromName)
 	if sender == "" {
 		sender = fromEmail

@@ -103,6 +103,10 @@
     if (subjectThreading && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('subject_threading', subjectThreading.checked ? 'true' : 'false');
     }
+    var subjectThreadingLateReplies = e.target.closest('[data-subject-threading-late-replies-setting]');
+    if (subjectThreadingLateReplies && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('subject_threading_late_replies', subjectThreadingLateReplies.checked ? 'true' : 'false');
+    }
     var subjectThreadingNumber = e.target.closest('[data-subject-threading-number]');
     if (subjectThreadingNumber && typeof GoferSettings !== 'undefined') {
       // The same bounds as the server keeps: a window of 1 to 365 days, a
@@ -1299,6 +1303,10 @@
     var dateFormat = e.target.closest('[data-date-format-input]');
     if (dateFormat && dateFormat.value && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('date_format', dateFormat.value);
+    }
+    var weekStart = e.target.closest('[data-week-start-input]');
+    if (weekStart && weekStart.value && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('week_start', weekStart.value);
     }
     var timeFormat = e.target.closest('[data-time-format-input]');
     if (timeFormat && timeFormat.value && typeof GoferSettings !== 'undefined') {
@@ -3407,3 +3415,13 @@ function editToggleSmtpAuth(checked) {
     });
   });
 })();
+
+// The account wizards move between steps with a transform; their viewport
+// never scrolls. Focus moving into a hidden step, as Tab from a step's last
+// field does, would scroll it sideways and show the wrong step, or none.
+document.addEventListener('scroll', function(event) {
+  var viewport = event.target;
+  if (viewport && viewport.classList && viewport.classList.contains('account-wizard-viewport') && viewport.scrollLeft !== 0) {
+    viewport.scrollLeft = 0;
+  }
+}, true);

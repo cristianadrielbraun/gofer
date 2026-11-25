@@ -152,6 +152,17 @@ func (h *Handler) renderAdminUserPage(w http.ResponseWriter, r *http.Request, us
 			Provider: identity.Provider, Email: identity.Email, LinkedAt: identity.LinkedAt, LastUsedAt: identity.LastUsedAt,
 		})
 	}
+	if tab == views.AdminUserTabOverview && !row.Administrator() {
+		groups, err := h.auth.GroupsOfUser(ctx, user.ID, detail.ID)
+		if err != nil {
+			log.Printf("load administrator user %q groups: %v", detail.ID, err)
+			http.Error(w, i18n.T(ctx, "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
+			return
+		}
+		for _, group := range groups {
+			data.Groups = append(data.Groups, views.AdminGroupRef{ID: group.ID, Name: group.Name})
+		}
+	}
 	if tab == views.AdminUserTabSessions {
 		sessions, err := h.auth.ListAdministratorUserSessions(ctx, user.ID, session.ID, detail.ID)
 		if err != nil {

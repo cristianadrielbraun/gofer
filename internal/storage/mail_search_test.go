@@ -70,6 +70,8 @@ func TestMailSearchScopes(t *testing.T) {
 		{"explicit folder retained", models.MailSearchScope{Kind: models.MailSearchFolders, FolderIDs: []string{"root"}}, models.EmailFilters{ByMessage: true, Starred: true}, nil},
 		{"account filter intersects scope", models.MailSearchScope{Kind: models.MailSearchAll}, models.EmailFilters{AccountID: "b", Query: "needle"}, []string{"4"}},
 		{"copy flags aggregated once", models.MailSearchScope{Kind: models.MailSearchAll}, models.EmailFilters{Unread: true, Starred: true}, []string{"2"}},
+		{"read conversations kept in unread results", models.MailSearchScope{Kind: models.MailSearchAll}, models.EmailFilters{Unread: true, KeepRead: []int64{3, 4}}, []string{"8", "4", "2"}},
+		{"kept message of another account keeps only its own conversation", models.MailSearchScope{Kind: models.MailSearchFolders, FolderIDs: []string{"root"}}, models.EmailFilters{Unread: true, KeepRead: []int64{4}}, nil},
 		{"copies do not create conversations", models.MailSearchScope{Kind: models.MailSearchFolders, FolderIDs: []string{"root", "child"}}, models.EmailFilters{ThreadsOnly: true}, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

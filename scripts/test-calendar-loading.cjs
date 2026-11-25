@@ -12,7 +12,9 @@ function helper(name) {
 }
 const context = vm.createContext({})
 loadI18n(context)
-vm.runInContext(['calendarLoadingWeekCount', 'calendarLoadingPeriodLabel'].map(helper).join('\n'), context)
+const viewHelpers = () => [source.slice(source.indexOf('var CALENDAR_VIEWS'), source.indexOf('\n', source.indexOf('var CALENDAR_VIEWS')))]
+  .concat(['calendarTimelineView', 'calendarAddDays', 'calendarViewDays', 'calendarViewURL', 'calendarLoadingWeekCount', 'calendarLoadingPeriodLabel'].map(helper)).join('\n')
+vm.runInContext(viewHelpers(), context)
 for (const [month, rows] of [['2027-02', 4], ['2026-09', 5], ['2026-03', 6], ['2024-02', 5], ['2028-02', 5]]) {
   assert.equal(context.calendarLoadingWeekCount(month), rows, 'Skeleton must match the actual Monday-first row count')
 }
@@ -25,6 +27,38 @@ for (const [view, date, label] of [
   ['week', '2026-03-29', 'Mar 23–29, 2026'], // DST cannot shift the weekday axis.
 ]) assert.equal(context.calendarLoadingPeriodLabel(view, date), label)
 assert.equal(context.calendarLoadingPeriodLabel('month', 'invalid'), '')
+// The skeleton follows the week start setting, like the grid that replaces it.
+// August 1, 2026 is a Saturday and October 4, 2026 a Sunday.
+for (const [weekStart, rows, label] of [
+  ['1', {'2026-08': 6, '2027-02': 4, '2026-03': 6}, 'Sep 28 – Oct 4, 2026'],
+  ['0', {'2026-08': 6, '2027-02': 5, '2026-03': 5}, 'Oct 4–10, 2026'],
+  ['6', {'2026-08': 5, '2027-02': 5, '2026-03': 5}, 'Oct 3–9, 2026'],
+]) {
+  const chosen = loadI18n(vm.createContext({}), 'en', 'auto', 'auto', weekStart)
+  vm.runInContext(viewHelpers(), chosen)
+  for (const [month, count] of Object.entries(rows)) assert.equal(chosen.calendarLoadingWeekCount(month), count, 'Skeleton rows for ' + month + ' with weeks starting on day ' + weekStart)
+  assert.equal(chosen.calendarLoadingPeriodLabel('week', '2026-10-04'), label)
+}
+// Each hour-grid view lays out the same days as NewCalendarTimelineData. October
+// 4, 2026 is a Sunday.
+for (const [view, date, first, last, count, label] of [
+  ['week', '2026-10-04', '2026-09-28', '2026-10-04', 7, 'Sep 28 – Oct 4, 2026'],
+  ['workweek', '2026-10-04', '2026-09-28', '2026-10-02', 5, 'Sep 28 – Oct 2, 2026'],
+  ['3day', '2026-09-30', '2026-09-30', '2026-10-02', 3, 'Sep 30 – Oct 2, 2026'],
+  ['3day', '2026-12-31', '2026-12-31', '2027-01-02', 3, 'Dec 31, 2026 – Jan 2, 2027'],
+  ['day', '2026-10-01', '2026-09-28', '2026-10-04', 7, 'Thursday, October 1, 2026'],
+]) {
+  const days = context.calendarViewDays(view, date)
+  assert.deepEqual([days[0], days[days.length - 1], days.length], [first, last, count], view + ' days around ' + date)
+  assert.equal(context.calendarLoadingPeriodLabel(view, date), label)
+}
+const sundayFirst = loadI18n(vm.createContext({}), 'en', 'auto', 'auto', '0')
+vm.runInContext(viewHelpers(), sundayFirst)
+assert.deepEqual([...sundayFirst.calendarViewDays('workweek', '2026-10-04')], ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09'], 'A Sunday opens a Sunday-first work week')
+assert.equal(context.calendarAddDays('2026-03-28', 2), '2026-03-30', 'Days are counted across DST')
+assert.equal(context.calendarViewURL('3day', '2026-10-04'), '/calendar?date=2026-10-04&view=3day')
+assert.equal(context.calendarViewURL('month', '2026-10-04'), '/calendar?month=2026-10')
+assert.ok(helper('showCalendarContentPending').includes('calendarViewDays'), 'The incoming headers must show the days the view lays out')
 assert.ok(!helper('showCalendarContentPending').includes('calendar-skeleton'), 'Date navigation must not inject pulsing placeholders into the empty grid')
 
 const viewSwitchContext = vm.createContext({
@@ -69,4 +103,4 @@ assert.ok(appNav.indexOf('setSidebarAppNavMode(mode)') < appNav.indexOf('showApp
 assert.ok(appNav.includes('xhr !== request'), 'Old app responses must not overwrite the new tab')
 assert.ok(appNav.includes('goferAppPaneMode !== sidebar.dataset.sidebarAppBody'), 'Background replies from the previous app must not overwrite a skeleton or a new app')
 assert.ok(appNav.includes('htmx:sendAbort'), 'Interrupted loading must have a recovery path')
-console.log('Calendar loading: exact month row counts, week labels/DST, no view-switch skeleton flash, target identity, saved widths, rollback, immediate tab selection, and stale request guards passed.')
+console.log('Calendar loading: exact month row counts, week labels/DST, chosen week start, no view-switch skeleton flash, target identity, saved widths, rollback, immediate tab selection, and stale request guards passed.')

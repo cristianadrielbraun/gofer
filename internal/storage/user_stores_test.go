@@ -406,3 +406,61 @@ func TestUserStoreKeepsMailAndSearchAtomicOnIndexFailure(t *testing.T) {
 		t.Fatal("failed draft left committed mail or search changes")
 	}
 }
+
+func initializingUserStoreFiles(t *testing.T, directory string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), initializingUserStorePrefix) {
+			names = append(names, entry.Name())
+		}
+	}
+	return names
+}
+
+func TestUserStoresCreationLeavesNoBuildFileBesideTheOpenDatabase(t *testing.T) {
+	m := newUserStoreTestManager(t, newUserStoreTestSystem(t), UserStoreOptions{})
+	acquireUserStore(t, m, "alice")
+	if names := initializingUserStoreFiles(t, m.directory); len(names) != 0 {
+		t.Fatalf("build files left beside an open user database: %v", names)
+	}
+}
+
+func TestUserStoresStartupRemovesLeftoverBuildFiles(t *testing.T) {
+	system := newUserStoreTestSystem(t)
+	directory := filepath.Join(t.TempDir(), "users")
+	first, err := NewUserStores(system, UserStoreOptions{Directory: directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.WithUser(t.Context(), "alice", func(db *DB) error { return db.Read().Ping() }); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// A second name for a published database, as Windows left behind, and a
+	// database whose creation stopped before it was published.
+	if err := os.Link(first.userPath("alice"), filepath.Join(directory, initializingUserStorePrefix+"1.db")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"2.db", "2.db-wal"} {
+		if err := os.WriteFile(filepath.Join(directory, initializingUserStorePrefix+name), []byte("unfinished"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newUserStoreTestManager(t, system, UserStoreOptions{Directory: directory})
+	if names := initializingUserStoreFiles(t, directory); len(names) != 0 {
+		t.Fatalf("leftover build files kept: %v", names)
+	}
+	lease, err := m.AcquireExisting(t.Context(), "alice")
+	if err != nil {
+		t.Fatalf("published database lost with its second name: %v", err)
+	}
+	lease.Release()
+}

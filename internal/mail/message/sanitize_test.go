@@ -185,6 +185,34 @@ func TestRemoteImageDownloadsUseDecodedAddresses(t *testing.T) {
 	}
 }
 
+// An image that could not be downloaded when remote content was saved must
+// still load through Gofer, and older bodies that marked it removed load it
+// again once restored.
+func TestRemoteImagesNotSavedStillLoad(t *testing.T) {
+	relay := func(remoteURL string) string { return "/relay/" + remoteURL }
+	out := SanitizeHTML([]byte(`<p>Lunch on Friday?</p><img src="https://images.example/menu.png"><img src="https://cdn.example/signature.png" alt="Alex">`))
+	saved := RewriteToLocalAssets(out, map[string]string{"https://images.example/menu.png": "/api/remote-assets/1/0123456789abcdef.png"})
+	shown := string(RestoreRemoteContent(saved, relay))
+	if !strings.Contains(shown, `src="/api/remote-assets/1/0123456789abcdef.png"`) {
+		t.Fatalf("saved image not shown from its copy: %s", shown)
+	}
+	if !strings.Contains(shown, `src="/relay/https://cdn.example/signature.png"`) {
+		t.Fatalf("image that was not saved no longer loads: %s", shown)
+	}
+
+	old := []byte(`<p>Lunch on Friday?</p><img src="/api/remote-assets/1/0123456789abcdef.png"><img src="" data-removed-src="https://cdn.example/signature.png" alt="Alex">`)
+	restored, changed := RestoreUnsavedRemoteImages(old)
+	if !changed {
+		t.Fatal("older body not changed")
+	}
+	if got := string(RestoreRemoteContent(restored, relay)); !strings.Contains(got, `src="/relay/https://cdn.example/signature.png"`) || strings.Contains(got, "data-removed-src") {
+		t.Fatalf("older body still hides the image: %s", got)
+	}
+	if again, changed := RestoreUnsavedRemoteImages(restored); changed || !bytes.Equal(again, restored) {
+		t.Fatalf("restored body changed again: %s", again)
+	}
+}
+
 func TestSanitizeOutgoingHTMLKeepsRemoteImages(t *testing.T) {
 	got := string(SanitizeOutgoingHTML([]byte(`<p>Hi</p><img src="https://example.com/logo.png" alt="Logo"><img src="cid:part1@example.com"><img src="x" onerror="alert(1)"><script>alert(1)</script>`)))
 	if !strings.Contains(got, `src="https://example.com/logo.png"`) {

@@ -16,8 +16,10 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 func calendarWorkerFixture(t *testing.T) *Handler {
@@ -413,8 +415,18 @@ func TestCalendarBackgroundWindowIncludesMonthGridsAcrossDST(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start, end := calendarBackgroundWindow(time.Date(2026, 10, 25, 12, 0, 0, 0, zone), zone)
-	if start.Format("2006-01-02") != "2026-08-31" || end.Format("2006-01-02") != "2027-02-01" || start.Weekday() != time.Monday || end.Weekday() != time.Monday {
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, zone)
+	start, end := calendarBackgroundWindow(now, zone)
+	if start.Format(time.RFC3339) != "2026-08-26T00:00:00+02:00" || end.Format(time.RFC3339) != "2027-02-07T00:00:00+01:00" {
 		t.Fatalf("background window = %v to %v", start, end)
+	}
+	// Last month's grid through the one three months ahead must fit, whatever
+	// day the weeks start on, or opening one of them would sync again.
+	for _, weekStart := range i18n.WeekStarts() {
+		first, _ := calendarVisibleWindow(views.NewCalendarMonthData(now.AddDate(0, -1, 0), weekStart))
+		_, last := calendarVisibleWindow(views.NewCalendarMonthData(now.AddDate(0, 3, 0), weekStart))
+		if first.Before(start) || last.After(end) {
+			t.Errorf("%s-first grids span %v to %v, outside the background window", weekStart, first, last)
+		}
 	}
 }

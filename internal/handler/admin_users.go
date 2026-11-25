@@ -731,10 +731,47 @@ func adminUsersQueryFrom(values url.Values) views.AdminUsersQuery {
 	if sort := auth.AdministratorUserSort(values.Get("sort")); sort.Valid() && sort != auth.AdministratorUserSortUsername {
 		query.Sort = string(sort)
 	}
+	if group := strings.TrimSpace(values.Get("group")); group != "" && len(group) <= adminUsersGroupIDLength && adminUserActionTargetID(group) {
+		query.Group = group
+	}
 	if page, err := strconv.Atoi(values.Get("page")); err == nil && page > 1 {
 		query.Page = page
 	}
 	return query
+}
+
+// adminUsersGroupIDLength bounds a group filter's ID.
+const adminUsersGroupIDLength = 64
+
+// loadAdminUsersGroups adds every group to data, for the group filter, and
+// each listed person's groups, for the Groups column, shown once there is
+// a group.
+func (h *Handler) loadAdminUsersGroups(ctx context.Context, actorUserID string, data *views.AdminUsersData) error {
+	groups, err := h.auth.ListGroups(ctx, actorUserID)
+	if err != nil {
+		return err
+	}
+	for _, group := range groups {
+		data.Groups = append(data.Groups, views.AdminGroupRef{ID: group.ID, Name: group.Name})
+	}
+	data.Grouped = len(groups) > 0
+	if !data.Grouped {
+		return nil
+	}
+	ids := make([]string, len(data.Users))
+	for i, user := range data.Users {
+		ids[i] = user.ID
+	}
+	byPerson, err := h.auth.GroupsOfUsers(ctx, actorUserID, ids)
+	if err != nil {
+		return err
+	}
+	for i, user := range data.Users {
+		for _, group := range byPerson[user.ID] {
+			data.Users[i].Groups = append(data.Users[i].Groups, views.AdminGroupRef{ID: group.ID, Name: group.Name})
+		}
+	}
+	return nil
 }
 
 // adminUsersSearchLength bounds a search.
@@ -761,7 +798,7 @@ func (h *Handler) loadAdminUserList(w http.ResponseWriter, r *http.Request, quer
 	list := func() (*auth.AdministratorUserPage, error) {
 		return h.auth.ListAdministratorUserPage(ctx, currentUser.ID, currentSession.ID, auth.AdministratorUserQuery{
 			Search: query.Search, Status: auth.UserStatus(query.Status), Attention: auth.AdministratorUserAttention(query.Attention),
-			Sort: auth.AdministratorUserSort(query.Sort), Offset: (pageNumber - 1) * size, Limit: size,
+			Sort: auth.AdministratorUserSort(query.Sort), Group: query.Group, Offset: (pageNumber - 1) * size, Limit: size,
 		})
 	}
 	page, err := list()
@@ -801,6 +838,13 @@ func (h *Handler) loadAdminUserList(w http.ResponseWriter, r *http.Request, quer
 		state.data.Users[i].ListPath = query.Path(pageNumber)
 	}
 	state.data.Matching = page.Matching
+	if h.auth.IsEnabled() {
+		if err := h.loadAdminUsersGroups(ctx, currentUser.ID, &state.data); err != nil {
+			log.Printf("load the Users list's groups: %v", err)
+			http.Error(w, i18n.T(ctx, "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
+			return state, false
+		}
+	}
 	if h.auth.IsEnabled() {
 		state.data.BulkActions = adminUsersBulkActionNames()
 		state.data.BulkLimit = admin.MaxBulkPeople

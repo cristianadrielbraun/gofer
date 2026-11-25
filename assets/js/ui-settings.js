@@ -452,10 +452,81 @@ var GoferSettings;
       return (scope.querySelector && scope.querySelector("#" + spec.scrollId)) || document.getElementById(spec.scrollId);
     }
 
-    // Shows the chosen columns at their saved widths.
-    function apply(root) {
-      var visibleIds = normalizeIds(_cache[spec.columnsKey]);
-      var columns = widthsCSS(_cache[spec.widthsKey], visibleIds);
+    // A list with spec.placesKey can keep columns of their own for a place
+    // in it (mail: a folder or a tag), saved together under that key as
+    // {"place": {"columns": "...", "widths": "..."}}. A place without its
+    // own shows the list's columns.
+    function places() {
+      if (!spec.placesKey) return {};
+      try {
+        var saved = JSON.parse(_cache[spec.placesKey] || "{}");
+        return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    // The place on screen: the list keeps it on its scroller, and before the
+    // list is set up spec.placeOf works it out from the page.
+    function placeOf(root) {
+      if (!spec.placesKey) return "";
+      var scroll = scrollIn(root);
+      if (!scroll) return "";
+      if (scroll.dataset.tableColumnsPlace !== undefined) return scroll.dataset.tableColumnsPlace;
+      return spec.placeOf ? spec.placeOf(scroll) : "";
+    }
+
+    function ownColumns(root) {
+      var place = placeOf(root);
+      var own = place ? places()[place] : null;
+      return own && typeof own === "object" ? own : null;
+    }
+
+    function columnsValue(root) {
+      var own = ownColumns(root);
+      return own ? own.columns : _cache[spec.columnsKey];
+    }
+
+    function widthsValue(root) {
+      var own = ownColumns(root);
+      return own && own.widths ? own.widths : _cache[spec.widthsKey];
+    }
+
+    // Saves columns or widths for the place on screen when it has its own,
+    // or else for the whole list.
+    function save(root, field, key, value) {
+      var place = placeOf(root);
+      var all = places();
+      if (place && all[place] && typeof all[place] === "object") {
+        all[place][field] = value;
+        GoferSettings.set(spec.placesKey, JSON.stringify(all));
+        return;
+      }
+      GoferSettings.set(key, value);
+    }
+
+    // Gives the place on screen columns of its own, starting from the
+    // list's, or takes them away so it shows the list's again.
+    function setOwn(on, root) {
+      var place = placeOf(root);
+      if (!place) return;
+      var all = places();
+      if (on) {
+        all[place] = {
+          columns: normalizeIds(_cache[spec.columnsKey]).join(","),
+          widths: _cache[spec.widthsKey] || spec.defaultWidths,
+        };
+      } else {
+        delete all[place];
+      }
+      GoferSettings.set(spec.placesKey, JSON.stringify(all));
+    }
+
+    // Shows the chosen columns at their saved widths, or at widths being
+    // dragged that are not saved yet.
+    function apply(root, draggedWidths) {
+      var visibleIds = normalizeIds(columnsValue(root));
+      var columns = widthsCSS(draggedWidths || widthsValue(root), visibleIds);
       if (!columns) return;
       var hidden = ids.filter(function (id) { return visibleIds.indexOf(id) === -1; }).join(" ");
       if (spec.rootVariable) document.documentElement.style.setProperty("--mail-list-table-columns", columns);
@@ -475,15 +546,30 @@ var GoferSettings;
       widthsKey: spec.widthsKey,
       normalizeIds: normalizeIds,
       ratios: ratios,
-      current: function () { return normalizeIds(_cache[spec.columnsKey]); },
-      apply: apply,
+      // The columns and widths shown in the place on screen.
+      current: function (root) { return normalizeIds(columnsValue(root)); },
+      widths: widthsValue,
+      saveColumns: function (ids, root) { save(root, "columns", spec.columnsKey, ids.join(",")); },
+      saveWidths: function (value, root) { save(root, "widths", spec.widthsKey, value); },
+      // Whether the place on screen can have columns of its own, and has.
+      hasPlace: function (root) { return !!placeOf(root); },
+      hasOwn: function (root) { return !!ownColumns(root); },
+      setOwn: setOwn,
+      apply: function (root) { apply(root); },
       // Shows widths while a column is being resized, before they are saved.
-      applyWidths: function (value, root) {
-        _cache[spec.widthsKey] = value;
-        apply(root);
-      },
+      applyWidths: function (value, root) { apply(root, value); },
     };
   }
+
+  // The place a mail list keeps its own table columns for: its folder, or
+  // its tag, which lists mail from more than one folder. Search results are
+  // no place of their own.
+  function mailTablePlace(folderID, tag) {
+    if (!folderID || folderID === "search") return "";
+    if (tag && tag.label) return "tag:" + (tag.accountId || "") + ":" + tag.label;
+    return folderID;
+  }
+  window.mailTableColumnsPlace = mailTablePlace;
 
   function cssEscape(value) {
     if (window.CSS && CSS.escape) return CSS.escape(value);
@@ -499,7 +585,9 @@ var GoferSettings;
   }
 
   var MAIL_CARD = cardLayoutModel({
-    fields: ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread"],
+    // The *Action fields are buttons that act on the card's message, hidden
+    // until the layout shows them.
+    fields: ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread", "readAction", "archiveAction", "deleteAction", "labelsAction", "spamAction"],
     defaultFields: "avatar,thread,from,account,to,attachment,date,subject,preview,labels,starred",
     zones: ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner", "hidden"],
     defaultLayout: "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
@@ -513,7 +601,7 @@ var GoferSettings;
     ],
     legacySplitBody: true,
     legacyRail: legacyRailZone,
-    iconFields: { avatar: true, thread: true, accountMarker: true, attachment: true, starred: true, unread: true },
+    iconFields: { avatar: true, thread: true, accountMarker: true, attachment: true, starred: true, unread: true, readAction: true, archiveAction: true, deleteAction: true, labelsAction: true, spamAction: true },
     sideZones: ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"],
     centerZones: ["header", "body", "bodyBottom", "footer"],
     // How many fields a zone holds. The middle is two lines, body and
@@ -534,6 +622,11 @@ var GoferSettings;
       preview: "footer",
       labels: "footer",
       starred: "corner",
+      readAction: "status",
+      archiveAction: "status",
+      deleteAction: "status",
+      labelsAction: "status",
+      spamAction: "status",
     },
     fallbackZone: "body",
     fallbackField: "subject",
@@ -617,6 +710,13 @@ var GoferSettings;
     rootVariable: true,
     columnsKey: "mail_table_columns",
     widthsKey: "mail_table_column_widths",
+    // A folder or tag can keep columns of its own.
+    placesKey: "mail_table_place_columns",
+    placeOf: function (scroll) {
+      var params = new URLSearchParams(window.location.search);
+      var label = (params.get("tag") || "").trim();
+      return mailTablePlace(scroll.dataset.folderId, { label: label, accountId: label ? (params.get("tag_account_id") || "").trim() : "" });
+    },
   });
 
   var CONTACT_TABLE = tableColumnsModel({
@@ -674,8 +774,12 @@ var GoferSettings;
       scroll.toggleAttribute("data-mail-date-time", _cache.mail_card_date_time === "true");
       // On unless turned off, so settings saved before the option keep it.
       scroll.toggleAttribute("data-mail-account-no-marker", _cache.mail_card_account_marker === "false");
+      // The card's buttons show on hover only unless this is turned off.
+      scroll.toggleAttribute("data-mail-card-actions-always", _cache.mail_card_actions_on_hover === "false");
     }
     MAIL_CARD.applyToScopes(scope, layout);
+    // The card buttons whose label follows the folder (app.js).
+    if (typeof window.syncMailCardActionLabels === "function") window.syncMailCardActionLabels(scope);
   }
 
   // Lays the contact cards out: their fields in their zones, and the card as
@@ -911,12 +1015,15 @@ var GoferSettings;
       _cache.mail_table_columns = MAIL_TABLE.normalizeIds(value).join(",");
       applyMailTableColumnSettings();
     }
+    if (key === "mail_table_place_columns") {
+      applyMailTableColumnSettings();
+    }
     if (key === "mail_card_fields") {
       _cache.mail_card_fields = MAIL_CARD.normalizeFieldIds(value).join(",");
       _cache.mail_card_layout = MAIL_CARD.serialize(MAIL_CARD.normalize(_cache.mail_card_layout, _cache.mail_card_fields));
       applyMailCardSettings();
     }
-    if (key === "mail_card_date_time" || key === "mail_card_account_marker") {
+    if (key === "mail_card_date_time" || key === "mail_card_account_marker" || key === "mail_card_actions_on_hover") {
       applyMailCardSettings();
     }
     if (key === "mail_card_layout") {
@@ -1049,10 +1156,11 @@ var GoferSettings;
         detail: { key: key, value: value, oldValue: oldValue },
       }));
 
-      // The page is drawn in the time zone, language and date formats, so
-      // reload it.
+      // The page is drawn in the time zone, language, date formats and week
+      // start, so reload it.
       var drawn = key === "language" || key === "date_format" || key === "time_format";
-      if ((key === "timezone" && oldValue !== value) || (drawn && (oldValue || "auto") !== (value || "auto"))) {
+      var weekStartChanged = key === "week_start" && (oldValue || "monday") !== (value || "monday");
+      if ((key === "timezone" && oldValue !== value) || (drawn && (oldValue || "auto") !== (value || "auto")) || weekStartChanged) {
         if (_saveTimer) clearTimeout(_saveTimer);
         persistSettingsNow().finally(function () {
           window.location.reload();

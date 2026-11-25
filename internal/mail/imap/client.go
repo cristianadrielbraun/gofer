@@ -112,7 +112,7 @@ func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password
 		c, err = imapclient.NewStartTLS(conn, options)
 	} else {
 		// STARTTLS can't have the filter: go-imap starts its TLS beneath it.
-		c = imapclient.New(newStatusFixConn(conn), options)
+		c = imapclient.New(newQuirksConn(conn), options)
 	}
 	if err != nil {
 		_ = conn.Close()

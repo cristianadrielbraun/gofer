@@ -16,7 +16,7 @@ func TestCalendarMonthDataBuildsMondayFirstGrid(t *testing.T) {
 		t.Fatalf("load test timezone: %v", err)
 	}
 
-	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, location))
+	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, location), time.Monday)
 	if calendarPeriodLabel(context.Background(), month) != "September 2026" {
 		t.Fatalf("month label = %q, want September 2026", calendarPeriodLabel(context.Background(), month))
 	}
@@ -49,7 +49,7 @@ func TestCalendarMonthDataBuildsMondayFirstGrid(t *testing.T) {
 }
 
 func TestCalendarMainRendersNavigationAndAgendaState(t *testing.T) {
-	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC))
+	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC), time.Monday)
 	var output bytes.Buffer
 	if err := CalendarPage(month, map[string]string{"mail_list_width": "50%"}).Render(t.Context(), &output); err != nil {
 		t.Fatalf("CalendarPage.Render() error = %v", err)
@@ -77,7 +77,7 @@ func TestCalendarMainRendersNavigationAndAgendaState(t *testing.T) {
 
 func TestCalendarLayoutLoadsMailAndContactsListsBeforeApp(t *testing.T) {
 	at := time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC)
-	for _, data := range []CalendarMonthData{NewCalendarMonthData(at), NewCalendarWeekData(at)} {
+	for _, data := range []CalendarMonthData{NewCalendarMonthData(at, time.Monday), NewCalendarWeekData(at, time.Monday)} {
 		t.Run(data.View, func(t *testing.T) {
 			var output bytes.Buffer
 			if err := CalendarLayout(nil, data, nil).Render(t.Context(), &output); err != nil {
@@ -99,7 +99,7 @@ func TestCalendarLayoutLoadsMailAndContactsListsBeforeApp(t *testing.T) {
 
 func TestCalendarTitleBarMatchesMailAndContacts(t *testing.T) {
 	at := time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC)
-	for _, data := range []CalendarMonthData{NewCalendarMonthData(at), NewCalendarWeekData(at)} {
+	for _, data := range []CalendarMonthData{NewCalendarMonthData(at, time.Monday), NewCalendarWeekData(at, time.Monday)} {
 		var output bytes.Buffer
 		if err := CalendarMainContent(data).Render(t.Context(), &output); err != nil {
 			t.Fatal(err)
@@ -125,7 +125,7 @@ func TestCalendarPageRendersTimedAndAllDayEvents(t *testing.T) {
 	location := time.FixedZone("CEST", 2*60*60)
 	start := time.Date(2026, time.September, 17, 9, 0, 0, 0, location)
 	end := start.Add(time.Hour)
-	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, location))
+	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, location), time.Monday)
 	month.HasSources = true
 	month.LastSyncedAt = &start
 	month.Events = []CalendarEvent{
@@ -195,6 +195,45 @@ func TestCalendarEventMetaNamesMeetingWithoutLocation(t *testing.T) {
 	} {
 		if got := calendarEventMeta(tc.event); got != tc.want {
 			t.Errorf("calendarEventMeta(%+v) = %q, want %q", tc.event, got, tc.want)
+		}
+	}
+}
+
+func TestCalendarMonthStartsWeeksOnTheChosenDay(t *testing.T) {
+	// August 1, 2026 is a Saturday, so the month needs a different number of
+	// rows depending on where the week starts.
+	for _, test := range []struct {
+		weekStart time.Weekday
+		first     string
+		weeks     int
+		labels    []string
+	}{
+		{time.Monday, "2026-07-27", 6, []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}},
+		{time.Sunday, "2026-07-26", 6, []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}},
+		{time.Saturday, "2026-08-01", 5, []string{"Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"}},
+	} {
+		month := NewCalendarMonthData(time.Date(2026, time.August, 17, 12, 0, 0, 0, time.UTC), test.weekStart)
+		if got := month.Weeks[0].Days[0]; got.ISODate != test.first || got.Date.Weekday() != test.weekStart || len(month.Weeks) != test.weeks {
+			t.Fatalf("%s-first August 2026 starts %s with %d weeks, want %s with %d", test.weekStart, got.ISODate, len(month.Weeks), test.first, test.weeks)
+		}
+		last := month.Weeks[len(month.Weeks)-1].Days[6]
+		if last.Date.Before(time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)) {
+			t.Fatalf("%s-first grid ends %s, before the month does", test.weekStart, last.ISODate)
+		}
+		var output bytes.Buffer
+		if err := CalendarMainContent(month).Render(t.Context(), &output); err != nil {
+			t.Fatal(err)
+		}
+		// The column headings come before the day cells, in the week's order.
+		html := output.String()
+		html = html[strings.Index(html, "data-calendar-month-grid"):strings.Index(html, "data-calendar-day=")]
+		at := 0
+		for _, label := range test.labels {
+			next := strings.Index(html[at:], ">"+label+"<")
+			if next < 0 {
+				t.Fatalf("%s-first month headings are not %v: %s", test.weekStart, test.labels, html)
+			}
+			at += next + 1
 		}
 	}
 }

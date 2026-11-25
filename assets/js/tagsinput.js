@@ -69,6 +69,26 @@
     items[next].scrollIntoView({ block: 'nearest' });
   }
 
+  // removeLabel names a chip's remove button: the container's
+  // data-tui-tagsinput-remove-label with {tag} replaced, or "Remove" and the
+  // tag.
+  function removeLabel(container, tag) {
+    const label = container.getAttribute('data-tui-tagsinput-remove-label');
+    return label ? label.split('{tag}').join(tag) : 'Remove ' + tag;
+  }
+
+  // removeHiddenInput drops the hidden input that holds a tag. Comparing
+  // values, rather than a selector, works for any tag, quotes included.
+  function removeHiddenInput(container, tag) {
+    const inputs = container?.querySelectorAll('[data-tui-tagsinput-hidden-inputs] input') || [];
+    for (const hidden of inputs) {
+      if (hidden.value === tag) {
+        hidden.remove();
+        return;
+      }
+    }
+  }
+
   function addTag(container, value) {
     const input = container.querySelector('[data-tui-tagsinput-text-input]');
     const val = value.trim();
@@ -79,11 +99,20 @@
       return;
     }
 
-    // Create chip
+    // Create chip. The tag is text, never markup.
     const chip = document.createElement('div');
     chip.className = 'inline-flex items-center gap-2 rounded-md border px-2.5 py-0.5 text-xs font-semibold border-transparent bg-primary text-primary-foreground';
     chip.setAttribute('data-tui-tagsinput-chip', '');
-    chip.innerHTML = `<span>${val}</span><button type="button" class="ml-1 hover:text-destructive cursor-pointer" data-tui-tagsinput-remove><svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>`;
+    const text = document.createElement('span');
+    text.textContent = val;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'ml-1 hover:text-destructive cursor-pointer';
+    remove.setAttribute('data-tui-tagsinput-remove', '');
+    remove.setAttribute('aria-label', removeLabel(container, val));
+    remove.innerHTML = '<svg class="h-3 w-3 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>';
+    chip.appendChild(text);
+    chip.appendChild(remove);
 
     // Add chip to chips container
     container.querySelector('[data-tui-tagsinput-chips]').appendChild(chip);
@@ -106,7 +135,9 @@
     if (container) showSuggestions(container, input.value);
   });
 
-  // Focusout → close suggestions
+  // Focusout → close suggestions. Text typed but not yet added becomes a
+  // tag, so it isn't lost when the form is sent next, as leaving the field
+  // for its Save button does.
   document.addEventListener('focusout', e => {
     const input = e.target.closest('[data-tui-tagsinput-text-input]');
     if (!input) return;
@@ -114,6 +145,7 @@
     const id = container?.getAttribute('data-tui-tagsinput-suggestions-id');
     const nextTarget = e.relatedTarget;
     if (container?.contains(nextTarget) || getSuggestionsContent(container)?.contains(nextTarget)) return;
+    if (container && input.value.trim()) addTag(container, input.value);
     if (id) window.tui?.popover?.close(id);
   });
 
@@ -155,7 +187,7 @@
       const container = chip?.closest('[data-tui-tagsinput]');
       const val = chip?.querySelector('span')?.textContent;
       chip?.remove();
-      container?.querySelector(`[data-tui-tagsinput-hidden-inputs] input[value="${val}"]`)?.remove();
+      removeHiddenInput(container, val);
       return;
     }
 
@@ -206,7 +238,7 @@
       if (lastChip) {
         const val = lastChip.querySelector('span')?.textContent;
         lastChip.remove();
-        container.querySelector(`[data-tui-tagsinput-hidden-inputs] input[value="${val}"]`)?.remove();
+        removeHiddenInput(container, val);
       }
     }
   });

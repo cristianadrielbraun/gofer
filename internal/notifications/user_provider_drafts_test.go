@@ -21,7 +21,11 @@ import (
 
 type providerDraftFixtureEntry struct {
 	ID, MessageID, InternetID, Revision string
-	Raw                                 []byte
+	// Key is the X-Gofer-Draft-Key header Gmail keeps, and Saved is when
+	// the draft was last saved, which Gmail searches by date.
+	Key   string
+	Saved time.Time
+	Raw   []byte
 }
 
 func (a *providerActionAPI) serveDraftLocked(w http.ResponseWriter, r *http.Request, owner string, wire []byte, payload map[string]json.RawMessage) bool {
@@ -76,7 +80,12 @@ func (a *providerActionAPI) serveDraftLocked(w http.ResponseWriter, r *http.Requ
 		if a.provider == "gmail" {
 			messageID = fmt.Sprintf("draft-message-%d", a.draftVersions[owner])
 		}
-		d := providerDraftFixtureEntry{ID: id, MessageID: messageID, InternetID: mime.Header.Get("Message-ID"), Revision: mime.Header.Get("X-Gofer-Draft-Revision"), Raw: raw}
+		d := providerDraftFixtureEntry{ID: id, MessageID: messageID, InternetID: mime.Header.Get("Message-ID"), Revision: mime.Header.Get("X-Gofer-Draft-Revision"), Key: mime.Header.Get("X-Gofer-Draft-Key"), Saved: time.Now(), Raw: raw}
+		if a.provider == "gmail" {
+			// Gmail replaces the Message-ID of a draft uploaded through its API
+			// and keeps the other headers.
+			d.InternetID = fmt.Sprintf("<gmail-%d@mail.gmail.test>", a.draftVersions[owner])
+		}
 		a.drafts[owner][id] = d
 		if a.loseDraftAck {
 			conn, _, err := w.(http.Hijacker).Hijack()
@@ -93,10 +102,18 @@ func (a *providerActionAPI) serveDraftLocked(w http.ResponseWriter, r *http.Requ
 		return true
 	}
 	if r.Method == "GET" && (r.URL.Path == "/users/me/drafts" || r.URL.Path == "/me/mailFolders/drafts/messages") {
-		internetID := strings.TrimPrefix(r.URL.Query().Get("q"), "rfc822msgid:")
+		q := r.URL.Query().Get("q")
+		internetID, byID := strings.CutPrefix(q, "rfc822msgid:")
+		var after, before int64
+		if !byID {
+			// Any other listing is read as a search by that Message-ID, as before.
+			if _, err := fmt.Sscanf(q, "after:%d before:%d", &after, &before); err != nil {
+				internetID, byID = q, true
+			}
+		}
 		key := "drafts"
 		if a.provider == "outlook" {
-			key = "value"
+			key, byID = "value", true
 			internetID = strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(r.URL.Query().Get("$filter"), "internetMessageId eq '"), "' and isDraft eq true"), "''", "'")
 		}
 		ids := []map[string]string{}
@@ -104,7 +121,7 @@ func (a *providerActionAPI) serveDraftLocked(w http.ResponseWriter, r *http.Requ
 			if a.hideDrafts {
 				continue
 			}
-			if d.InternetID == internetID {
+			if (byID && d.InternetID == internetID) || (!byID && d.Saved.Unix() >= after && d.Saved.Unix() < before) {
 				ids = append(ids, map[string]string{"id": d.ID})
 			}
 		}
@@ -138,6 +155,9 @@ func (a *providerActionAPI) serveDraftLocked(w http.ResponseWriter, r *http.Requ
 
 func (a *providerActionAPI) replyDraftLocked(w http.ResponseWriter, d providerDraftFixtureEntry) {
 	headers := []map[string]string{{"name": "Message-ID", "value": d.InternetID}, {"name": "X-Gofer-Draft-Revision", "value": d.Revision}}
+	if d.Key != "" {
+		headers = append(headers, map[string]string{"name": "X-Gofer-Draft-Key", "value": d.Key})
+	}
 	if a.provider == "gmail" {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": d.ID, "message": map[string]any{"id": d.MessageID, "payload": map[string]any{"headers": headers}}})
 		return
@@ -786,6 +806,71 @@ func TestUserProviderDraftMailboxChangeRejectsLateAcceptance(t *testing.T) {
 			}
 			f.saveProviderDraft(t, "bob", "<independent-mailbox@mail.test>", "continues independently")
 			waitUserIMAP(t, func() bool { return f.pendingProviderDrafts(t, "bob") == 0 })
+		})
+	}
+}
+
+// A Gmail draft Gofer saved before it tagged drafts with X-Gofer-Draft-Key
+// carries only Gmail's replacement Message-ID. Sending it must still delete it
+// from Gmail rather than leave the cleanup retrying forever.
+func TestUserProviderDraftGmailUntaggedDraftIsRemovedAfterSend(t *testing.T) {
+	f, api := newProviderDraftFixture(t, "gmail")
+	key := "<untagged-draft@mail.test>"
+	f.saveProviderDraft(t, "alice", key, "Lunch on Friday?")
+	waitUserIMAP(t, func() bool { return f.pendingProviderDrafts(t, "alice") == 0 })
+	api.mu.Lock()
+	for id, d := range api.drafts["alice"] {
+		d.Key = ""
+		api.drafts["alice"][id] = d
+	}
+	api.mu.Unlock()
+	result := f.compose(t, "alice", "/compose", url.Values{"account_id": {f.accounts["alice"].ID}, "draft_id": {key}, "to": {"to@mail.test"}, "bcc": {"hidden@mail.test"}, "subject": {"alice private draft"}, "body": {"Lunch on Friday?"}})
+	waitUserIMAP(t, func() bool {
+		_, copy, _ := f.providerSendStatus(t, "alice", result["send_id"].(string))
+		return copy == "complete" && f.pendingProviderDrafts(t, "alice") == 0
+	})
+	if api.draftCount("alice") != 0 {
+		t.Fatal("sent draft was left in Gmail")
+	}
+}
+
+// Sync drops the stored body of a draft the provider reports as changed,
+// which Outlook does for Gofer's own uploads. Sending the draft unchanged must
+// still remove it, here and from the provider.
+func TestUserProviderDraftSendRemovesDraftWhoseBodySyncDropped(t *testing.T) {
+	for _, provider := range []string{"gmail", "outlook"} {
+		t.Run(provider, func(t *testing.T) {
+			f, api := newProviderDraftFixture(t, provider)
+			key := "<synced-draft@mail.test>"
+			id := f.saveProviderDraft(t, "alice", key, "Lunch on Friday?")
+			waitUserIMAP(t, func() bool { return f.pendingProviderDrafts(t, "alice") == 0 })
+			if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+				var remote string
+				if err := db.Read().QueryRow(`SELECT remote_message_id FROM message_folder_state WHERE message_id=?`, id).Scan(&remote); err != nil {
+					return err
+				}
+				if _, err := db.UpsertProviderSyncMessages(t.Context(), []storage.ProviderSyncMessage{{AccountID: f.accounts["alice"].ID, FolderID: f.accounts["alice"].ID + "-drafts", ProviderMessageID: remote, InternetMessageID: key, Subject: "alice private draft", IsDraft: true}}); err != nil {
+					return err
+				}
+				var dropped bool
+				if err := db.Read().QueryRow(`SELECT body_text_path IS NULL AND body_html_path IS NULL FROM messages WHERE id=?`, id).Scan(&dropped); err != nil {
+					return err
+				}
+				if !dropped {
+					return fmt.Errorf("sync kept the draft body, so this test checks nothing")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			result := f.compose(t, "alice", "/compose", url.Values{"account_id": {f.accounts["alice"].ID}, "draft_id": {key}, "to": {"to@mail.test"}, "bcc": {"hidden@mail.test"}, "subject": {"alice private draft"}, "body": {"Lunch on Friday?"}})
+			waitUserIMAP(t, func() bool {
+				_, copy, _ := f.providerSendStatus(t, "alice", result["send_id"].(string))
+				return copy == "complete" && f.pendingProviderDrafts(t, "alice") == 0
+			})
+			if rec := f.request("alice", "GET", fmt.Sprintf("/api/drafts/%d", id), ""); rec.Code != 404 || api.draftCount("alice") != 0 {
+				t.Fatalf("sent draft kept after sync dropped its body: %d, %d left in %s", rec.Code, api.draftCount("alice"), provider)
+			}
 		})
 	}
 }

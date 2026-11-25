@@ -44,6 +44,9 @@ type DB struct {
 	// changed (contact_changes.go).
 	contactChangeHook func(userID string)
 	contactWatch      *contactChangeWatch
+	// mailOperationsChangeHook tells open pages whose background mail work
+	// changed (mail_operation_changes.go).
+	mailOperationsChangeHook func(userID string)
 }
 
 type ContactActivityNotification struct {
@@ -64,7 +67,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 149
+const CurrentSchemaVersion = 153
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -105,6 +108,10 @@ func New(dbPath string) (*DB, error) {
 	if err := repairContactHomes(db.write); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("repair contact homes: %w", err)
+	}
+	if err := forgetStatusKeywordLabels(db.write); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("forget status keyword labels: %w", err)
 	}
 	db.watchContactTables()
 	log.Printf("storage: schema migration check complete")
@@ -172,6 +179,10 @@ func OpenExisting(dbPath string) (*DB, error) {
 	if err := repairFolderThreadTriggers(db.write); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("repair conversation summary triggers: %w", err)
+	}
+	if err := forgetStatusKeywordLabels(db.write); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("forget status keyword labels: %w", err)
 	}
 	db.watchContactTables()
 	return db, nil
@@ -265,12 +276,23 @@ func openDB(path string, options ...string) (*sql.DB, error) {
 	return db, nil
 }
 
+// sqliteFileURL is the file: URI SQLite opens an absolute path by. A Windows
+// path such as C:/data/gofer.db needs a leading slash, or the URI reads
+// file://C:/... and SQLite takes the drive for a host.
+func sqliteFileURL(absolutePath string) url.URL {
+	path := filepath.ToSlash(absolutePath)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return url.URL{Scheme: "file", Path: path}
+}
+
 func openReadOnlyDB(path string, pragmas ...string) (*sql.DB, error) {
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve database path: %w", err)
 	}
-	databaseURL := url.URL{Scheme: "file", Path: filepath.ToSlash(absolutePath)}
+	databaseURL := sqliteFileURL(absolutePath)
 	query := databaseURL.Query()
 	query.Set("mode", "ro")
 	query.Add("_pragma", "foreign_keys(1)")
@@ -1212,6 +1234,30 @@ func (db *DB) migrate() error {
 	if currentVersion <= 148 {
 		if err := migrateV148ToV149(db.write); err != nil {
 			return fmt.Errorf("migrate v148 to v149: %w", err)
+		}
+	}
+
+	if currentVersion <= 149 {
+		if err := migrateV149ToV150(db.write); err != nil {
+			return fmt.Errorf("migrate v149 to v150: %w", err)
+		}
+	}
+
+	if currentVersion <= 150 {
+		if err := migrateV150ToV151(db.write); err != nil {
+			return fmt.Errorf("migrate v150 to v151: %w", err)
+		}
+	}
+
+	if currentVersion <= 151 {
+		if err := migrateV151ToV152(db.write); err != nil {
+			return fmt.Errorf("migrate v151 to v152: %w", err)
+		}
+	}
+
+	if currentVersion <= 152 {
+		if err := migrateV152ToV153(db.write); err != nil {
+			return fmt.Errorf("migrate v152 to v153: %w", err)
 		}
 	}
 

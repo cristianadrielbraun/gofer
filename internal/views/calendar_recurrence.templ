@@ -72,7 +72,7 @@ templ CalendarRecurrenceFields(data CalendarCreateData) {
 					@label.Label(label.Props{For: "calendar-create-repeat-until", Class: "sr-only"}) {
 						{ i18n.T(ctx, "calendar.repeat.last_start") }
 					}
-					@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-repeat-until", Name: "repeat_until", Value: calendarCreatePickerValue("2006-01-02", until)})
+					@datepicker.DatePicker(datepicker.Props{ID: "calendar-create-repeat-until", Name: "repeat_until", Value: calendarCreatePickerValue("2006-01-02", until), StartOfWeek: pickerStartOfWeek(ctx)})
 				</fieldset>
 				<fieldset data-calendar-repeat-count hidden?={ ending != "count" } disabled?={ ending != "count" } class="flex shrink-0 items-center gap-2">
 					@label.Label(label.Props{For: "calendar-create-repeat-count", Class: "sr-only"}) {

@@ -19,9 +19,13 @@ import (
 //
 // Long dates ("Monday, November 2, 2026") and month titles always follow the
 // language, whatever the format: they are headings, not compact dates.
+//
+// A third setting, week_start, is the day calendars and date pickers begin
+// each week on: "monday" (the default), "sunday" or "saturday".
 const (
 	DateFormatSettingKey = "date_format"
 	TimeFormatSettingKey = "time_format"
+	WeekStartSettingKey  = "week_start"
 )
 
 // DateFormat is a way of writing a date with its year.
@@ -58,6 +62,28 @@ func TimeFormats() []string {
 	return []string{"auto", "12h", "24h"}
 }
 
+// WeekStarts lists the days a user can start the week on, in the order a
+// week runs.
+func WeekStarts() []time.Weekday {
+	return []time.Weekday{time.Saturday, time.Sunday, time.Monday}
+}
+
+// WeekStartSetting is the saved week_start value for a day.
+func WeekStartSetting(day time.Weekday) string {
+	return strings.ToLower(day.String())
+}
+
+// ParseWeekStart reads a week_start setting. An empty or unknown value is
+// Monday.
+func ParseWeekStart(setting string) time.Weekday {
+	for _, day := range WeekStarts() {
+		if WeekStartSetting(day) == setting {
+			return day
+		}
+	}
+	return time.Monday
+}
+
 func parseDateFormat(id string) DateFormat {
 	for _, format := range dateFormats {
 		if format.ID == id {
@@ -82,6 +108,23 @@ type datePrefs struct{ format, clock string }
 // time_format setting values.
 func WithDatePrefs(ctx context.Context, dateFormat, timeFormat string) context.Context {
 	return context.WithValue(ctx, dateContextKey{}, datePrefs{parseDateFormat(dateFormat).ID, parseClock(timeFormat)})
+}
+
+type weekStartContextKey struct{}
+
+// WithWeekStart returns a context whose weeks start on the day the given
+// week_start setting value names.
+func WithWeekStart(ctx context.Context, setting string) context.Context {
+	return context.WithValue(ctx, weekStartContextKey{}, ParseWeekStart(setting))
+}
+
+// WeekStart is the day the context's weeks start on: Monday unless
+// WithWeekStart set another.
+func WeekStart(ctx context.Context) time.Weekday {
+	if day, ok := ctx.Value(weekStartContextKey{}).(time.Weekday); ok {
+		return day
+	}
+	return time.Monday
 }
 
 // Dates returns the date formatter for the context's language and settings.

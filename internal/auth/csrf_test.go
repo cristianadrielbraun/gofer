@@ -19,6 +19,9 @@ func TestSessionCSRFIncludesAdministratorUserMutations(t *testing.T) {
 		"/admin/users/person/role",
 		"/admin/activity/retention",
 		"/admin/security/private-target",
+		"/admin/groups",
+		"/admin/groups/g-1/members",
+		"/admin/groups/g-1/delete",
 		"/settings/security/password",
 		"/auth/logout",
 	} {
@@ -30,6 +33,8 @@ func TestSessionCSRFIncludesAdministratorUserMutations(t *testing.T) {
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/admin/users/invitations", nil),
 		httptest.NewRequest(http.MethodGet, "/admin/users", nil),
+		httptest.NewRequest(http.MethodGet, "/admin/groups/g-1/add", nil),
+		httptest.NewRequest(http.MethodPost, "/admin/groupsx", nil),
 	} {
 		if requiresSessionCSRF(request) {
 			t.Fatalf("%s %s unexpectedly requires session CSRF", request.Method, request.URL.Path)

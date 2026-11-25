@@ -59,11 +59,12 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 				@dropdown.Separator()
 				// Spam and Trash only matter when the search reaches past one folder.
 				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 transition-opacity duration-200 ease-out aria-disabled:pointer-events-none aria-disabled:opacity-50 motion-reduce:transition-none", PreventClose: true, Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": mailSearchBool(scope != nil && scope.ExcludeSpamTrash), "aria-disabled": mailSearchBool(scope == nil), "data-mail-scope-exclude": ""}}) {
-					<span class="flex size-4 shrink-0 items-center justify-center rounded-sm border border-input">
-						<span class={ mailSearchShown("flex", scope != nil && scope.ExcludeSpamTrash) } data-mail-scope-check>
-							@icon.Check(icon.Props{Class: "size-3"})
-						</span>
-					</span>
+					// The item takes the click; mail-search.js keeps the box checked.
+					@checkbox.Checkbox(checkbox.Props{
+						Class:      "pointer-events-none",
+						Checked:    scope != nil && scope.ExcludeSpamTrash,
+						Attributes: templ.Attributes{"tabindex": "-1", "aria-hidden": "true", "data-mail-scope-check": ""},
+					})
 					{ i18n.T(ctx, "mail.search.scope.exclude") }
 				}
 				if disabledLocalFolders(accounts) {
@@ -74,11 +75,11 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 					<div class="grid grid-rows-[1fr] opacity-100 transition-[grid-template-rows,opacity] duration-200 ease-out data-[shown=false]:grid-rows-[0fr] data-[shown=false]:opacity-0 motion-reduce:transition-none" data-shown={ mailSearchBool(localShown) } inert?={ !localShown } data-mail-scope-include-local-row>
 					<div class="min-h-0 overflow-hidden">
 					@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", PreventClose: true, Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": mailSearchBool(scope != nil && scope.IncludeLocal), "data-mail-scope-include-local": ""}}) {
-						<span class="flex size-4 shrink-0 items-center justify-center rounded-sm border border-input">
-							<span class={ mailSearchShown("flex", scope != nil && scope.IncludeLocal) } data-mail-scope-check>
-								@icon.Check(icon.Props{Class: "size-3"})
-							</span>
-						</span>
+						@checkbox.Checkbox(checkbox.Props{
+							Class:      "pointer-events-none",
+							Checked:    scope != nil && scope.IncludeLocal,
+							Attributes: templ.Attributes{"tabindex": "-1", "aria-hidden": "true", "data-mail-scope-check": ""},
+						})
 						<span class="min-w-0 flex-1">{ i18n.T(ctx, "mail.search.scope.include_local") }</span>
 						@tooltip.Tooltip() {
 							@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {

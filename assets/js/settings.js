@@ -645,6 +645,12 @@ var mailRuleOrder = {
   handle: "[data-mail-rule-order-handle]",
   id: function (item) { return item.getAttribute("data-mail-rule-id") },
   movable: function () { return true },
+  // Selected rules move together: dragging one of them takes the others
+  // along, and the arrow keys move them all.
+  selected: function (item) {
+    var box = item.querySelector("[data-mail-rule-select]")
+    return !!(box && box.checked)
+  },
   save: function (list, previous) { saveMailRuleOrder(list, previous) }
 }
 
@@ -762,6 +768,42 @@ function restoreOrder(kind, list, ids) {
   })
 }
 
+// orderStepSelected moves each selected ID one place up (step -1) or down
+// (step 1), past the unselected one beside it, keeping their order. Those
+// already at that end of the list stay, and so do the ones right behind
+// them.
+function orderStepSelected(ids, selected, step) {
+  var out = ids.slice()
+  for (var i = step < 0 ? 0 : out.length - 1; i >= 0 && i < out.length; i -= step) {
+    var j = i + step
+    if (!selected[out[i]] || j < 0 || j >= out.length || selected[out[j]]) continue
+    var moved = out[i]
+    out[i] = out[j]
+    out[j] = moved
+  }
+  return out
+}
+
+// moveOrderSelected moves the list's selected items one place, as
+// orderStepSelected does, and saves the new order.
+function moveOrderSelected(kind, list, step) {
+  var previous = orderIDs(kind, list)
+  var selected = {}
+  orderItems(kind, list).forEach(function (item) {
+    if (kind.selected(item)) selected[kind.id(item)] = true
+  })
+  var next = orderStepSelected(previous, selected, step)
+  if (next.join("\n") === previous.join("\n")) return
+  restoreOrder(kind, list, next)
+  kind.save(list, previous)
+}
+
+// orderSelectedCount counts the list's selected items, for kinds that can
+// select them.
+function orderSelectedCount(kind, list) {
+  return kind.selected ? orderItems(kind, list).filter(kind.selected).length : 0
+}
+
 function saveAccountOrder(list, previous) {
   var ids = accountOrderIDs(list)
   syncAccountOrderControls()
@@ -873,7 +915,11 @@ function setupAccountOrder() {
     var found = orderHandle(e.target)
     if (!found || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return
     e.preventDefault()
-    moveOrderItemBy(found.kind, found.handle.closest(found.kind.item), e.key === "ArrowUp" ? -1 : 1)
+    var item = found.handle.closest(found.kind.item)
+    var list = item && item.closest(found.kind.list)
+    var step = e.key === "ArrowUp" ? -1 : 1
+    if (list && found.kind.selected && found.kind.selected(item) && orderSelectedCount(found.kind, list) > 1) moveOrderSelected(found.kind, list, step)
+    else moveOrderItemBy(found.kind, item, step)
     found.handle.focus()
   })
 
@@ -887,7 +933,22 @@ function setupAccountOrder() {
     if (!list) return
     e.preventDefault()
     handle.setPointerCapture(e.pointerId)
-    drag = { kind: kind, list: list, card: card, handle: handle, pointerId: e.pointerId, previous: orderIDs(kind, list), grabY: e.clientY - card.getBoundingClientRect().top }
+    drag = { kind: kind, list: list, card: card, handle: handle, pointerId: e.pointerId, previous: orderIDs(kind, list), grabY: e.clientY - card.getBoundingClientRect().top, before: [], after: [] }
+    // A selected item carries the other selected ones: they leave the list
+    // while it moves, and it shows how many go, until they land beside it.
+    if (kind.selected && kind.selected(card)) {
+      var items = orderItems(kind, list)
+      var at = items.indexOf(card)
+      items.forEach(function (item, i) {
+        if (item === card || !kind.selected(item)) return
+        ;(i < at ? drag.before : drag.after).push(item)
+      })
+      var carried = drag.before.concat(drag.after)
+      if (carried.length) {
+        carried.forEach(function (item) { item.remove() })
+        card.setAttribute("data-order-group", String(carried.length + 1))
+      }
+    }
     card.setAttribute("data-order-dragging", "")
     list.setAttribute("data-order-active", "")
     drag.placeholder = document.createElement("div")
@@ -940,6 +1001,11 @@ function setupAccountOrder() {
     done.placeholder.remove()
     done.card.style.transform = ""
     if (done.handle.hasPointerCapture(e.pointerId)) done.handle.releasePointerCapture(e.pointerId)
+    // The ones it carried land around it, in the order they had.
+    done.before.forEach(function (item) { done.list.insertBefore(item, done.card) })
+    var next = done.card.nextSibling
+    done.after.forEach(function (item) { done.list.insertBefore(item, next) })
+    done.card.removeAttribute("data-order-group")
     done.kind.save(done.list, done.previous)
   }
   document.addEventListener("pointerup", endDrag)
@@ -976,12 +1042,14 @@ function mailRuleStill() {
 function mailRuleFold(el, out) {
   if (!el || mailRuleStill()) return null
   var style = getComputedStyle(el)
+  // A minimum height folds too: left alone, it would hold the element open
+  // at that height while the rest folds.
   var open = {
-    height: el.offsetHeight + "px", opacity: 1,
+    height: el.offsetHeight + "px", minHeight: style.minHeight, opacity: 1,
     marginTop: style.marginTop, marginBottom: style.marginBottom, paddingTop: style.paddingTop, paddingBottom: style.paddingBottom,
     borderTopWidth: style.borderTopWidth, borderBottomWidth: style.borderBottomWidth,
   }
-  var closed = { height: "0px", opacity: 0, marginTop: "0px", marginBottom: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px" }
+  var closed = { height: "0px", minHeight: "0px", opacity: 0, marginTop: "0px", marginBottom: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px" }
   var overflow = el.style.overflow
   el.style.overflow = "hidden"
   var animation = el.animate(out ? [open, closed] : [closed, open], { duration: mailRuleMotion.duration, easing: mailRuleMotion.easing, fill: out ? "forwards" : "none" })
@@ -1019,6 +1087,567 @@ document.addEventListener("htmx:afterRequest", function (e) {
   })
 })
 
+// Each request about rules carries the list's filters, so the list it
+// draws again keeps them (handler mailRulesFilters). Before the list is
+// first drawn, the folder comes from the address: a folder's menu in the
+// sidebar opens /settings/rules?folder=<folder>.
+document.body.addEventListener("htmx:configRequest", function (e) {
+  var detail = e.detail
+  if (!detail || String(detail.path || "").indexOf("/api/settings/rules") !== 0) return
+  var panel = document.getElementById("mail-rules-panel")
+  var state = panel && panel.querySelector("[data-mail-rules-filters]") ?
+    mailRulesFilterState(panel) :
+    { folder: new URLSearchParams(window.location.search).get("folder") || "", tags: [], accounts: [], status: "", actions: [] }
+  var params = mailRulesFilterParams(state)
+  Object.keys(params).forEach(function (name) {
+    if (params[name]) detail.parameters[name] = params[name]
+  })
+})
+
+// filterMailRules shows the rules the rules search finds, with the folder
+// picker's search (mailRulesList), and of those, only the ones the list's
+// filters let through: rules that move mail into its folder, and rules in
+// any of its categories. While either hides rules, rules can't be dragged.
+// The rules move to their new places from where they were (slideMailRules):
+// where they are now, or before, the places of a list drawn again.
+function filterMailRules(still, before) {
+  var panel = document.getElementById("mail-rules-panel")
+  if (!panel || !window.goferFolderPicker) return
+  if (before === undefined) before = mailRulesPlaces(panel)
+  var state = mailRulesFilterState(panel)
+  Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) {
+    row.toggleAttribute("data-folder-picker-out", !mailRulePassesFilters(row, state))
+  })
+  var typed = window.goferFolderPicker.filter(panel)
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  if (list) list.toggleAttribute("data-searching", typed !== "" || mailRulesFiltered(state))
+  if (panel.querySelector("[data-mail-rules-filters]")) keepMailRulesFolderInAddress(state.folder)
+  slideMailRules(panel, before)
+  // Only rules in view stay selected, so nothing hidden is changed.
+  Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) {
+    var box = row.hidden && row.querySelector("[data-mail-rule-select]")
+    if (box) box.checked = false
+  })
+  updateMailRuleSelection(still)
+}
+
+// Rules the search or the filters show or hide come and go as the mail
+// list's cards do when it is filtered (virtual-scroll.js
+// animateListTransition), more simply: rules that stay slide to their new
+// places, rules that go fade out where they were, under the others, and
+// rules that come fade in, dropping into place.
+
+// mailRulesPlaces are where the rules shown are, from the top of the panel,
+// which stays put as the strip of filters above the rules opens and
+// closes, by rule ID, with each rule to copy should it go and whether its
+// handle was hidden, as it is while some rules are. With no motion it is
+// null; with no rule shown, empty, so those coming back still move in.
+function mailRulesPlaces(panel) {
+  if (!panel || mailRuleStill()) return null
+  var places = new Map()
+  var origin = panel.getBoundingClientRect().top
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  var handleHidden = !!(list && list.hasAttribute("data-searching"))
+  mailRuleRowsShown(panel).forEach(function (row) {
+    var rect = row.getBoundingClientRect()
+    places.set(mailRuleOrder.id(row), { top: rect.top - origin, height: rect.height, row: row, handleHidden: handleHidden })
+  })
+  return places
+}
+
+// slideMailRules moves the rules shown from the places they had before. The
+// copies of rules going are placed beside the list, in what holds it, which
+// stays in view when the list hides for having no rule left to show.
+function slideMailRules(panel, before) {
+  var host = panel.querySelector("[data-mail-rules-list-host]")
+  if (!before || !host || mailRuleStill()) return
+  var origin = panel.getBoundingClientRect().top
+  var hostTop = host.getBoundingClientRect().top - origin
+  var staying = new Set()
+  var moving = []
+  var entering = []
+  // Every rule is measured before any moves, so the page is laid out once.
+  mailRuleRowsShown(panel).forEach(function (row) {
+    var id = mailRuleOrder.id(row)
+    var was = before.get(id)
+    if (!was) {
+      entering.push(row)
+      return
+    }
+    staying.add(id)
+    var dy = was.top - (row.getBoundingClientRect().top - origin)
+    if (Math.abs(dy) >= 1) moving.push({ row: row, dy: dy })
+  })
+  var leaving = 0
+  before.forEach(function (was, id) {
+    if (staying.has(id) || !was.row) return
+    var copy = mailRuleLeavingCopy(was.row, was.handleHidden)
+    copy.style.cssText += ";position:absolute;left:0;right:0;margin:0;z-index:-1;pointer-events:none;top:" + (was.top - hostTop) + "px;height:" + was.height + "px"
+    host.appendChild(copy)
+    leaving++
+    // Gone at once rather than fading slowly: it is mostly clear within the
+    // first frames, shrinking a little as it goes.
+    var fade = copy.animate([
+      { opacity: 1, scale: "1", translate: "0 0" },
+      { opacity: 0.15, offset: 0.5 },
+      { opacity: 0, scale: "0.96", translate: "0 4px" },
+    ], { duration: 100, easing: "ease-in", fill: "forwards" })
+    var drop = function () { copy.remove() }
+    fade.finished.then(drop, drop)
+  })
+  moving.forEach(function (move) {
+    move.row.animate([{ translate: "0 " + move.dy + "px" }, { translate: "0 0" }], { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" })
+  })
+  // The rules coming in pop in, solid within their first frames, once those
+  // going are mostly gone.
+  entering.forEach(function (row) {
+    row.animate([
+      { opacity: 0, scale: "0.96", translate: "0 -4px" },
+      { opacity: 1, offset: 0.4 },
+      { opacity: 1, scale: "1", translate: "0 0" },
+    ], { duration: 120, delay: leaving ? 40 : 0, easing: "ease-out", fill: "backwards" })
+  })
+}
+
+// mailRuleLeavingCopy is a rule as it looked, to fade out where it was: a
+// copy that nothing finds as a rule, picks, sends or reads aloud. Out of the
+// list, its handle shows unless handleHidden says the list hid it.
+function mailRuleLeavingCopy(row, handleHidden) {
+  var copy = row.cloneNode(true)
+  copy.hidden = false
+  copy.inert = true
+  copy.setAttribute("aria-hidden", "true")
+  var handle = handleHidden && copy.querySelector("[data-mail-rule-order-handle]")
+  if (handle) handle.style.visibility = "hidden"
+  var kept = ["id", "name", "for", "data-mail-rule-row", "data-mail-rule-id", "data-folder-picker-row", "data-folder-picker-out", "data-mail-rule-select",
+    "data-mail-rule-order-handle", "data-mail-rule-enabled", "data-mail-rule-delete", "data-mail-rule-category-filter"]
+  ;[copy].concat(Array.prototype.slice.call(copy.querySelectorAll("*"))).forEach(function (el) {
+    kept.forEach(function (name) { el.removeAttribute(name) })
+    Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+      if (attr.name.indexOf("hx-") === 0) el.removeAttribute(attr.name)
+    })
+  })
+  return copy
+}
+
+// mailRulesFilterState is the list's filters as it was drawn: the folder
+// whose rules it shows, or "", the categories, accounts and kinds of action
+// it shows rules of, and "on" or "off" to show only rules turned on, or off.
+function mailRulesFilterState(panel) {
+  var filters = panel && panel.querySelector("[data-mail-rules-filters]")
+  return {
+    folder: filters ? filters.getAttribute("data-filter-folder") || "" : "",
+    tags: filters ? mailRuleRowList(filters, "data-filter-tags") : [],
+    accounts: filters ? mailRuleRowList(filters, "data-filter-accounts") : [],
+    status: filters ? filters.getAttribute("data-filter-status") || "" : "",
+    actions: filters ? mailRuleRowList(filters, "data-filter-actions") : [],
+  }
+}
+
+// mailRulesFiltered reports whether any of the filters is on.
+function mailRulesFiltered(state) {
+  return !!(state.folder || state.tags.length || state.accounts.length || state.status || state.actions.length)
+}
+
+// mailRulesFilterParams are the filters as requests send them, each list
+// separated by commas, which none of its values holds.
+function mailRulesFilterParams(state) {
+  return {
+    filter_folder: state.folder || "",
+    filter_tag: (state.tags || []).join(","),
+    filter_account: (state.accounts || []).join(","),
+    filter_status: state.status || "",
+    filter_action: (state.actions || []).join(","),
+  }
+}
+
+// mailRulePassesFilters reports whether the filters show a rule: it moves
+// mail into their folder, is in any of their categories, runs on any of
+// their accounts (a rule for every account does), is turned on or off as
+// they ask, and does any of their kinds of action. On or off is as the
+// list was drawn, so a rule switched meanwhile stays in view.
+function mailRulePassesFilters(row, state) {
+  var anyOf = function (have, wanted, fold) {
+    if (!wanted.length) return true
+    var norm = function (value) { return fold ? String(value).toLowerCase() : String(value) }
+    var want = wanted.map(norm)
+    return have.some(function (value) { return want.indexOf(norm(value)) >= 0 })
+  }
+  var accounts = mailRuleRowList(row, "data-mail-rule-accounts")
+  return (!state.folder || mailRuleFolders(row).indexOf(state.folder) >= 0) &&
+    anyOf(mailRuleTags(row), state.tags, true) &&
+    (accounts.indexOf("*") >= 0 || anyOf(accounts, state.accounts, false)) &&
+    (!state.status || (row.getAttribute("data-mail-rule-on") === "true") === (state.status === "on")) &&
+    anyOf(mailRuleRowList(row, "data-mail-rule-actions"), state.actions, false)
+}
+
+// The list's filters change in the page, as the contacts list's do: the
+// rules hide or show, the pills under the search and the Filters button's
+// count follow, and the Filters menu stays open. The list keeps them in its
+// data-filter-* attributes, which requests send (htmx:configRequest above),
+// so a list the server draws again for anything else keeps them. Each
+// filter's field in the menu is a selectbox whose hidden input holds it.
+var mailRulesFilterFields = {
+  folder: { attribute: "data-filter-folder" },
+  tags: { attribute: "data-filter-tags", input: "data-mail-rules-filter-tags", list: true },
+  accounts: { attribute: "data-filter-accounts", input: "data-mail-rules-filter-accounts", list: true },
+  status: { attribute: "data-filter-status", input: "data-mail-rules-filter-status" },
+  actions: { attribute: "data-filter-actions", input: "data-mail-rules-filter-actions", list: true },
+}
+
+// Set while setMailRulesFilters fills the menu's fields, which would
+// otherwise apply them again as they change.
+var settingMailRulesFilters = false
+
+// setMailRulesFilters changes the filters named in changes, { tags: [...] }
+// and so on, in the list and in the menu's fields, and applies them.
+function setMailRulesFilters(changes) {
+  var panel = document.getElementById("mail-rules-panel")
+  var filters = panel && panel.querySelector("[data-mail-rules-filters]")
+  if (!filters) return
+  settingMailRulesFilters = true
+  try {
+    Object.keys(changes).forEach(function (name) {
+      var field = mailRulesFilterFields[name]
+      if (!field) return
+      var value = changes[name]
+      filters.setAttribute(field.attribute, field.list ? JSON.stringify(value) : value)
+      if (name === "folder" && !value) filters.setAttribute("data-filter-folder-pill", "")
+      var input = field.input && filters.querySelector("[" + field.input + "]")
+      if (!input) return
+      var next = field.list ? value.join(",") : value || (name === "status" ? "any" : "")
+      if (input.value === next) return
+      input.value = next
+      // The selectbox shows what its input holds once told.
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  } finally {
+    settingMailRulesFilters = false
+  }
+  filterMailRules()
+  syncMailRulesFilterUI(panel)
+}
+
+// A pick in the Filters menu applies at once.
+document.addEventListener("input", function (e) {
+  var input = e.target
+  if (settingMailRulesFilters || !input || !input.closest || !input.closest("[data-mail-rules-filter-form]")) return
+  var changes = {}
+  Object.keys(mailRulesFilterFields).forEach(function (name) {
+    var field = mailRulesFilterFields[name]
+    if (!field.input || !input.hasAttribute || !input.hasAttribute(field.input)) return
+    var values = String(input.value || "").split(",").filter(Boolean)
+    changes[name] = field.list ? values : (values[0] === "any" ? "" : values[0] || "")
+  })
+  if (Object.keys(changes).length) setMailRulesFilters(changes)
+})
+
+// syncMailRulesFilterUI shows the filters that are on: a pill for each
+// under the search (syncFilterPills, app.js), the Filters button's count,
+// and Clear in the menu. Each pill names what its filter shows, as the
+// menu's fields name it.
+function syncMailRulesFilterUI(panel) {
+  var filters = panel && panel.querySelector("[data-mail-rules-filters]")
+  if (!filters) return
+  var state = mailRulesFilterState(panel)
+  var pills = []
+  var pill = function (name, text) {
+    pills.push({ name: name, text: text, label: goferT("js.settings.rules.filter_remove", { filter: text }) })
+  }
+  var folderPill = filters.getAttribute("data-filter-folder-pill") || ""
+  if (state.folder && folderPill) pill("folder", folderPill)
+  if (state.tags.length) pill("tags", goferTn("js.settings.rules.filter_categories", state.tags.length, { categories: state.tags.join(", ") }))
+  if (state.accounts.length) {
+    var accounts = mailRulesFilterNames(filters, "data-mail-rules-filter-accounts", state.accounts)
+    pill("accounts", goferTn("js.settings.rules.filter_accounts", accounts.length, { accounts: accounts.join(", ") }))
+  }
+  if (state.actions.length) {
+    var actions = mailRulesFilterNames(filters, "data-mail-rules-filter-actions", state.actions)
+    pill("actions", goferTn("js.settings.rules.filter_actions", actions.length, { actions: actions.join(", ") }))
+  }
+  if (state.status) pill("status", mailRulesFilterNames(filters, "data-mail-rules-filter-status", [state.status]).join(""))
+  var count = pills.length
+  var trigger = filters.querySelector("[data-mail-rules-filters-trigger]")
+  if (trigger) trigger.setAttribute("data-active", count > 0 ? "true" : "false")
+  var badge = filters.querySelector("[data-mail-rules-filter-count]")
+  if (badge) {
+    badge.textContent = String(count)
+    badge.hidden = count === 0
+  }
+  var clear = filters.querySelector("[data-mail-rules-filters-clear]")
+  if (clear) clear.disabled = count === 0
+  if (window.goferSyncFilterPills) {
+    window.goferSyncFilterPills(panel.querySelector("[data-mail-rules-active-filters]"), panel.querySelector("[data-mail-rules-filter-pill-template]"), pills, {
+      remove: "data-mail-rules-filter-remove", key: "data-mail-rules-filter-key", tooltip: "data-mail-rules-filter-tooltip",
+    })
+  }
+}
+
+// mailRulesFilterNames names values of a filter as its field in the menu
+// does, in the field's order; a value it doesn't list stays as it is.
+function mailRulesFilterNames(filters, attribute, values) {
+  var input = filters.querySelector("[" + attribute + "]")
+  var container = input && input.closest(".select-container")
+  var names = []
+  var named = []
+  Array.prototype.forEach.call(container ? container.querySelectorAll("[data-tui-selectbox-value]") : [], function (item) {
+    var value = item.getAttribute("data-tui-selectbox-value")
+    if (values.indexOf(value) < 0 || named.indexOf(value) >= 0) return
+    var text = item.querySelector(".select-item-text") || item
+    names.push(text.textContent.trim())
+    named.push(value)
+  })
+  values.forEach(function (value) { if (named.indexOf(value) < 0) names.push(value) })
+  return names
+}
+
+// mailRuleFolders are the folders a rule moves mail into.
+function mailRuleFolders(row) {
+  return mailRuleRowList(row, "data-mail-rule-folders")
+}
+
+// mailRuleTags are a rule's categories.
+function mailRuleTags(row) {
+  return mailRuleRowList(row, "data-mail-rule-tags")
+}
+
+// mailRuleRowList is a list a rule's row carries as JSON in attribute.
+function mailRuleRowList(row, attribute) {
+  try {
+    var list = JSON.parse(row.getAttribute(attribute) || "[]")
+    return Array.isArray(list) ? list : []
+  } catch (err) {
+    return []
+  }
+}
+
+// keepMailRulesFolderInAddress puts the folder whose rules the list shows
+// in the address, or takes it out, so reloading shows the same rules.
+function keepMailRulesFolderInAddress(folder) {
+  var params = new URLSearchParams(window.location.search)
+  if ((params.get("folder") || "") === folder) return
+  if (folder) params.set("folder", folder)
+  else params.delete("folder")
+  var query = params.toString()
+  history.replaceState(history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash)
+}
+
+// mailRuleRowsShown are the rules the search shows.
+function mailRuleRowsShown(panel) {
+  return Array.prototype.filter.call(panel.querySelectorAll("[data-mail-rule-row]"), function (row) { return !row.hidden })
+}
+
+function mailRuleRowsSelected(panel) {
+  return mailRuleRowsShown(panel).filter(function (row) { return mailRuleOrder.selected(row) })
+}
+
+// updateMailRuleSelection shows how many rules are selected, with the box
+// that selects them all checked, partly checked or not, and offers what
+// can be done to them. The bar opens with the first rule selected and
+// closes with the last, unless still, as when the list is drawn again with
+// rules already selected. Moving them is off while searching, since where
+// they would go among the hidden rules can't be seen, and removing
+// categories is off when none of them has one.
+function updateMailRuleSelection(still) {
+  var panel = document.getElementById("mail-rules-panel")
+  var bar = panel && panel.querySelector("[data-mail-rules-selection]")
+  if (!bar) return
+  var shown = mailRuleRowsShown(panel)
+  var chosen = shown.filter(function (row) { return mailRuleOrder.selected(row) })
+  var selected = chosen.length
+  var removeTags = document.querySelector('[data-mail-rules-selection-action="tags-remove"]')
+  if (removeTags) removeTags.disabled = !chosen.some(function (row) { return mailRuleTags(row).length > 0 })
+  var all = bar.querySelector("[data-mail-rules-select-all]")
+  if (all) {
+    all.checked = shown.length > 0 && selected === shown.length
+    all.indeterminate = selected > 0 && selected < shown.length
+  }
+  var count = bar.querySelector("[data-mail-rules-selected-count]")
+  if (count && selected) count.textContent = goferTn("js.settings.rules.selected", selected)
+  showMailRuleSelection(bar, selected > 0, still)
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  var searching = !!(list && list.hasAttribute("data-searching"))
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mail-rules-selection-action="up"], [data-mail-rules-selection-action="down"]'), function (item) {
+    item.disabled = searching
+  })
+}
+
+document.addEventListener("change", function (e) {
+  var box = e.target
+  if (!box.matches) return
+  if (box.matches("[data-mail-rules-select-all]")) {
+    var panel = document.getElementById("mail-rules-panel")
+    if (panel) mailRuleRowsShown(panel).forEach(function (row) {
+      var each = row.querySelector("[data-mail-rule-select]")
+      if (each) each.checked = box.checked
+    })
+    updateMailRuleSelection()
+  } else if (box.matches("[data-mail-rule-select]")) {
+    updateMailRuleSelection()
+  }
+})
+
+document.addEventListener("click", function (e) {
+  var target = e.target && e.target.closest ? e.target : null
+  var panel = document.getElementById("mail-rules-panel")
+  if (!target || !panel) return
+  if (target.closest("[data-mail-rules-selection-clear]")) {
+    Array.prototype.forEach.call(panel.querySelectorAll("[data-mail-rule-select]"), function (box) { box.checked = false })
+    updateMailRuleSelection()
+    return
+  }
+  // A filter's pill turns it off once its exit has played, as the contacts
+  // list's do; Clear turns them all off; a rule's category shows the rules
+  // in it too.
+  var pill = target.closest("[data-mail-rules-filter-remove]")
+  if (pill) {
+    var removed = pill.getAttribute("data-mail-rules-filter-remove")
+    var off = {}
+    off[removed] = removed === "folder" || removed === "status" ? "" : []
+    if (mailRuleStill()) {
+      setMailRulesFilters(off)
+      return
+    }
+    pill.classList.add("mail-active-filter-pill-exiting")
+    setTimeout(function () { setMailRulesFilters(off) }, 140)
+    return
+  }
+  if (target.closest("[data-mail-rules-filters-clear]")) {
+    setMailRulesFilters({ folder: "", tags: [], accounts: [], status: "", actions: [] })
+    return
+  }
+  var category = target.closest("[data-mail-rule-category-filter]")
+  if (category) {
+    var tags = mailRulesFilterState(panel).tags
+    var tag = category.getAttribute("data-mail-rule-category-filter")
+    if (tags.indexOf(tag) < 0) setMailRulesFilters({ tags: tags.concat([tag]) })
+    return
+  }
+  var item = target.closest("[data-mail-rules-selection-action]")
+  if (!item || item.disabled) return
+  var rows = mailRuleRowsSelected(panel)
+  if (!rows.length) return
+  var action = item.getAttribute("data-mail-rules-selection-action")
+  var list = panel.querySelector("[data-mail-rule-order-list]")
+  if (action === "up" || action === "down") {
+    if (list) moveOrderSelected(mailRuleOrder, list, action === "up" ? -1 : 1)
+  } else if (action === "on" || action === "off") {
+    changeSelectedMailRules("enabled", rows, { enabled: action === "on" ? "1" : "" })
+  } else if (action === "delete") {
+    deleteSelectedMailRules(rows)
+  } else if (action === "tags-add" || action === "tags-remove") {
+    openMailRuleTagChange(rows, action === "tags-remove")
+  } else if (action === "export") {
+    exportSelectedMailRules(rows)
+  }
+})
+
+// exportSelectedMailRules downloads the selected rules as a rules file,
+// leaving the page where it is.
+function exportSelectedMailRules(rows) {
+  var link = document.createElement("a")
+  link.href = "/api/settings/rules/export?rule_ids=" + encodeURIComponent(rows.map(mailRuleOrder.id).join(","))
+  link.download = ""
+  link.hidden = true
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+// openMailRuleTagChange opens the dialog that adds categories to the
+// selected rules, or with remove, takes some off them.
+function openMailRuleTagChange(rows, remove) {
+  if (!window.htmx) return
+  var query = "rule_ids=" + encodeURIComponent(rows.map(mailRuleOrder.id).join(",")) + (remove ? "&remove=1" : "")
+  window.htmx.ajax("GET", "/api/settings/rules/selected/tags?" + query, { target: "#mail-rule-dialog-container", swap: "innerHTML" })
+}
+
+// showMailRuleSelection opens or closes the selection bar, folding it as
+// the list's rules fold in and out. Changing course midway goes straight
+// to where it was headed.
+function showMailRuleSelection(bar, open, still) {
+  var closing = bar._mailRuleClosing
+  if (open) {
+    if (closing) {
+      bar._mailRuleClosing = null
+      closing.cancel()
+      bar.style.overflow = ""
+    }
+    if (!bar.hidden) return
+    bar.hidden = false
+    if (!still) mailRuleFold(bar, false)
+    return
+  }
+  if (bar.hidden || closing) return
+  var fold = still ? null : mailRuleFold(bar, true)
+  if (!fold) {
+    bar.hidden = true
+    return
+  }
+  bar._mailRuleClosing = fold
+  fold.onfinish = function () {
+    if (bar._mailRuleClosing !== fold) return
+    bar._mailRuleClosing = null
+    bar.hidden = true
+    fold.cancel()
+    bar.style.overflow = ""
+  }
+}
+
+// changeSelectedMailRules sends a change to the selected rules, which
+// shows the list again.
+function changeSelectedMailRules(change, rows, values) {
+  if (!window.htmx) return
+  values = Object.assign({ rule_ids: rows.map(mailRuleOrder.id).join(",") }, values || {})
+  window.htmx.ajax("POST", "/api/settings/rules/selected/" + change, { target: "#mail-rules-panel", swap: "outerHTML", values: values })
+}
+
+// deleteSelectedMailRules asks first, as deleting one rule does, naming it
+// when only one is selected.
+function deleteSelectedMailRules(rows) {
+  if (typeof window.goferConfirm !== "function") return
+  var one = rows.length === 1
+  var name = one ? (rows[0].querySelector("[data-mail-rule-name]") || { getAttribute: function () { return "" } }).getAttribute("data-mail-rule-name") : ""
+  window.goferConfirm({
+    title: one ? goferT("js.settings.rules.delete_title") : goferTn("js.settings.rules.delete_selected_title", rows.length),
+    message: one ? goferT("js.settings.rules.delete_message", { rule: name }) : goferT("js.settings.rules.delete_selected_message"),
+    confirmLabel: one ? goferT("js.settings.rules.delete") : goferT("js.settings.rules.delete_selected"),
+    destructive: true,
+  }).then(function (accepted) {
+    if (!accepted || !document.getElementById("mail-rules-panel")) return
+    var send = function () { changeSelectedMailRules("delete", rows) }
+    var folds = rows.map(function (row) { return mailRuleFold(row, true) }).filter(Boolean)
+    if (folds.length) folds[folds.length - 1].onfinish = send
+    else send()
+  })
+}
+
+document.addEventListener("input", function (e) {
+  if (e.target.matches && e.target.matches("[data-mail-rules-search]")) filterMailRules()
+})
+
+// The list drawn again keeps the search (hx-preserve) and its filters (sent
+// with each request), and shows only what they let through, unless a rule
+// was just added: the search is cleared, so the new rule shows even when it
+// doesn't match, as the server clears filters that would hide it.
+function searchMailRulesAgain(swap) {
+  // The rules selected before stay selected, those still there.
+  ;(swap.selected || []).forEach(function (id) {
+    var box = document.querySelector('#mail-rules-panel [data-mail-rule-row][data-mail-rule-id="' + cssEscapeSettings(id) + '"] [data-mail-rule-select]')
+    if (box) box.checked = true
+  })
+  var search = document.querySelector("#mail-rules-panel [data-mail-rules-search]")
+  if (search && search.value && swap.loaded) {
+    var added = Array.prototype.some.call(document.querySelectorAll("#mail-rules-panel [data-mail-rule-row]"), function (row) {
+      return swap.rules.indexOf(row.getAttribute("data-mail-rule-id")) < 0
+    })
+    if (added) search.value = ""
+  }
+  // A list the server draws again keeps its rules where it draws them; the
+  // filters move them only as they change in the page.
+  filterMailRules(true, null)
+}
+
 document.body.addEventListener("htmx:beforeSwap", function (e) {
   var target = e.detail && e.detail.target
   if (!target || !e.detail.shouldSwap) return
@@ -1036,13 +1665,19 @@ document.body.addEventListener("htmx:beforeSwap", function (e) {
       removed: op === "remove_condition" || op === "remove_action",
     }
   } else if (target.id === "mail-rules-panel") {
-    mailRuleSwap = { list: true, loaded: target.hasAttribute("data-mail-rules-panel"), height: target.offsetHeight, rules: Array.prototype.map.call(target.querySelectorAll("[data-mail-rule-row]"), function (row) { return row.getAttribute("data-mail-rule-id") }) }
+    var rows = Array.prototype.slice.call(target.querySelectorAll("[data-mail-rule-row]"))
+    mailRuleSwap = {
+      list: true, loaded: target.hasAttribute("data-mail-rules-panel"), height: target.offsetHeight,
+      rules: rows.map(mailRuleOrder.id),
+      selected: rows.filter(mailRuleOrder.selected).map(mailRuleOrder.id),
+    }
   }
 })
 
 document.body.addEventListener("htmx:afterSwap", function () {
   var swap = mailRuleSwap
   mailRuleSwap = null
+  if (swap && swap.list) searchMailRulesAgain(swap)
   if (!swap || mailRuleStill()) return
   if (swap.list) {
     // The first load eases from the loading shape to the list, which
@@ -1225,7 +1860,18 @@ function setupMailRuleForm() {
     else if (values.indexOf("all") >= 0 && values.length > 1) next = values.filter(function (v) { return v !== "all" })
     input._mailRuleAccounts = next.join(",")
     if (input.value !== input._mailRuleAccounts) input.value = input._mailRuleAccounts
+    input._mailRuleAccountsChanged = true
   })
+  // The accounts a rule is for decide the folders its conditions can test,
+  // so the form is drawn again once the accounts list closes after a
+  // change. Drawing it at each pick would close the list while choosing.
+  document.addEventListener("toggle", function (e) {
+    if (e.newState !== "closed" || !e.target.matches || !e.target.matches("[data-tui-selectbox-content]") || !window.htmx) return
+    var input = document.querySelector("[data-mail-rule-form-body] [data-mail-rule-accounts]")
+    if (!input || !input._mailRuleAccountsChanged) return
+    input._mailRuleAccountsChanged = false
+    window.htmx.trigger(input.closest("[data-mail-rule-form-body]"), "mail-rule-rerender")
+  }, true)
   document.addEventListener("change", function (e) {
     var input = e.target
     if (!input.matches || !input.matches("[data-mail-rule-rerender]") || !window.htmx) return
@@ -1289,8 +1935,9 @@ function sanitizeSignatureHTML(raw) {
       }
     }
     if (tag === "A") {
-      var href = node.getAttribute("href") || ""
-      if (!/^(https?:|mailto:|#)/i.test(href)) node.removeAttribute("href")
+      var href = _safeLinkHref(node.getAttribute("href"))
+      if (href) node.setAttribute("href", href)
+      else node.removeAttribute("href")
       node.setAttribute("rel", "noopener noreferrer")
       if (href && href.charAt(0) !== "#") node.setAttribute("target", "_blank")
     } else if (tag === "IMG") {
@@ -1328,7 +1975,9 @@ function applySignatureSource(form) {
   return sanitized
 }
 
-function setSignatureEditorMode(form, mode) {
+// setSignatureEditorMode shows the rendered editor or the HTML source. It
+// moves focus to the one shown unless noFocus is set.
+function setSignatureEditorMode(form, mode, noFocus) {
   var editor = form && form.querySelector("[data-signature-editor]")
   var source = form && form.querySelector("[data-signature-source]")
   var html = form && form.querySelector("[data-signature-html]")
@@ -1339,20 +1988,20 @@ function setSignatureEditorMode(form, mode) {
     editor.classList.add("hidden")
     source.classList.remove("hidden")
     setSignatureModeButtonState(form, "source")
-    source.focus()
+    if (!noFocus) source.focus()
     return
   }
   applySignatureSource(form)
   source.classList.add("hidden")
   editor.classList.remove("hidden")
   setSignatureModeButtonState(form, "visual")
-  editor.focus()
+  if (!noFocus) editor.focus()
 }
 
-function resetSignatureEditorMode(form) {
+function resetSignatureEditorMode(form, noFocus) {
   var source = form && form.querySelector("[data-signature-source]")
   if (source) source.value = ""
-  setSignatureEditorMode(form, "visual")
+  setSignatureEditorMode(form, "visual", noFocus)
 }
 
 function syncSignatureEditor(editor) {
@@ -1368,6 +2017,11 @@ function setupAccountSignaturesDialog(root) {
   for (var m = 0; m < managers.length; m++) setupAccountSignaturesManager(managers[m])
 }
 
+// setupAccountSignaturesManager wires a signatures dialog. Everything saves
+// by itself: the signature being edited a moment after typing stops, and an
+// account's choices as soon as one changes. The footer's status line says
+// "Changes save automatically" until a save succeeds or fails. A save takes
+// a moment, so there's no "Saving…" to flicker before "Saved".
 function setupAccountSignaturesManager(manager) {
   if (!manager || manager.dataset.signatureManagerReady === "1") return
   manager.dataset.signatureManagerReady = "1"
@@ -1377,43 +2031,215 @@ function setupAccountSignaturesManager(manager) {
   var refreshTarget = manager.getAttribute("data-refresh-target") || "#edit-account-container"
   var refreshSwap = manager.getAttribute("data-refresh-swap") || (refreshTarget === "#edit-account-container" ? "innerHTML" : "outerHTML")
   var form = manager.querySelector("[data-signature-form]")
-  var settingsForms = manager.querySelectorAll("[data-account-signature-settings]")
-  var accountSelect = manager.querySelector("input[data-signature-account-select]")
-  var signatureSelect = manager.querySelector("input[data-signature-select]")
   var editor = manager.querySelector("[data-signature-editor]")
+  var deleteButton = manager.querySelector("[data-signature-delete-current]")
+  var dialogStatus = manager.querySelector("[data-signatures-status]")
+  var idleStatus = dialogStatus ? dialogStatus.textContent : ""
+  var statusTimer = null
 
-  function selectedSignatureOption() {
-    if (!signatureSelect || !signatureSelect.value) return null
-    var signatureSelectRoot = signatureSelect.closest ? signatureSelect.closest(".select-container") : null
-    var signatureItems = signatureSelectRoot ? signatureSelectRoot.querySelectorAll("[data-signature-option]") : []
-    for (var signatureIndex = 0; signatureIndex < signatureItems.length; signatureIndex++) {
-      if (signatureItems[signatureIndex].getAttribute("data-tui-selectbox-value") === signatureSelect.value) return signatureItems[signatureIndex]
+  // A signature saves this long after the last keystroke, so typing doesn't
+  // send a request per key.
+  var SAVE_DELAY_MS = 600
+  // How long the status line's old text takes to slide out; matches the
+  // transition in input.css.
+  var STATUS_SWAP_MS = 150
+
+  // Shows text in the footer's status line in place of the note. The old
+  // text slides out and the new one in; a "success" tone colors it, and
+  // settle brings the note back after a moment, sliding the same way.
+  var swapTimer = null
+  function showStatus(text, settle, tone) {
+    if (!dialogStatus) return
+    text = text || idleStatus
+    tone = tone || ""
+    if (statusTimer) clearTimeout(statusTimer)
+    statusTimer = null
+    if (swapTimer) clearTimeout(swapTimer)
+    swapTimer = null
+    var settleLater = function () {
+      if (settle) statusTimer = setTimeout(function () { showStatus(idleStatus) }, 2000)
+    }
+    if (dialogStatus.textContent === text && (dialogStatus.getAttribute("data-status-tone") || "") === tone) {
+      dialogStatus.removeAttribute("data-status-swap")
+      settleLater()
+      return
+    }
+    dialogStatus.setAttribute("data-status-swap", "out")
+    swapTimer = setTimeout(function () {
+      swapTimer = null
+      dialogStatus.textContent = text
+      if (tone) dialogStatus.setAttribute("data-status-tone", tone)
+      else dialogStatus.removeAttribute("data-status-tone")
+      // Starts below, then moves up into place.
+      dialogStatus.setAttribute("data-status-swap", "in")
+      void dialogStatus.offsetWidth
+      dialogStatus.removeAttribute("data-status-swap")
+      settleLater()
+    }, STATUS_SWAP_MS)
+  }
+
+  function field(selector) {
+    return form ? form.querySelector(selector) : null
+  }
+
+  function signatureRowByID(id) {
+    var rows = manager.querySelectorAll("[data-signature-row]")
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute("data-signature-row") === id) return rows[i]
     }
     return null
   }
 
-  function resetSignatureSelect() {
-    if (!signatureSelect) return
-    signatureSelect.value = ""
+  // Marks the list row of the signature in the editor, or "New signature"
+  // while it has no id yet, and lets Delete act only on a saved signature.
+  function markCurrentSignature() {
+    var items = manager.querySelectorAll("[data-signature-row], [data-signature-new]")
+    for (var i = 0; i < items.length; i++) {
+      var isCurrent = draft.id ? items[i].getAttribute("data-signature-row") === draft.id : items[i].hasAttribute("data-signature-new")
+      items[i].setAttribute("aria-current", isCurrent ? "true" : "false")
+    }
+    if (deleteButton) deleteButton.disabled = !draft.id
   }
 
-  function loadSignatureOption(option) {
-    if (!form || !option) return
-    var id = form.querySelector("[data-signature-id]")
-    var name = form.querySelector("[data-signature-name]")
-    var html = form.querySelector("[data-signature-html]")
-    var source = form.querySelector("[data-signature-source]")
-    var nextHTML = option.getAttribute("data-signature-html") || ""
-    if (id) id.value = option.getAttribute("data-tui-selectbox-value") || ""
-    if (name) name.value = option.getAttribute("data-signature-name") || ""
+  // The signature in the editor. A new one has no id until its first save;
+  // later saves of it use the id that save got, even if they were queued
+  // before it came back.
+  var draft = { id: "", name: "" }
+  var saveTimer = null
+  var signatureDirty = false
+  var saveChain = Promise.resolve()
+
+  function loadSignatureRow(row, focus) {
+    if (!form || !row) return
+    var nextHTML = row.getAttribute("data-signature-row-html") || ""
+    draft = { id: row.getAttribute("data-signature-row") || "", name: row.getAttribute("data-signature-row-name") || "" }
+    if (field("[data-signature-id]")) field("[data-signature-id]").value = draft.id
+    if (field("[data-signature-name]")) field("[data-signature-name]").value = draft.name
     if (editor) editor.innerHTML = nextHTML
-    if (html) html.value = nextHTML
-    if (source) source.value = nextHTML
-    setSignatureEditorMode(form, "visual")
-    if (editor) editor.focus()
+    if (field("[data-signature-html]")) field("[data-signature-html]").value = nextHTML
+    if (field("[data-signature-source]")) field("[data-signature-source]").value = nextHTML
+    setSignatureEditorMode(form, "visual", !focus)
+    markCurrentSignature()
+  }
+
+  function resetSignatureForm(focus) {
+    if (!form) return
+    draft = { id: "", name: "" }
+    if (field("[data-signature-id]")) field("[data-signature-id]").value = ""
+    if (field("[data-signature-name]")) field("[data-signature-name]").value = ""
+    if (field("[data-signature-html]")) field("[data-signature-html]").value = ""
+    if (editor) editor.innerHTML = ""
+    resetSignatureEditorMode(form, true)
+    markCurrentSignature()
+    if (focus && field("[data-signature-name]")) field("[data-signature-name]").focus()
+  }
+
+  // What the editor holds right now. HTML typed in the source view is
+  // cleaned for sending without being written back, so the cursor stays put.
+  function signaturePayload() {
+    var source = field("[data-signature-source]")
+    var html = ""
+    if (source && !source.classList.contains("hidden")) html = sanitizeSignatureHTML(source.value || "")
+    else if (editor) {
+      syncSignatureEditor(editor)
+      html = editor.innerHTML || ""
+    }
+    var name = field("[data-signature-name]")
+    return { draft: draft, name: name ? name.value : "", html: html }
+  }
+
+  function signatureIsComplete(payload) {
+    var text = payload.html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim()
+    return payload.name.trim() !== "" && (text !== "" || /<img\b/i.test(payload.html))
+  }
+
+  function postForm(url, params, failText) {
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      body: params.toString()
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {} }).then(function (body) { throw new Error(body.error || failText) })
+      return r.json()
+    })
+  }
+
+  function sendSignature(payload) {
+    var target = payload.draft
+    var params = new URLSearchParams()
+    params.set("id", target.id)
+    params.set("name", payload.name)
+    params.set("html_body", payload.html)
+    return postForm("/api/signatures", params, goferT("js.settings.signature.save_failed")).then(function (saved) {
+      saved = saved || {}
+      var added = !target.id
+      var renamed = !added && target.name !== saved.name
+      target.id = saved.id || target.id
+      target.name = saved.name || payload.name
+      if (target === draft) {
+        if (field("[data-signature-id]")) field("[data-signature-id]").value = target.id
+        markCurrentSignature()
+      }
+      var row = signatureRowByID(target.id)
+      if (row) {
+        row.setAttribute("data-signature-row-name", target.name)
+        row.setAttribute("data-signature-row-html", saved.html_body != null ? saved.html_body : payload.html)
+      }
+      showStatus(goferT("js.settings.status.saved"), true, "success")
+      if (added || renamed) return refreshRegions()
+    }).catch(function (err) {
+      showStatus(err && err.message ? err.message : goferT("js.settings.signature.save_failed"), false, "error")
+    })
+  }
+
+  // Saves what's in the editor now, if it changed: right away when called,
+  // after the delay when typing schedules it. Saves go out one at a time.
+  function flushSignatureSave() {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = null
+    if (!signatureDirty) return saveChain
+    signatureDirty = false
+    var payload = signaturePayload()
+    if (!signatureIsComplete(payload)) {
+      showStatus(goferT("js.settings.signature.incomplete"))
+      return saveChain
+    }
+    saveChain = saveChain.then(function () { return sendSignature(payload) })
+    return saveChain
+  }
+
+  function scheduleSignatureSave() {
+    signatureDirty = true
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(flushSignatureSave, SAVE_DELAY_MS)
+  }
+
+  // A signature added or renamed shows up in the list and in the accounts'
+  // choices. Only those two parts are swapped for the server's, so the
+  // editor being typed in is left alone and the Accounts tab stays on the
+  // account it was showing.
+  function refreshRegions() {
+    var accountInput = manager.querySelector("input[data-signature-account-select]")
+    var url = refreshURL + (refreshURL.indexOf("?") >= 0 ? "&" : "?") + "account=" + encodeURIComponent(accountInput ? accountInput.value : "")
+    return fetch(url, { headers: { "Accept": "text/html" } }).then(function (r) {
+      if (!r.ok) throw new Error(goferT("js.settings.signature.save_failed"))
+      return r.text()
+    }).then(function (html) {
+      var doc = new DOMParser().parseFromString(html, "text/html")
+      var regions = ["[data-signature-list-region]", "[data-signature-accounts-region]"]
+      for (var i = 0; i < regions.length; i++) {
+        var from = doc.querySelector(regions[i])
+        var to = manager.querySelector(regions[i])
+        if (from && to) to.innerHTML = from.innerHTML
+      }
+      markCurrentSignature()
+      syncAccountSignaturePanels()
+    })
   }
 
   function syncAccountSignaturePanels() {
+    var accountSelect = manager.querySelector("input[data-signature-account-select]")
+    var settingsForms = manager.querySelectorAll("[data-account-signature-settings]")
     if (!accountSelect) return
     var selected = accountSelect.value || (settingsForms[0] && settingsForms[0].getAttribute("data-account-id")) || ""
     var accountSelectRoot = accountSelect.closest ? accountSelect.closest(".select-container") : null
@@ -1433,43 +2259,42 @@ function setupAccountSignaturesManager(manager) {
       settingsForms[i].classList.toggle("invisible", !isActive)
       settingsForms[i].classList.toggle("pointer-events-none", !isActive)
       settingsForms[i].setAttribute("aria-hidden", isActive ? "false" : "true")
+      if (isActive) settingsForms[i].removeAttribute("inert")
+      else settingsForms[i].setAttribute("inert", "")
     }
   }
 
-  if (accountSelect) {
-    accountSelect.addEventListener("change", syncAccountSignaturePanels)
-    syncAccountSignaturePanels()
+  // An account's choices save as soon as one changes. The place for replies
+  // and forwards shows only while a signature is picked.
+  function saveAccountChoices(settingsForm) {
+    var rows = settingsForm.querySelectorAll("[data-signature-assignment]")
+    for (var i = 0; i < rows.length; i++) {
+      var choice = rows[i].querySelector("input[data-signature-assignment-select]")
+      var placement = rows[i].querySelector("[data-signature-placement]")
+      if (placement) placement.classList.toggle("hidden", !(choice && choice.value))
+    }
+    var formAccountId = settingsForm.getAttribute("data-account-id") || accountId
+    postForm("/api/accounts/" + encodeURIComponent(formAccountId) + "/signature-settings", new URLSearchParams(new FormData(settingsForm)), goferT("js.settings.signature.assign_failed"))
+      .then(function () { showStatus(goferT("js.settings.status.saved"), true, "success") })
+      .catch(function (err) { showStatus(err && err.message ? err.message : goferT("js.settings.signature.assign_failed"), false, "error") })
   }
 
-  if (signatureSelect) {
-    signatureSelect.addEventListener("change", function () {
-      var option = selectedSignatureOption()
-      if (option) loadSignatureOption(option)
-      else resetSignatureForm()
-    })
-  }
+  manager.addEventListener("change", function (e) {
+    if (e.target.matches && e.target.matches("input[data-signature-account-select]")) {
+      syncAccountSignaturePanels()
+      return
+    }
+    var settingsForm = e.target.closest && e.target.closest("[data-account-signature-settings]")
+    if (settingsForm) saveAccountChoices(settingsForm)
+  })
+
+  manager.addEventListener("submit", function (e) { e.preventDefault() })
 
   function reloadDialog() {
     if (typeof htmx !== "undefined") {
       window.__goferReopenSignaturesDialog = manager.closest("#account-signatures-dialog") ? "account-signatures-dialog" : "compose-signatures-dialog"
       htmx.ajax("GET", refreshURL, { target: refreshTarget, swap: refreshSwap })
     }
-  }
-
-  function resetSignatureForm() {
-    if (!form) return
-    var id = form.querySelector("[data-signature-id]")
-    var name = form.querySelector("[data-signature-name]")
-    var html = form.querySelector("[data-signature-html]")
-    if (id) id.value = ""
-    if (name) name.value = ""
-    if (html) html.value = ""
-    if (editor) editor.innerHTML = ""
-    resetSignatureEditorMode(form)
-    resetSignatureSelect()
-    var status = form.querySelector("[data-signature-save-status]")
-    if (status) status.textContent = ""
-    if (name) name.focus()
   }
 
   manager.addEventListener("click", function (e) {
@@ -1480,111 +2305,55 @@ function setupAccountSignaturesManager(manager) {
       return
     }
 
-    var newBtn = e.target.closest("[data-signature-new]")
-    if (newBtn) {
-      resetSignatureForm()
+    // Moving to another signature first saves the one being left.
+    if (e.target.closest("[data-signature-new]")) {
+      flushSignatureSave()
+      resetSignatureForm(true)
       return
     }
 
     var row = e.target.closest("[data-signature-row]")
-    if (!row) return
-
-    if (e.target.closest("[data-signature-edit]")) {
-      var id = form.querySelector("[data-signature-id]")
-      var name = form.querySelector("[data-signature-name]")
-      var html = form.querySelector("[data-signature-html]")
-      if (id) id.value = row.getAttribute("data-signature-id") || ""
-      if (name) name.value = row.getAttribute("data-signature-name") || ""
-      if (editor) editor.innerHTML = row.getAttribute("data-signature-html") || ""
-      if (html) html.value = editor ? editor.innerHTML : (row.getAttribute("data-signature-html") || "")
-      var source = form.querySelector("[data-signature-source]")
-      if (source) source.value = html ? html.value : (row.getAttribute("data-signature-html") || "")
-      setSignatureEditorMode(form, "visual")
-      if (editor) editor.focus()
+    if (row) {
+      flushSignatureSave()
+      loadSignatureRow(row, true)
       return
     }
 
-    if (e.target.closest("[data-signature-delete]")) {
-      var signatureName = row.getAttribute("data-signature-name") || goferT("js.settings.signature.this")
-      var signatureID = row.getAttribute("data-signature-id") || ""
-      confirmSignatureDelete(signatureName).then(function (confirmed) {
-        if (!confirmed) return
-        fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
-          .then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
-          .then(reloadDialog)
-          .catch(function (err) {
-            var status = form && form.querySelector("[data-signature-save-status]")
-            if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.delete_failed")
-          })
-      })
-    }
-  })
-
-  manager.addEventListener("click", function (e) {
-    var deleteCurrent = e.target.closest("[data-signature-delete-current]")
-    if (!deleteCurrent) return
-    var id = form && form.querySelector("[data-signature-id]")
-    var name = form && form.querySelector("[data-signature-name]")
-    var status = form && form.querySelector("[data-signature-save-status]")
-    var signatureID = (id && id.value) || ""
+    if (!e.target.closest("[data-signature-delete-current]")) return
+    var signatureID = draft.id
     if (!signatureID) {
-      if (status) status.textContent = goferT("js.settings.signature.choose")
+      showStatus(goferT("js.settings.signature.choose"))
       return
     }
+    var name = field("[data-signature-name]")
     var signatureName = (name && name.value) || goferT("js.settings.signature.this")
     confirmSignatureDelete(signatureName).then(function (confirmed) {
       if (!confirmed) return
-      fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
-        .then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = null
+      signatureDirty = false
+      saveChain.then(function () {
+        return fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
+      }).then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
         .then(reloadDialog)
         .catch(function (err) {
-          if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.delete_failed")
+          showStatus(err && err.message ? err.message : goferT("js.settings.signature.delete_failed"), false, "error")
         })
     })
   })
 
   if (form) {
-    form.addEventListener("submit", function (e) {
-      e.preventDefault()
-      var source = form.querySelector("[data-signature-source]")
-      if (source && !source.classList.contains("hidden")) applySignatureSource(form)
-      else if (editor) syncSignatureEditor(editor)
-      var status = form.querySelector("[data-signature-save-status]")
-      if (status) status.textContent = goferT("js.settings.status.saving_dots")
-      fetch("/api/signatures", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
-        body: new URLSearchParams(new FormData(form)).toString()
-      }).then(function (r) {
-        if (!r.ok) return r.json().catch(function () { return {} }).then(function (data) { throw new Error(data.error || goferT("js.settings.signature.save_failed")) })
-        return r.json()
-      }).then(reloadDialog).catch(function (err) {
-        if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.save_failed")
-      })
-    })
+    form.addEventListener("input", scheduleSignatureSave)
+    // Leaving the editor (for the Close button, another tab or anywhere
+    // else) saves without waiting.
+    form.addEventListener("focusout", function () { flushSignatureSave() })
+
+    var openRow = manager.querySelector("[data-signature-row]")
+    if (openRow) loadSignatureRow(openRow, false)
+    else resetSignatureForm(false)
   }
 
-  for (var sf = 0; sf < settingsForms.length; sf++) {
-    ;(function (settingsForm) {
-    settingsForm.addEventListener("submit", function (e) {
-      e.preventDefault()
-      var formAccountId = settingsForm.getAttribute("data-account-id") || accountId
-      var status = settingsForm.querySelector("[data-signature-settings-status]")
-      if (status) status.textContent = goferT("js.settings.status.saving_dots")
-      fetch("/api/accounts/" + encodeURIComponent(formAccountId) + "/signature-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
-        body: new URLSearchParams(new FormData(settingsForm)).toString()
-      }).then(function (r) {
-        if (!r.ok) throw new Error(goferT("js.settings.signature.assign_failed"))
-        if (status) status.textContent = goferT("js.settings.status.saved")
-        setTimeout(function () { if (status) status.textContent = "" }, 2000)
-      }).catch(function (err) {
-        if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.assign_failed")
-      })
-    })
-    })(settingsForms[sf])
-  }
+  syncAccountSignaturePanels()
 
   if (manager.closest("#account-signatures-dialog") && window.tui && window.tui.dialog) {
     setTimeout(function () { window.tui.dialog.open("account-signatures-dialog") }, 20)
@@ -2080,45 +2849,120 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
-// The Mail operations list counts down to reloading itself. Each reload, or
-// a press of Refresh, replaces the whole list, which starts a new countdown.
-// While the tab is hidden the countdown waits at zero, and reloads once the
-// tab is shown again.
-// A reload that fails leaves the list as it was and counts down again.
-goferOnContent("#mail-operations-content[data-mail-operations-refresh]", function (content) {
-  var label = content.querySelector("[data-mail-operations-countdown]")
-  var seconds = parseInt(content.getAttribute("data-mail-operations-refresh"), 10) || 15
-  var timer = null
-  function countDown(failed) {
-    var left = seconds
-    var show = function () {
-      if (label) label.textContent = goferT(failed ? "js.settings.operations.refresh_failed_in" : "js.settings.operations.refresh_in", { seconds: left })
-    }
-    show()
-    timer = setInterval(function () {
-      if (!content.isConnected) {
-        clearInterval(timer)
-        return
-      }
-      if (left > 0) left--
-      if (left > 0) {
-        show()
-        return
-      }
-      if (document.hidden) return
-      clearInterval(timer)
-      if (window.htmx) htmx.trigger(content, "mail-operations-refresh")
-    }, 1000)
+// The Mail operations list reloads when the person's background mail work
+// changes: app.js passes on the server's mail-operations-changed event as
+// gofer:mail-operations-changed, and again after the event stream
+// reconnects, since changes may have been missed meanwhile. A change while a
+// reload is running reloads once more after it; one while the tab is hidden
+// reloads when it's shown. A reload that fails leaves the list as it was and
+// says so; the next change, or Refresh, tries again.
+function mailOperationsLiveState() {
+  if (!mailOperationsLiveState.state) mailOperationsLiveState.state = { loading: false, again: false }
+  return mailOperationsLiveState.state
+}
+
+function reloadMailOperationsList() {
+  var content = document.getElementById("mail-operations-content")
+  if (!content || !window.htmx) return
+  var state = mailOperationsLiveState()
+  if (document.hidden || state.loading) {
+    state.again = true
+    return
   }
-  content.addEventListener("htmx:beforeRequest", function () {
-    clearInterval(timer)
-    if (label) label.textContent = goferT("js.settings.calendar.refreshing")
-  })
-  content.addEventListener("htmx:afterRequest", function (event) {
-    if (event.detail && !event.detail.successful && content.isConnected) countDown(true)
-  })
-  countDown(false)
+  state.again = false
+  htmx.trigger(content, "mail-operations-refresh")
+}
+
+// mailOperationsListLoaded runs once a reload of the list has finished, with
+// whether it worked.
+function mailOperationsListLoaded(content, successful) {
+  var state = mailOperationsLiveState()
+  state.loading = false
+  if (!successful && content && content.isConnected) {
+    var label = content.querySelector("[data-mail-operations-status]")
+    if (label) label.textContent = goferT("js.settings.operations.refresh_failed")
+  }
+  if (state.again) reloadMailOperationsList()
+}
+
+document.addEventListener("gofer:mail-operations-changed", reloadMailOperationsList)
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && mailOperationsLiveState().again) reloadMailOperationsList()
 })
+document.addEventListener("htmx:beforeRequest", function (event) {
+  var detail = event.detail || {}
+  if (!detail.target || detail.target.id !== "mail-operations-content") return
+  mailOperationsLiveState().loading = true
+  var label = detail.target.querySelector("[data-mail-operations-status]")
+  if (label) label.textContent = goferT("js.settings.calendar.refreshing")
+})
+document.addEventListener("htmx:afterRequest", function (event) {
+  var detail = event.detail || {}
+  if (!detail.target || detail.target.id !== "mail-operations-content") return
+  // A list that worked is finished once it is swapped in, below.
+  if (!detail.successful) mailOperationsListLoaded(detail.target, false)
+})
+
+// Details and groups opened in the Mail operations list stay open when the
+// list reloads itself: the open ones are noted before the swap and reopened in
+// the new list before it is drawn. Each reload also names the open groups, so
+// they come back with their messages already listed.
+var openMailOperationDetails = []
+var openMailOperationGroups = []
+document.addEventListener("htmx:beforeSwap", function (event) {
+  var target = event.detail && event.detail.target
+  if (!target || target.id !== "mail-operations-content") return
+  openMailOperationDetails = openMailOperationIDs(target, "data-mail-operation-details")
+  openMailOperationGroups = openMailOperationIDs(target, "data-mail-operation-group")
+})
+document.addEventListener("htmx:configRequest", function (event) {
+  var detail = event.detail || {}
+  if (!detail.target || detail.target.id !== "mail-operations-content") return
+  if (String(detail.path || "").indexOf("/settings/operations/content") !== 0) return
+  detail.parameters.open = openMailOperationIDs(detail.target, "data-mail-operation-group")
+})
+goferOnContent("#mail-operations-content", function (content) {
+  reopenMailOperations(content, "data-mail-operation-details", openMailOperationDetails)
+  reopenMailOperations(content, "data-mail-operation-group", openMailOperationGroups)
+  mailOperationsListLoaded(content, true)
+})
+
+// A group's messages load the first time it is opened, by mouse or keyboard.
+// The collapsible has toggled by the time this runs.
+function loadOpenedMailOperationGroup(event) {
+  if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return
+  var trigger = event.target && event.target.closest ? event.target.closest('[data-tui-collapsible="trigger"]') : null
+  var button = trigger ? trigger.querySelector("[data-mail-operation-group-load]") : null
+  if (!button) return
+  setTimeout(function () {
+    var root = trigger.closest("[data-mail-operation-group]")
+    if (!root || root.getAttribute("data-tui-collapsible-state") !== "open") return
+    if (button.getAttribute("data-mail-operation-group-load") === "done") return
+    button.setAttribute("data-mail-operation-group-load", "done")
+    if (window.htmx) htmx.trigger(button, "mail-operation-group-open")
+  }, 0)
+}
+document.addEventListener("click", loadOpenedMailOperationGroup)
+document.addEventListener("keydown", loadOpenedMailOperationGroup)
+
+function openMailOperationIDs(list, attribute) {
+  var ids = []
+  list.querySelectorAll("[" + attribute + '][data-tui-collapsible-state="open"]').forEach(function (root) {
+    ids.push(root.getAttribute(attribute))
+  })
+  return ids
+}
+
+function reopenMailOperations(list, attribute, ids) {
+  list.querySelectorAll("[" + attribute + "]").forEach(function (root) {
+    if (ids.indexOf(root.getAttribute(attribute)) < 0) return
+    root.setAttribute("data-tui-collapsible-state", "open")
+    var trigger = root.querySelector('[data-tui-collapsible="trigger"]')
+    if (trigger) trigger.setAttribute("aria-expanded", "true")
+    var content = root.querySelector('[data-tui-collapsible="content"]')
+    if (content) content.classList.add("tui-collapsible-open")
+  })
+}
 
 // /settings/accounts?folder_roles=<account> opens that account's folder roles,
 // as a delete refused for want of a Trash folder offers.

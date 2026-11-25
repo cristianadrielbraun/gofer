@@ -564,3 +564,27 @@ func (h *Handler) applyIMAPMessageMove(ctx context.Context, client messageMutati
 	}
 	return h.db.AdvanceMessageMoveMutation(ctx, mutation.ID, mutation.DestinationFolderID, "", destinationUID)
 }
+
+// readMailAction is the action that marks mail read, or unread.
+func readMailAction(read bool) string {
+	if read {
+		return storage.MailActionMarkRead
+	}
+	return storage.MailActionMarkUnread
+}
+
+// starMailAction is the action that stars mail, or unstars it.
+func starMailAction(starred bool) string {
+	if starred {
+		return storage.MailActionStar
+	}
+	return storage.MailActionUnstar
+}
+
+// spamMailAction is the action that marks mail as spam, or as not spam.
+func spamMailAction(disposition spamDisposition) string {
+	if disposition == spamDispositionSpam {
+		return storage.MailActionSpam
+	}
+	return storage.MailActionNotSpam
+}

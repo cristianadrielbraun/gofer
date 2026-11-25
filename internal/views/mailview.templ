@@ -294,6 +294,11 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 // MailViewThreadContent shows a thread as a stack of message sheets, each as wide
 // as a single message's sheet. The toolbar, subject and thread-wide controls stay
 // in their own sheet on top while the messages scroll beneath it.
+//
+// Only the open message's body is part of the page. Each collapsed message
+// keeps its body and body controls in a template that is filled in when it
+// opens, so a long conversation doesn't load every body, or lay out every
+// body's controls, before it can be read.
 templ MailViewThreadContent(email *models.Email, thread []models.ThreadItem) {
 	<div class="mail-view-thread-frame flex flex-col h-full">
 		<div class="mail-view-thread-toolbar surface-paper rounded-md shrink-0">
@@ -342,7 +347,13 @@ templ MailViewThreadContent(email *models.Email, thread []models.ThreadItem) {
 									</span>
 								</summary>
 								<div class="thread-details-content mt-3">
-									@MailViewBodyByID(item.ID)
+									if item.ID == email.ID {
+										@MailViewBodyByID(item.ID)
+									} else {
+										<template data-thread-body>
+											@MailViewBodyByID(item.ID)
+										</template>
+									}
 								</div>
 							</details>
 						</div>

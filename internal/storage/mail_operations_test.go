@@ -311,3 +311,142 @@ func TestListConfiguredIdleFoldersUsesEffectiveIMAPSelection(t *testing.T) {
 		}
 	}
 }
+
+func TestRetryAllFailedRetriesOnlyRetryableWorkOfTheUser(t *testing.T) {
+	ctx := context.Background()
+	db := seedUndoTest(t, "imap")
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('other-acc', 'other', 'imap', 'sam@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO messages (id, account_id, internet_message_id, subject) VALUES (3, 'other-acc', '<sam@example.com>', 'Weekend plans')`); err != nil {
+		t.Fatal(err)
+	}
+	// More failed changes than the list in Settings shows, one per message.
+	if _, err := db.Write().ExecContext(ctx, `
+		WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 205)
+		INSERT INTO messages (id, account_id, internet_message_id, subject)
+		SELECT 1000 + i, 'acc', '<bulk-' || i || '@example.com>', 'Lunch on Friday?' FROM n`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO message_mutations (id, account_id, message_id, folder_id, provider_type, kind, target_value, status, attempt_count, last_error, next_attempt_at)
+		SELECT 'bulk-' || (id - 1000), 'acc', id, 'inbox', 'imap', 'read', 1, 'failed', 2, 'server busy', datetime('now', '+1 hour')
+		FROM messages WHERE id > 1000`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO message_mutations (id, account_id, message_id, folder_id, provider_type, kind, target_value, status, attempt_count, last_error, next_attempt_at)
+		VALUES ('parked', 'acc', 1, 'projects', 'imap', 'starred', 1, 'failed', 0, 'folder removed remotely (imap discovery)', ?)`, parkedRetryAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO message_mutations (id, account_id, message_id, folder_id, provider_type, kind, target_value, status, attempt_count, last_error, next_attempt_at)
+		VALUES ('others', 'other-acc', 3, '', 'imap', 'read', 1, 'failed', 1, 'server busy', datetime('now', '+1 hour'))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO label_mutation_queue (id, account_id, message_id, folder_id, provider_type, operation, label_name, attempts, last_error) VALUES
+			(1, 'acc', 2, 'inbox', 'keyword', 'add', 'Travel', 0, ''),
+			(2, 'acc', 2, 'inbox', 'keyword', 'add', 'Family', 1, 'server busy')`); err != nil {
+		t.Fatal(err)
+	}
+
+	retryable, err := db.ListRetryableMailOperationsForUser(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retryable) != 206 {
+		t.Fatalf("retryable = %d, want 205 failed changes and the failed label change", len(retryable))
+	}
+	ids := make([]string, 0, len(retryable)+2)
+	for _, operation := range retryable {
+		if operation.ID == "message_mutation:parked" || operation.ID == "label_mutation:1" || operation.AccountID != "acc" {
+			t.Fatalf("listed %s, which Retry all must not touch", operation.ID)
+		}
+		ids = append(ids, operation.ID)
+	}
+	// Work that changed meanwhile, or another user's, is skipped, not refused.
+	ids = append(ids, "message_mutation:parked", "message_mutation:others")
+	retried, skipped, err := db.RetryMailOperationsForUserGuarded(ctx, "default", ids, nil)
+	if err != nil || retried != 206 || skipped != 2 {
+		t.Fatalf("retry all = %d retried, %d skipped, %v; want 206, 2", retried, skipped, err)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM message_mutations WHERE id LIKE 'bulk-%' AND status = 'pending'`); n != 205 {
+		t.Fatalf("%d of 205 failed changes are pending again", n)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM message_mutations WHERE id IN ('parked', 'others') AND status = 'failed'`); n != 2 {
+		t.Fatalf("parked or another user's change was retried")
+	}
+	if n := countRows(t, db, `SELECT attempts FROM label_mutation_queue WHERE id = 2`); n != 1 {
+		t.Fatalf("retry reset the label change's attempts")
+	}
+
+	// A guard that refuses leaves everything as it was.
+	if _, err := db.Write().ExecContext(ctx, `UPDATE message_mutations SET status = 'failed' WHERE id LIKE 'bulk-%'`); err != nil {
+		t.Fatal(err)
+	}
+	refused := errors.New("account is being removed")
+	if _, _, err := db.RetryMailOperationsForUserGuarded(ctx, "default", ids, func(*sql.Tx) error { return refused }); !errors.Is(err, refused) {
+		t.Fatalf("guarded retry error = %v, want the guard's", err)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM message_mutations WHERE id LIKE 'bulk-%' AND status = 'pending'`); n != 0 {
+		t.Fatalf("a refused retry all changed %d operations", n)
+	}
+}
+
+func TestMailOperationsAdminStatusCountsOriginsAndWorkThatCantBeCompleted(t *testing.T) {
+	ctx := context.Background()
+	db := seedUndoTest(t, "imap")
+	rule := withMailAction(ctx, MailAction{ID: "rule-action", Kind: MailActionMove, Source: MailActionSourceRule, RuleID: "rule-1"})
+	if err := db.MoveMessagesAndQueueForUser(rule, []int64{1}, "projects", "archive", "default"); err != nil {
+		t.Fatal(err)
+	}
+	// Projects is deleted on the server, so the rule's move can't be
+	// completed. Only that kind of work is waiting so far.
+	removeProjectsFolder(t, db)
+	status, err := db.ListMailOperationsAdminStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Parked != 1 || status.ActionRequired != 1 {
+		t.Fatalf("totals = %+v, want one change that can't be completed", status)
+	}
+	if !status.Health.NextRetryAt.IsZero() || !status.Health.OldestPendingAt.IsZero() {
+		t.Fatalf("health = %+v, work that can't be completed shows as waiting", status.Health)
+	}
+	if got := mailOperationKindStateCount(status.Health.MessageMutations, "move", "parked"); got != 1 {
+		t.Fatalf("move health = %+v, want it as can't be completed", status.Health.MessageMutations)
+	}
+	if got := mailOperationKindStateCount(status.Health.MessageMutations, "move", "failed"); got != 0 {
+		t.Fatalf("parked move counted as failed")
+	}
+
+	star := WithUserMailAction(ctx, MailActionStar)
+	if err := db.SetMessagesStarredAndQueueForUser(star, []int64{2}, true, "default"); err != nil {
+		t.Fatal(err)
+	}
+	// Queued before Gofer recorded actions: no origin.
+	if err := db.SetMessagesReadAndQueueForUser(ctx, []int64{2}, true, "default"); err != nil {
+		t.Fatal(err)
+	}
+	status, err = db.ListMailOperationsAdminStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Total != 3 || status.Parked != 1 {
+		t.Fatalf("totals = %+v", status)
+	}
+	want := []models.MailOperationAdminOriginCount{
+		{Source: MailActionSourceRule, Kind: MailActionMove, Total: 1, ActionRequired: 1, Parked: 1},
+		{Source: MailActionSourceYou, Kind: MailActionStar, Total: 1},
+	}
+	if len(status.ByOrigin) != len(want) || status.ByOrigin[0] != want[0] || status.ByOrigin[1] != want[1] {
+		t.Fatalf("origins = %+v, want %+v", status.ByOrigin, want)
+	}
+	if status.Health.NextRetryAt.IsZero() || status.Health.NextRetryAt.Year() == parkedRetryAt.Year() {
+		t.Fatalf("next retry = %v, want the queued star or read change", status.Health.NextRetryAt)
+	}
+	if others, err := db.ListMailOperationsAdminStatusForUser(ctx, "other"); err != nil || others.Parked != 0 || len(others.ByOrigin) != 0 {
+		t.Fatalf("another person's status = %+v, %v", others, err)
+	}
+}

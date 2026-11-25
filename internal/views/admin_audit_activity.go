@@ -18,7 +18,7 @@ const AdminAuditActivityPath = "/admin/activity/administration"
 
 // AdminAuditKinds are the administration tab's filters: each keeps the
 // actions that start with it and a dot.
-var AdminAuditKinds = []string{"user", "invitation", "security", "instance", "audit", "access"}
+var AdminAuditKinds = []string{"user", "group", "invitation", "security", "instance", "audit", "access"}
 
 // AdminAuditActivityData is the administration tab of the Activity page.
 type AdminAuditActivityData struct {
@@ -85,6 +85,21 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 	case "user.list_exported":
 		count, _ := adminAuditCount(record.Metadata["count"])
 		return i18n.N(ctx, key, count, "count", i18n.Number(ctx, count))
+	case "group.renamed":
+		change := record.Changes["name"]
+		args = append(args, "from", fmt.Sprint(change.From), "to", fmt.Sprint(change.To))
+	case "group.deleted":
+		count, _ := adminAuditCount(record.Metadata["members"])
+		return i18n.N(ctx, key, count, "target", target, "count", i18n.Number(ctx, count))
+	case "group.members_added", "group.members_removed":
+		// One person is named; more are counted.
+		count, _ := adminAuditCount(record.Metadata["count"])
+		if people, ok := record.Metadata["people"].([]any); ok && count == 1 && len(people) == 1 {
+			if person, ok := people[0].(map[string]any); ok {
+				return i18n.T(ctx, key+"_person", "target", target, "person", fmt.Sprint(person["username"]))
+			}
+		}
+		return i18n.N(ctx, key, count, "target", target, "count", i18n.Number(ctx, count))
 	case "audit.exported":
 		args = append(args, "format", strings.ToUpper(fmt.Sprint(record.Metadata["format"])))
 	case "user.mfa_required":

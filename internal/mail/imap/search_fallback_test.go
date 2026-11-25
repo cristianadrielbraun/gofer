@@ -262,7 +262,7 @@ func TestClientFindsHeaderWhenServerRefusesHeaderSearch(t *testing.T) {
 				t.Fatalf("FindUIDByMessageIDWithValidity(missing) = %d, %v; want 0, nil", uid, err)
 			}
 
-			fellBack := strings.Contains(strings.ToUpper(recorder.String()), "HEADER.FIELDS (\"MESSAGE-ID\")")
+			fellBack := strings.Contains(strings.ToUpper(recorder.String()), "HEADER.FIELDS (MESSAGE-ID)")
 			if fellBack != tt.wantFallback {
 				t.Fatalf("read headers = %v, want %v; client sent:\n%s", fellBack, tt.wantFallback, recorder.String())
 			}

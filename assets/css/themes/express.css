@@ -1627,7 +1627,8 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 
 /* === CALENDAR === */
 
-/* Previous/next and the week zoom buttons are separate raised buttons. */
+/* Previous/next, the view menu and the week zoom buttons are separate raised
+   buttons. */
 [data-theme="express"] div:has(> [data-calendar-navigate]),
 [data-theme="express"] div:has(> [data-calendar-week-zoom]) {
   gap: 2px;
@@ -1638,7 +1639,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   box-shadow: none;
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]) {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger) {
   border: none;
   border-radius: 0;
   background: var(--xp-face);
@@ -1647,16 +1648,16 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   transition: none;
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):hover:not(:disabled) {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):hover:not(:disabled) {
   background: color-mix(in srgb, var(--xp-face) 92%, var(--xp-light));
   color: var(--foreground);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):active:not(:disabled) {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) {
   box-shadow: var(--xp-bevel-pressed);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):active:not(:disabled) > * {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) > * {
   translate: 1px 1px;
 }
 
@@ -1674,10 +1675,47 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   text-shadow: 1px 1px 0 var(--xp-light);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom]):focus-visible {
+[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):focus-visible {
   --tw-ring-shadow: 0 0 #0000;
   outline: 1px dotted var(--foreground);
   outline-offset: -4px;
+}
+
+/* The zoom slider is a trackbar: a sunken groove with a raised square thumb. */
+[data-theme="express"] [data-calendar-week-zoom-slider] {
+  margin-inline: 4px;
+}
+
+[data-theme="express"] [data-calendar-week-zoom-slider] [data-track] {
+  height: 4px;
+  border-radius: 0;
+  background: var(--card);
+  box-shadow: var(--xp-bevel-in);
+}
+
+[data-theme="express"] [data-calendar-week-zoom-slider] [data-fill] {
+  display: none;
+}
+
+[data-theme="express"] [data-calendar-week-zoom-slider] [data-thumb] {
+  width: 11px;
+  height: 20px;
+  border-radius: 0;
+  background: var(--xp-face);
+  box-shadow: var(--xp-bevel-out);
+}
+
+/* While Fit is on, the thumb goes flat, like a disabled control. */
+[data-theme="express"] [data-calendar-week-zoom-slider][data-calendar-week-zoom-fit] [data-thumb] {
+  background: var(--xp-face);
+  box-shadow: inset 0 0 0 1px var(--xp-mid);
+}
+
+[data-theme="express"] [data-calendar-week-zoom-slider] [data-thumb]:focus-visible {
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
+  outline: 1px dotted var(--foreground);
+  outline-offset: 2px;
 }
 
 /* The grid: white days, days outside the month in silver, square day numbers
@@ -1796,42 +1834,6 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   outline-offset: -2px;
 }
 
-/* Month/Week works like the app switcher: flat toolbar toggle buttons, the
-   current one latched down. */
-[data-theme="express"] [data-calendar-view-nav] {
-  gap: 2px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-}
-
-[data-theme="express"] [data-calendar-view-indicator] {
-  display: none;
-}
-
-[data-theme="express"] [data-calendar-view-switch] {
-  border-radius: 0;
-  color: var(--foreground);
-  transition: none;
-}
-
-[data-theme="express"] [data-calendar-view-switch]:hover {
-  box-shadow: inset -1px -1px 0 var(--xp-mid), inset 1px 1px 0 var(--xp-light);
-}
-
-[data-theme="express"] [data-calendar-view-switch][aria-current="page"],
-[data-theme="express"] [data-calendar-view-switch]:active {
-  padding: 1px 0.4375rem 0 0.5625rem;
-  background: color-mix(in srgb, var(--xp-face), var(--xp-light));
-  box-shadow: inset 1px 1px 0 var(--xp-mid), inset -1px -1px 0 var(--xp-light);
-}
-
-[data-theme="express"] [data-calendar-view-switch]:focus-visible {
-  --tw-ring-shadow: 0 0 #0000;
-  outline: 1px dotted var(--foreground);
-  outline-offset: -3px;
-}
 
 /* === SIDEBAR SYNC AND FILTERS === */
 
@@ -2237,8 +2239,10 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   color: inherit;
 }
 
-/* Unread counts are plain blue "(12)" after the name, and the name turns bold. */
-[data-theme="express"] [data-folder-unread] {
+/* Unread counts are plain blue "(12)" after the name, and the name turns
+   bold. A folder menu's count of rules looks the same, once it has come. */
+[data-theme="express"] [data-folder-unread],
+[data-theme="express"] [data-folder-rules-count] {
   min-width: 0;
   height: auto;
   padding: 0;
@@ -2250,11 +2254,13 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   font-weight: 400;
 }
 
-[data-theme="express"] [data-folder-unread]::before {
+[data-theme="express"] [data-folder-unread]::before,
+[data-theme="express"] [data-folder-rules-count]:not([data-loading])::before {
   content: "(";
 }
 
-[data-theme="express"] [data-folder-unread]::after {
+[data-theme="express"] [data-folder-unread]::after,
+[data-theme="express"] [data-folder-rules-count]:not([data-loading])::after {
   content: ")";
 }
 

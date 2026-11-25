@@ -297,7 +297,11 @@ CREATE TABLE IF NOT EXISTS label_mutation_queue (
     next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_error TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    action_id TEXT NOT NULL DEFAULT '',
+    action_kind TEXT NOT NULL DEFAULT '',
+    action_source TEXT NOT NULL DEFAULT '',
+    action_rule_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS gmail_message_fetch_queue (
@@ -329,6 +333,10 @@ CREATE TABLE IF NOT EXISTS message_mutations (
     next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    action_id TEXT NOT NULL DEFAULT '',
+    action_kind TEXT NOT NULL DEFAULT '',
+    action_source TEXT NOT NULL DEFAULT '',
+    action_rule_id TEXT NOT NULL DEFAULT '',
     UNIQUE(message_id, kind, folder_id)
 );
 
@@ -677,6 +685,12 @@ ON message_mutations(status, next_attempt_at, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_message_mutations_account
 ON message_mutations(account_id, status, next_attempt_at);
+
+CREATE INDEX IF NOT EXISTS idx_message_mutations_action
+ON message_mutations(action_id) WHERE action_id != '';
+
+CREATE INDEX IF NOT EXISTS idx_label_mutation_queue_action
+ON label_mutation_queue(action_id) WHERE action_id != '';
 
 CREATE INDEX IF NOT EXISTS idx_label_aliases_display
 ON label_aliases(account_id, provider_type, display_name COLLATE NOCASE);
@@ -1130,6 +1144,37 @@ CREATE TABLE IF NOT EXISTS audit_checkpoints (
     chain_mac TEXT NOT NULL,
     created_at DATETIME NOT NULL,
     reason TEXT NOT NULL
+);
+
+-- Groups of people (internal/directory), who is in each, and the revision
+-- counters that tell what was worked out from them that it is out of date.
+CREATE TABLE IF NOT EXISTS directory_groups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_normalized TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'scim', 'oidc', 'ldap')),
+    external_id TEXT,
+    created_at DATETIME NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL,
+    updated_by TEXT NOT NULL DEFAULT '',
+    version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS directory_groups_external
+    ON directory_groups(source, external_id) WHERE external_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS directory_group_members (
+    group_id TEXT NOT NULL REFERENCES directory_groups(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'external', 'rule')),
+    added_at DATETIME NOT NULL,
+    added_by TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS directory_group_members_user ON directory_group_members(user_id);
+CREATE TABLE IF NOT EXISTS admin_revisions (
+    name TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS oauth_account_flows (
@@ -1921,6 +1966,13 @@ CREATE TABLE IF NOT EXISTS mail_rule_accounts (
     PRIMARY KEY (rule_id, account_id)
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_accounts_account ON mail_rule_accounts(account_id);
+-- A rule's tags say what it is for, to find and change rules together; they
+-- don't change how it runs. Each of an owner's tags has one spelling.
+CREATE TABLE IF NOT EXISTS mail_rule_tags (
+    rule_id TEXT NOT NULL REFERENCES mail_rules(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL COLLATE NOCASE CHECK (tag != ''),
+    PRIMARY KEY (rule_id, tag)
+);
 CREATE TABLE IF NOT EXISTS mail_rule_transfers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2005,4 +2057,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (149);
+INSERT OR REPLACE INTO schema_version (version) VALUES (153);

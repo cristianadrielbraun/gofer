@@ -42,6 +42,10 @@ func adminUsersBulkChange(action admin.BulkAction) adminUserChange {
 		change.verify = "auth.admin.verify.mfa_requirement"
 	case admin.BulkRequirePasswordChange:
 		change.verify = "auth.admin.verify.require_password"
+	case admin.BulkAddToGroup, admin.BulkRemoveFromGroup:
+		change.verify = "admin.groups.error.verify"
+		change.refused[admin.CodeInvalid] = "admin.users.bulk.choose_group"
+		change.refused[admin.CodeUnavailable] = "admin.groups.error.unavailable"
 	}
 	return change
 }
@@ -109,9 +113,18 @@ func (h *Handler) adminUsersBulkPlan(ctx context.Context, action admin.BulkActio
 	}
 	query := auth.AdministratorUserQuery{Limit: admin.MaxBulkPeople}
 	var ids []string
+	if action.ForGroup() {
+		groups, err := h.auth.ListGroups(ctx, actor.UserID)
+		if err != nil {
+			return plan, err
+		}
+		for _, group := range groups {
+			plan.Groups = append(plan.Groups, views.AdminGroupRef{ID: group.ID, Name: group.Name})
+		}
+	}
 	if values.Get("all") == "1" {
 		list := adminUsersQueryFrom(values)
-		query.Search, query.Status = list.Search, auth.UserStatus(list.Status)
+		query.Search, query.Status, query.Group = list.Search, auth.UserStatus(list.Status), list.Group
 		query.Attention, query.Sort = auth.AdministratorUserAttention(list.Attention), auth.AdministratorUserSort(list.Sort)
 	} else {
 		seen := map[string]bool{}
@@ -188,13 +201,19 @@ func (h *Handler) handleAdminUsersBulk(action admin.BulkAction) http.HandlerFunc
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(ctx, "auth.admin.users.bulk_invalid"))
 			return
 		}
-		result, err := h.adminService().Bulk(ctx, actor, action, r.PostForm["user"])
+		var result *admin.BulkResult
+		var err error
+		if action.ForGroup() {
+			result, err = h.adminService().BulkGroup(ctx, actor, action, r.PostFormValue("group"), r.PostForm["user"])
+		} else {
+			result, err = h.adminService().Bulk(ctx, actor, action, r.PostForm["user"])
+		}
 		if err != nil {
 			h.adminUserChangeFailed(w, r, err, adminUsersBulkChange(action), views.AdminUserInvitationFormData{})
 			return
 		}
 		list := adminUsersListFrom(r.PostFormValue("list"))
-		done := views.AdminUsersBulkData{Action: string(action), Limit: admin.MaxBulkPeople, ListPath: list, Done: true}
+		done := views.AdminUsersBulkData{Action: string(action), Limit: admin.MaxBulkPeople, ListPath: list, Done: true, Group: result.Group}
 		for _, outcome := range result.Outcomes {
 			if outcome.Err != nil {
 				log.Printf("change many people (%s, %s): %s: %v", action, result.Correlation, outcome.UserID, outcome.Err)

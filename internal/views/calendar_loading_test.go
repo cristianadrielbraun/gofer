@@ -15,7 +15,7 @@ func TestCalendarLoadingUsesEmptyMonthAndWeekLayout(t *testing.T) {
 		time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC), // five rows
 		time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC),      // six rows
 	} {
-		for _, data := range []CalendarMonthData{NewCalendarMonthData(at), NewCalendarWeekData(at)} {
+		for _, data := range []CalendarMonthData{NewCalendarMonthData(at, time.Monday), NewCalendarWeekData(at, time.Monday)} {
 			var loaded, pending bytes.Buffer
 			if err := CalendarPage(data, nil).Render(t.Context(), &loaded); err != nil {
 				t.Fatal(err)

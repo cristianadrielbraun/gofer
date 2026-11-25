@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/components/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
@@ -418,6 +419,13 @@ func PanelSetting(settings map[string]string, section, key, fallback string) str
 		}
 	}
 	return uiSettingGet(settings, key, fallback)
+}
+
+// pickerStartOfWeek is the first column of a date picker's month: the day the
+// user's weeks start on.
+func pickerStartOfWeek(ctx context.Context) *calendar.Day {
+	day := calendar.Day(i18n.WeekStart(ctx))
+	return &day
 }
 
 func uiSettingsLocation(settings map[string]string) *time.Location {
@@ -1147,6 +1155,13 @@ func mailListPaginationRangeLabel(ctx context.Context, windowStart int, itemCoun
 // grouped into conversations by subject.
 func SubjectThreadingEnabled(settings map[string]string) bool {
 	return uiSettingGet(settings, "subject_threading", "false") == "true"
+}
+
+// SubjectThreadingLateReplies reports whether replies grouped by subject
+// join their conversation however long ago it was. It is on unless turned
+// off.
+func SubjectThreadingLateReplies(settings map[string]string) bool {
+	return uiSettingGet(settings, "subject_threading_late_replies", "true") != "false"
 }
 
 // SubjectThreadingWindowDays is the subject grouping window as shown.

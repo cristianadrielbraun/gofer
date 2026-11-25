@@ -1693,7 +1693,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								<span class="mail-list-filter-label">{ i18n.T(ctx, "mail.filters.title") }</span>
 								@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
 								if count := contactFiltersActiveCount(filters); count > 0 {
-									<span class="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground">{ fmt.Sprint(count) }</span>
+									<span class="min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground" data-contact-filter-count>{ fmt.Sprint(count) }</span>
 								}
 							}
 						}
@@ -4548,21 +4548,29 @@ templ ContactRecentActivity(contact models.Contact, emails []models.Email) {
 	</div>
 }
 
-// contactActiveFilterPill is one active filter in the strip under the search,
-// the mail list's pill. Choosing it removes that filter.
-// contactActiveFilterPill is a pill that drops its filter, with a tooltip
-// for the whole text, which a long pill cuts short.
+// contactActiveFilterPill is one active filter in the strip under the
+// contacts search. app.js draws it again from a template as filters change.
 templ contactActiveFilterPill(name string, text string) {
+	@activeFilterPill(text, i18n.T(ctx, "contacts.filters.remove_pill", "filter", text),
+		templ.Attributes{"data-contact-active-filter-remove": name, "data-contact-active-filter-key": name + ":" + text},
+		templ.Attributes{"data-contact-active-filter-tooltip": ""})
+}
+
+// activeFilterPill is one active filter in the strip under a list's search,
+// the mail list's pill: choosing it, named by label, removes that filter.
+// A tooltip shows the whole text, which a long pill cuts short. attrs mark
+// the pill, tooltipAttrs the tooltip's text.
+templ activeFilterPill(text, label string, attrs templ.Attributes, tooltipAttrs templ.Attributes) {
 	@tooltip.Tooltip() {
 		@tooltip.Trigger() {
-			<button type="button" data-contact-active-filter-remove={ name } data-contact-active-filter-key={ name + ":" + text } aria-label={ i18n.T(ctx, "contacts.filters.remove_pill", "filter", text) } class="mail-active-filter-pill mail-active-filter-pill-stable">
+			<button type="button" aria-label={ label } class="mail-active-filter-pill mail-active-filter-pill-stable" { attrs... }>
 				<span class="mail-active-filter-pill-label">{ text }</span>
 				<span class="mail-active-filter-pill-remove">x</span>
 			</button>
 		}
 		// The pill row keeps its text on one line; the tooltip wraps instead.
 		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-words"}) {
-			<span data-contact-active-filter-tooltip>{ text }</span>
+			<span { tooltipAttrs... }>{ text }</span>
 		}
 	}
 }

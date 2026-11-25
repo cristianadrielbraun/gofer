@@ -19,6 +19,8 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/collapsible"
+	"github.com/cristianadrielbraun/gofer/components/copybutton"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
@@ -266,6 +268,22 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 					}
 				</div>
 			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<span id="mail-card-actions-on-hover-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.card_actions_hover.title") }</span>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.card_actions_hover.description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
+						@switchcomp.Switch(switchcomp.Props{
+							ID:         "mail-card-actions-on-hover",
+							Name:       "mail_card_actions_on_hover",
+							Checked:    uiSettingGet(uiSettings, "mail_card_actions_on_hover", "true") != "false",
+							Attributes: templ.Attributes{"aria-labelledby": "mail-card-actions-on-hover-label", "data-ui-setting-switch": "mail_card_actions_on_hover"},
+						})
+					}
+				</div>
+			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.mark_read.title") }</h4>
@@ -347,6 +365,23 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 				<div class="w-full sm:w-44 shrink-0 flex items-center gap-2">
 					@input.Input(input.Props{ID: "subject-threading-window-days", Name: "subject_threading_window_days", Type: input.TypeNumber, Class: "bg-background", Value: SubjectThreadingWindowDays(uiSettings), Disabled: !SubjectThreadingEnabled(uiSettings), Attributes: templ.Attributes{"min": "1", "max": "365", "step": "1", "inputmode": "numeric", "data-subject-threading-number": ""}})
 					<span class="text-xs text-muted-foreground shrink-0">{ i18n.T(ctx, "settings.list.subject_threading.window_unit") }</span>
+				</div>
+			</div>
+			<div data-setting-depends-on="subject-threading" class={ "settings-row flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-opacity", templ.KV("opacity-50", !SubjectThreadingEnabled(uiSettings)) }>
+				<div class="min-w-0">
+					<span id="subject-threading-late-replies-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.subject_threading.late_replies_title") }</span>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.subject_threading.late_replies_description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
+						@switchcomp.Switch(switchcomp.Props{
+							ID:         "subject-threading-late-replies",
+							Name:       "subject_threading_late_replies",
+							Checked:    SubjectThreadingLateReplies(uiSettings),
+							Disabled:   !SubjectThreadingEnabled(uiSettings),
+							Attributes: templ.Attributes{"aria-labelledby": "subject-threading-late-replies-label", "data-subject-threading-late-replies-setting": ""},
+						})
+					}
 				</div>
 			</div>
 			<div data-setting-depends-on="subject-threading" class={ "settings-row flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-opacity", templ.KV("opacity-50", !SubjectThreadingEnabled(uiSettings)) }>
@@ -857,6 +892,29 @@ templ SettingsRegionalTab(uiSettings map[string]string) {
 			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.regional.week_start.title") }</h4>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.regional.week_start.description") }</p>
+				</div>
+				<div class="w-full shrink-0 sm:w-64" data-week-start-picker>
+					{{ weekStart := i18n.ParseWeekStart(uiSettingGet(uiSettings, i18n.WeekStartSettingKey, "")) }}
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: i18n.WeekStartSettingKey, Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-week-start-input": ""}}) {
+							@selectbox.Value() {
+								{ weekStartLabel(ctx, weekStart) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							for _, day := range i18n.WeekStarts() {
+								@selectbox.Item(selectbox.ItemProps{Value: i18n.WeekStartSetting(day), Selected: day == weekStart}) {
+									{ weekStartLabel(ctx, day) }
+								}
+							}
+						}
+					}
+				</div>
+			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.regional.timezone.title") }</h4>
 					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.regional.timezone.description") }</p>
 				</div>
@@ -935,6 +993,13 @@ func timeFormatSetting(uiSettings map[string]string) string {
 func timeFormatLabel(ctx context.Context, id string) string {
 	sample := i18n.NewDateFormatter(i18n.FromContext(ctx), "auto", id).Time(formatSampleTime())
 	return i18n.T(ctx, "settings.regional.time_format."+id, "sample", sample)
+}
+
+// weekStartLabel names a first day of the week in the picker. It has its own
+// text because weekday names are lowercase in some languages, which suits a
+// date but not a menu.
+func weekStartLabel(ctx context.Context, day time.Weekday) string {
+	return i18n.T(ctx, "settings.regional.week_start."+i18n.WeekStartSetting(day))
 }
 
 templ SettingsAdvancedTab(uiSettings map[string]string) {
@@ -1634,6 +1699,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 }
 
 templ UnifiedFolderSettingRow(folder unifiedFolderOption, accounts []models.AccountSyncStatus, uiSettings map[string]string) {
+	{{ folder.Name = i18n.FolderName(ctx, folder.ID, folder.Name) }}
 	{{ key := unifiedFolderSettingKey(folder.ID) }}
 	{{ enabled := uiSettingGet(uiSettings, key, "true") != "false" }}
 	{{ masterEnabled := uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" }}
@@ -1729,7 +1795,7 @@ templ syncFolderPillToggle(f models.FolderSyncStatus) {
 	<button type="button" data-sync-pill-toggle class="inline-flex min-w-0 items-center gap-1.5">
 		{{ folderIcon := icon.Icon(f.Icon) }}
 		@folderIcon(icon.Props{Class: "size-3 shrink-0"})
-		<span class="truncate">{ syncFolderShortName(f) }</span>
+		<span class="truncate">{ syncFolderLabel(ctx, f) }</span>
 	</button>
 }
 
@@ -1781,7 +1847,7 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 			data-role={ f.Role }
 			data-account-id={ accountID }
 			data-interval={ strconv.Itoa(interval) }
-			data-folder-name={ syncFolderDisplayName(f) }
+			data-folder-name={ syncFolderTitle(ctx, f) }
 			data-configured-idle={ strconv.FormatBool(f.IsIDLE) }
 			data-effective-idle={ strconv.FormatBool(syncFolderUsesEffectiveIDLE(f)) }
 			data-idle-fallback-reason={ f.IDLEFallbackReason }
@@ -1794,7 +1860,7 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 			}
 			style="height:26px"
 		>
-			if syncFolderNeedsFullName(f) {
+			if syncFolderNeedsFullName(ctx, f) {
 				// The full path, for a name shortened or too long for the pill.
 				@tooltip.Tooltip() {
 					@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex min-w-0"}) {
@@ -1843,7 +1909,7 @@ func idleFallbackTooltip(ctx context.Context, f models.FolderSyncStatus) string 
 		return ""
 	}
 	reason := i18n.Stored(ctx, "sync.fallback_reason.", strings.TrimSuffix(strings.TrimSpace(f.IDLEFallbackReason), "."))
-	message := i18n.T(ctx, "js.settings.sync.fallback", "folder", syncFolderDisplayName(f), "reason", reason)
+	message := i18n.T(ctx, "js.settings.sync.fallback", "folder", syncFolderTitle(ctx, f), "reason", reason)
 	if retryAt, err := time.Parse(time.RFC3339, f.IDLERetryAt); err == nil && retryAt.After(time.Now()) {
 		remaining := time.Until(retryAt)
 		minutes := max(1, int((remaining+time.Minute-1)/time.Minute))
@@ -3175,7 +3241,7 @@ templ customThemePreviewFolder(folderIcon string, name string, unread int, activ
 			<span
 				data-folder-unread
 				class={
-					"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+					"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums",
 					templ.KV("bg-sidebar-primary/20 text-sidebar-primary", active),
 					templ.KV("bg-sidebar-accent text-sidebar-foreground", !active),
 				}
@@ -3446,284 +3512,267 @@ templ AccountSignaturesSettings(accounts []models.AccountSignatureData) {
 	</div>
 }
 
+// ComposeSignaturesDialog is the Signatures dialog that Settings opens: one
+// tab to write signatures, one to choose which ones each account uses.
 templ ComposeSignaturesDialog(accounts []models.AccountSignatureData) {
-	@dialog.Dialog(dialog.Props{ID: "compose-signatures-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "signatures-dialog mobile-page-dialog sm:max-w-5xl max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden"}) {
-			@dialog.Header() {
+	@signaturesDialog("compose-signatures-dialog", i18n.T(ctx, "settings.signatures.title"), i18n.T(ctx, "settings.signatures.dialog_description")) {
+		@ComposeSignaturesManager(accounts, "")
+	}
+}
+
+// signaturesDialog is the frame of a signatures dialog: the title stays at
+// the top, the open tab's footer at the bottom, and only what's between them
+// scrolls.
+templ signaturesDialog(id, title, description string) {
+	@dialog.Dialog(dialog.Props{ID: id}) {
+		@dialog.Content(dialog.ContentProps{Class: dataDialogContentClass + "signatures-dialog mobile-page-dialog sm:max-w-4xl"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
 				@dialog.Title() {
-					{ i18n.T(ctx, "settings.signatures.title") }
+					{ title }
 				}
 				@dialog.Description() {
-					{ i18n.T(ctx, "settings.signatures.dialog_description") }
+					{ description }
 				}
 			}
-			@ComposeSignaturesManager(accounts)
+			{ children... }
 		}
 	}
 }
 
-templ ComposeSignaturesManager(accounts []models.AccountSignatureData) {
-	<div id="compose-signatures-manager" class="min-w-0" data-account-signatures-manager data-refresh-url="/api/settings/signatures/manage" data-refresh-target="#compose-signatures-manager" data-refresh-swap="outerHTML">
-		@SignatureManagerGrid(accounts)
+// ComposeSignaturesManager is the Settings signatures dialog's body. The
+// Accounts tab opens on selectedAccountID, or the first account when it's
+// empty or unknown.
+templ ComposeSignaturesManager(accounts []models.AccountSignatureData, selectedAccountID string) {
+	<div id="compose-signatures-manager" class="flex min-h-0 min-w-0 flex-1 flex-col" data-account-signatures-manager data-refresh-url="/api/settings/signatures/manage" data-refresh-target="#compose-signatures-manager" data-refresh-swap="outerHTML">
+		@SignatureManagerTabs(accounts, selectedAccountID)
 	</div>
 }
 
-templ SignatureManagerGrid(accounts []models.AccountSignatureData) {
+// SignatureManagerTabs is the body of a signatures dialog. Signatures belong
+// to the person, not to an account, so the list comes from the first
+// account's data; each account has its own choices on the Accounts tab.
+// The tabs only swap what's in the scrolling part: the header and the
+// footer stay the same. Both tabs share one grid cell, the closed one hidden
+// but still laid out, so the dialog is as tall as the taller tab and doesn't
+// resize when the tabs switch.
+templ SignatureManagerTabs(accounts []models.AccountSignatureData, selectedAccountID string) {
 	if len(accounts) == 0 {
-		<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "settings.signatures.no_accounts") }</div>
+		@dataDialogScroll("pb-6") {
+			<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "settings.signatures.no_accounts") }</div>
+		}
 	} else {
-		{{ first := accounts[0] }}
-		<div class="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-			<div class="min-w-0 space-y-4">
-				@SignatureLibrary(first)
+		@tabs.Tabs(tabs.Props{Class: "min-h-0 min-w-0 flex-1 gap-0", Attributes: templ.Attributes{"data-tui-tabs-local": "", "aria-label": i18n.T(ctx, "settings.signatures.tabs_label")}}) {
+			<div class="shrink-0 px-6 pb-4" data-signature-tabs>
+				// The dialog is the card color, which is also muted in some
+				// themes, so the bar takes the next step, as other bars stand a
+				// step off the page.
+				@tabs.List(tabs.ListProps{Class: "bg-secondary"}) {
+					@tabs.Trigger(tabs.TriggerProps{Value: "signatures", IsActive: true, Class: "px-3 text-xs"}) {
+						@icon.Signature(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "settings.signatures.tab_signatures") }
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "accounts", Class: "px-3 text-xs"}) {
+						@icon.UserRound(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "settings.signatures.tab_accounts") }
+					}
+				}
 			</div>
-			<div class="min-w-0 rounded-lg border border-border bg-background/60 p-4 space-y-4">
-				<div class="space-y-2">
-					<label class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.account") }</label>
-					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_account_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-account-select": ""}}) {
-							<span class="flex min-w-0 flex-1 items-center gap-2">
-								<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(first.Account.Color) } data-signature-account-marker data-account-marker={ first.Account.ID }></span>
-								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.choose_account"), Class: "min-w-0 text-left"}) {
-									{ first.Account.Name } &lt;{ first.Account.Email }&gt;
+			@dataDialogScroll("pb-4") {
+				<div class="grid min-w-0 grid-cols-[minmax(0,1fr)]" data-signature-tab-panels>
+					@tabs.Content(tabs.ContentProps{Value: "signatures", IsActive: true, Class: "col-start-1 row-start-1 min-w-0"}) {
+						@SignatureLibrary(accounts[0].Signatures)
+					}
+					@tabs.Content(tabs.ContentProps{Value: "accounts", Class: "col-start-1 row-start-1 min-w-0"}) {
+						@signatureAccountsTab(accounts, selectedAccountID)
+					}
+				</div>
+			}
+			@dataDialogFooter() {
+				<span class="mr-auto min-w-0 self-center truncate text-xs text-muted-foreground" aria-live="polite" data-signatures-status>{ i18n.T(ctx, "settings.signatures.autosave") }</span>
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						{ i18n.T(ctx, "common.close") }
+					}
+				}
+			}
+		}
+	}
+}
+
+// SignatureLibrary lists the person's signatures next to the editor for the
+// one picked. "New signature" empties the editor for a new one. Edits save
+// by themselves; Delete, next to the name, removes the one open. The list is
+// its own region, so a save that adds or renames a signature refreshes just
+// the list, never the editor being typed in.
+templ SignatureLibrary(signatures []models.Signature) {
+	<form data-signature-form>
+		<input type="hidden" name="id" value="" data-signature-id/>
+		<div class="grid min-w-0 gap-5 md:grid-cols-[13rem_minmax(0,1fr)]">
+			<div class="flex min-w-0 flex-col gap-2">
+				<button type="button" class="inline-flex h-9 w-full items-center gap-2 rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground hover:border-solid hover:bg-accent hover:text-foreground aria-[current=true]:border-solid aria-[current=true]:bg-accent aria-[current=true]:text-foreground" aria-current="false" data-signature-new>
+					@icon.Plus(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "settings.signatures.new_signature") }
+				</button>
+				<div class="min-w-0" data-signature-list-region>
+					if len(signatures) == 0 {
+						<p class="px-1 py-2 text-xs text-muted-foreground">{ i18n.T(ctx, "settings.signatures.empty") }</p>
+					} else {
+						<div class="flex max-h-44 min-w-0 flex-col gap-0.5 overflow-y-auto md:max-h-[22rem]" aria-label={ i18n.T(ctx, "settings.signatures.saved") } data-signature-list>
+							for _, sig := range signatures {
+								// A name too long for the list shows in full on hover.
+								@tooltip.Tooltip() {
+									@tooltip.Trigger(tooltip.TriggerProps{WhenCut: true}) {
+										<button type="button" class="flex h-9 w-full min-w-0 shrink-0 items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground aria-[current=true]:bg-accent aria-[current=true]:font-medium aria-[current=true]:text-foreground" aria-current="false" data-signature-row={ sig.ID } data-signature-row-name={ sig.Name } data-signature-row-html={ sig.HTMLBody }>
+											@icon.Signature(icon.Props{Class: "size-3.5 shrink-0"})
+											<span class="truncate">{ sig.Name }</span>
+										</button>
+									}
+									@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "pointer-events-none max-w-80 px-3 py-1.5 text-xs break-words"}) {
+										{ sig.Name }
+									}
 								}
-							</span>
+							}
+						</div>
+					}
+				</div>
+			</div>
+			<div class="min-w-0 space-y-4">
+				<div>
+					<div class="mb-1.5 flex items-center justify-between gap-3">
+						<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.theme.name") }</label>
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Disabled: true, Class: "h-6 px-2 text-xs text-muted-foreground hover:text-destructive", Attributes: templ.Attributes{"data-signature-delete-current": ""}}) {
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "settings.account.delete") }
+						}
+					</div>
+					@input.Input(input.Props{Name: "name", Type: input.TypeText, Placeholder: i18n.T(ctx, "settings.signatures.name_placeholder"), Attributes: templ.Attributes{"data-signature-name": ""}})
+				</div>
+				<div>
+					<div class="mb-1.5 flex items-center justify-between gap-3">
+						<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.signature") }</label>
+						<div class="inline-flex shrink-0 rounded-[var(--radius)] border border-border bg-background p-0.5 text-[11px]" data-signature-editor-mode>
+							<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-foreground bg-card shadow-sm" data-signature-mode-button="visual">{ i18n.T(ctx, "settings.signatures.rendered") }</button>
+							<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground" data-signature-mode-button="source">HTML</button>
+						</div>
+					</div>
+					<textarea name="html_body" class="hidden" data-signature-html></textarea>
+					<div class="min-h-60 max-w-full overflow-x-auto rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" contenteditable="true" role="textbox" aria-multiline="true" data-signature-editor data-placeholder={ i18n.T(ctx, "settings.signatures.editor_placeholder") } data-on-input='["syncSignatureEditor","$this"]'></div>
+					<textarea class="hidden min-h-60 w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-ring" spellcheck="false" placeholder={ i18n.T(ctx, "settings.signatures.source_placeholder") } data-signature-source></textarea>
+					<p class="text-[11px] text-muted-foreground mt-1.5">{ i18n.T(ctx, "settings.signatures.mode_hint") }</p>
+				</div>
+			</div>
+		</div>
+	</form>
+}
+
+// signatureAccountsTab picks an account and shows which signature it adds to
+// new messages, replies and forwards. Every account's choices are rendered,
+// stacked in one grid cell, and only the picked one is shown, so switching
+// accounts doesn't move the rows. A choice saves as soon as it changes. The
+// tab is its own region, refreshed when a signature is added or renamed so
+// the choices list it.
+templ signatureAccountsTab(accounts []models.AccountSignatureData, selectedAccountID string) {
+	{{ first := accounts[0] }}
+	for _, data := range accounts {
+		if data.Account.ID == selectedAccountID {
+			{{ first = data }}
+		}
+	}
+	<div class="min-w-0" data-signature-accounts-region>
+		<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+			<div class="min-w-0">
+				<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.signatures.account") }</h4>
+				<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.account_hint") }</p>
+			</div>
+			<div class="w-full min-w-0 sm:w-[28rem] shrink-0">
+				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+					@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_account_id", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-signature-account-select": "", "aria-label": i18n.T(ctx, "settings.signatures.account")}}) {
+						<span class="flex min-w-0 flex-1 items-center gap-2">
+							<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(first.Account.Color) } data-signature-account-marker data-account-marker={ first.Account.ID }></span>
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.choose_account"), Class: "min-w-0 truncate text-left"}) {
+								{ first.Account.Name } &lt;{ first.Account.Email }&gt;
+							}
+						</span>
+					}
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+						for _, data := range accounts {
+							@selectbox.Item(selectbox.ItemProps{Value: data.Account.ID, Selected: data.Account.ID == first.Account.ID}) {
+								<span class="inline-flex min-w-0 items-center gap-2">
+									<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(data.Account.Color) } data-signature-account-marker-source data-account-marker={ data.Account.ID }></span>
+									<span class="min-w-0 truncate">{ data.Account.Name } &lt;{ data.Account.Email }&gt;</span>
+								</span>
+							}
+						}
+					}
+				}
+			</div>
+		</div>
+		<div class="mt-5 grid grid-cols-[minmax(0,1fr)]" data-signature-account-panels>
+			for _, data := range accounts {
+				<form class={ "col-start-1 row-start-1 min-w-0 space-y-5", templ.KV("invisible pointer-events-none", data.Account.ID != first.Account.ID) } data-account-signature-settings data-account-id={ data.Account.ID } aria-hidden={ strconv.FormatBool(data.Account.ID != first.Account.ID) }>
+					@AccountSignatureAssignmentRow("new", i18n.T(ctx, "settings.signatures.new"), i18n.T(ctx, "settings.signatures.new_description"), data.Settings.NewSignatureID, "", data.Signatures)
+					@AccountSignatureAssignmentRow("reply", i18n.T(ctx, "settings.signatures.replies"), i18n.T(ctx, "settings.signatures.replies_description"), data.Settings.ReplySignatureID, data.Settings.ReplyPlacement, data.Signatures)
+					@AccountSignatureAssignmentRow("forward", i18n.T(ctx, "settings.signatures.forwards"), i18n.T(ctx, "settings.signatures.forwards_description"), data.Settings.ForwardSignatureID, data.Settings.ForwardPlacement, data.Signatures)
+				</form>
+			}
+		</div>
+	</div>
+}
+
+// AccountSignaturesDialog is one account's signatures dialog. It is the
+// Settings dialog with only that account on the Accounts tab.
+templ AccountSignaturesDialog(data models.AccountSignatureData) {
+	@signaturesDialog("account-signatures-dialog", i18n.T(ctx, "settings.signatures.account_title"), i18n.T(ctx, "settings.signatures.account_description", "account", data.Account.Email)) {
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col" data-account-signatures-manager data-account-id={ data.Account.ID }>
+			@SignatureManagerTabs([]models.AccountSignatureData{data}, data.Account.ID)
+		</div>
+	}
+}
+
+// AccountSignatureAssignmentRow is one settings row on the Accounts tab: the
+// signature for new messages, replies or forwards, and for replies and
+// forwards where it goes. Picking "No signature" turns it off, so the place
+// is hidden until a signature is picked.
+templ AccountSignatureAssignmentRow(kind string, label string, description string, selectedID string, placement string, signatures []models.Signature) {
+	<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" data-signature-assignment={ kind }>
+		<div class="min-w-0">
+			<h4 class="text-sm font-medium text-foreground">{ label }</h4>
+			<p class="text-xs text-muted-foreground mt-1">{ description }</p>
+		</div>
+		<div class="w-full min-w-0 sm:w-96 shrink-0 space-y-2">
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_signature_id", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-label": label, "data-signature-assignment-select": ""}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.none"), Class: "min-w-0 truncate"}) {
+						{ signatureLabel(ctx, signatures, selectedID) }
+					}
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+					@selectbox.Item(selectbox.ItemProps{Value: "", Selected: selectedID == ""}) { { i18n.T(ctx, "settings.signatures.none") } }
+					for _, sig := range signatures {
+						@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Selected: selectedID == sig.ID}) { { sig.Name } }
+					}
+				}
+			}
+			if kind != "new" {
+				<div class={ templ.KV("hidden", selectedID == "") } data-signature-placement>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_placement", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "settings.signatures.place")}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.before")}) {
+								if placement == "after" {
+									{ i18n.T(ctx, "settings.signatures.after") }
+								} else {
+									{ i18n.T(ctx, "settings.signatures.before") }
+								}
+							}
 						}
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-							for _, data := range accounts {
-								@selectbox.Item(selectbox.ItemProps{Value: data.Account.ID, Selected: data.Account.ID == first.Account.ID}) {
-									<span class="inline-flex min-w-0 items-center gap-2">
-										<span class="account-color-marker size-3.5 shrink-0" style={ accountColorStyle(data.Account.Color) } data-signature-account-marker-source data-account-marker={ data.Account.ID }></span>
-										<span class="truncate">{ data.Account.Name } &lt;{ data.Account.Email }&gt;</span>
-									</span>
-								}
-							}
+							@selectbox.Item(selectbox.ItemProps{Value: "before", Selected: placement != "after"}) { { i18n.T(ctx, "settings.signatures.before") } }
+							@selectbox.Item(selectbox.ItemProps{Value: "after", Selected: placement == "after"}) { { i18n.T(ctx, "settings.signatures.after") } }
 						}
 					}
 				</div>
-				<div class="grid" data-signature-account-panels>
-					for _, data := range accounts {
-						<form class={ "col-start-1 row-start-1 space-y-4", templ.KV("invisible pointer-events-none", data.Account.ID != first.Account.ID) } data-account-signature-settings data-account-id={ data.Account.ID } aria-hidden={ strconv.FormatBool(data.Account.ID != first.Account.ID) }>
-							@AccountSignatureAssignmentRow("new", i18n.T(ctx, "settings.signatures.new"), data.Settings.NewEnabled, data.Settings.NewSignatureID, "", data.Signatures)
-							@AccountSignatureAssignmentRow("reply", i18n.T(ctx, "settings.signatures.replies"), data.Settings.ReplyEnabled, data.Settings.ReplySignatureID, data.Settings.ReplyPlacement, data.Signatures)
-							@AccountSignatureAssignmentRow("forward", i18n.T(ctx, "settings.signatures.forwards"), data.Settings.ForwardEnabled, data.Settings.ForwardSignatureID, data.Settings.ForwardPlacement, data.Signatures)
-							<div class="flex items-center justify-between gap-3 pt-1">
-								<span class="text-xs text-muted-foreground" data-signature-settings-status></span>
-								<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-									@icon.Check(icon.Props{Class: "size-3.5"})
-									{ i18n.T(ctx, "common.save") }
-								</button>
-							</div>
-						</form>
-					}
-				</div>
-			</div>
-		</div>
-	}
-}
-
-templ SignatureLibrary(data models.AccountSignatureData) {
-	<div class="min-w-0 rounded-lg border border-border bg-background/60 p-4 space-y-3">
-		<div class="flex items-center justify-between gap-3">
-			<div>
-				<h4 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.library") }</h4>
-				<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.library_description") }</p>
-			</div>
-		</div>
-		<div class="flex items-end gap-2">
-			<div class="min-w-0 flex-1 space-y-1.5">
-				<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.saved") }</label>
-				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-					@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_picker_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-select": ""}}) {
-						@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.select")})
-					}
-					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-						if len(data.Signatures) == 0 {
-							@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true, Disabled: true}) { { i18n.T(ctx, "settings.signatures.empty") } }
-						} else {
-							@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true}) { { i18n.T(ctx, "settings.signatures.select") } }
-							for _, sig := range data.Signatures {
-								@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Attributes: templ.Attributes{"data-signature-option": "", "data-signature-name": sig.Name, "data-signature-html": sig.HTMLBody}}) { { sig.Name } }
-							}
-						}
-					}
-				}
-			</div>
-			<button type="button" class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" data-signature-new>
-				@icon.Plus(icon.Props{Class: "size-3.5"})
-				{ i18n.T(ctx, "settings.signatures.new_button") }
-			</button>
-		</div>
-		<form data-signature-form class="space-y-3">
-			<input type="hidden" name="id" value="" data-signature-id/>
-			<div>
-				<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.theme.name") }</label>
-				@input.Input(input.Props{Name: "name", Type: input.TypeText, Placeholder: i18n.T(ctx, "settings.signatures.name_placeholder"), Attributes: templ.Attributes{"data-signature-name": ""}})
-			</div>
-			<div>
-				<div class="mb-1.5 flex items-center justify-between gap-3">
-					<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.signature") }</label>
-					<div class="inline-flex shrink-0 rounded-[var(--radius)] border border-border bg-background p-0.5 text-[11px]" data-signature-editor-mode>
-						<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-foreground bg-card shadow-sm" data-signature-mode-button="visual">{ i18n.T(ctx, "settings.signatures.rendered") }</button>
-						<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground" data-signature-mode-button="source">HTML</button>
-					</div>
-				</div>
-				<textarea name="html_body" class="hidden" data-signature-html></textarea>
-				<div class="min-h-28 max-w-full overflow-x-auto rounded-md border border-border bg-card px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" contenteditable="true" role="textbox" data-signature-editor data-placeholder={ i18n.T(ctx, "settings.signatures.editor_placeholder") } data-on-input='["syncSignatureEditor","$this"]'></div>
-				<textarea class="hidden min-h-28 w-full resize-y rounded-md border border-border bg-card px-3 py-2 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-ring" spellcheck="false" placeholder={ i18n.T(ctx, "settings.signatures.source_placeholder") } data-signature-source></textarea>
-				<p class="text-[11px] text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.mode_hint") }</p>
-			</div>
-			<div class="flex items-center justify-between gap-3">
-				<span class="text-xs text-muted-foreground" data-signature-save-status></span>
-				<div class="flex items-center gap-2">
-					<button type="button" class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:border-destructive/30 hover:text-destructive" data-signature-delete-current>{ i18n.T(ctx, "settings.account.delete") }</button>
-					<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-						@icon.Save(icon.Props{Class: "size-3.5"})
-						{ i18n.T(ctx, "settings.signatures.save") }
-					</button>
-				</div>
-			</div>
-		</form>
-	</div>
-}
-
-templ AccountSignaturesDialog(data models.AccountSignatureData) {
-	@dialog.Dialog(dialog.Props{ID: "account-signatures-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "signatures-dialog mobile-page-dialog sm:max-w-3xl"}) {
-			@dialog.Header() {
-				@dialog.Title() {
-					{ i18n.T(ctx, "settings.signatures.account_title") }
-				}
-				@dialog.Description() {
-					{ i18n.T(ctx, "settings.signatures.account_description", "account", data.Account.Email) }
-				}
 			}
-			<div class="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]" data-account-signatures-manager data-account-id={ data.Account.ID }>
-				<div class="min-w-0 space-y-4">
-					<div class="min-w-0 rounded-lg border border-border bg-background/60 p-4 space-y-3">
-						<div class="flex items-center justify-between gap-3">
-							<div>
-								<h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.library") }</h3>
-								<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.library_description_any") }</p>
-							</div>
-						</div>
-						<div class="flex items-end gap-2">
-							<div class="min-w-0 flex-1 space-y-1.5">
-								<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.saved") }</label>
-								@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-									@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_picker_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-signature-select": ""}}) {
-										@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.select")})
-									}
-									@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-										if len(data.Signatures) == 0 {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true, Disabled: true}) { { i18n.T(ctx, "settings.signatures.empty") } }
-										} else {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true}) { { i18n.T(ctx, "settings.signatures.select") } }
-											for _, sig := range data.Signatures {
-												@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Attributes: templ.Attributes{"data-signature-option": "", "data-signature-name": sig.Name, "data-signature-html": sig.HTMLBody}}) { { sig.Name } }
-											}
-										}
-									}
-								}
-							</div>
-							<button type="button" class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" data-signature-new>
-								@icon.Plus(icon.Props{Class: "size-3.5"})
-								{ i18n.T(ctx, "settings.signatures.new_button") }
-							</button>
-						</div>
-						<form data-signature-form class="space-y-3">
-							<input type="hidden" name="id" value="" data-signature-id/>
-							<div>
-								<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.theme.name") }</label>
-								@input.Input(input.Props{Name: "name", Type: input.TypeText, Placeholder: i18n.T(ctx, "settings.signatures.name_placeholder"), Attributes: templ.Attributes{"data-signature-name": ""}})
-							</div>
-							<div>
-								<div class="mb-1.5 flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.signature") }</label>
-									<div class="inline-flex shrink-0 rounded-[var(--radius)] border border-border bg-background p-0.5 text-[11px]" data-signature-editor-mode>
-										<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-foreground bg-card shadow-sm" data-signature-mode-button="visual">{ i18n.T(ctx, "settings.signatures.rendered") }</button>
-										<button type="button" class="rounded-[calc(var(--radius)-2px)] px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground" data-signature-mode-button="source">HTML</button>
-									</div>
-								</div>
-								<textarea name="html_body" class="hidden" data-signature-html></textarea>
-								<div class="min-h-28 max-w-full overflow-x-auto rounded-md border border-border bg-card px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" contenteditable="true" role="textbox" data-signature-editor data-placeholder={ i18n.T(ctx, "settings.signatures.editor_placeholder") } data-on-input='["syncSignatureEditor","$this"]'></div>
-								<textarea class="hidden min-h-28 w-full resize-y rounded-md border border-border bg-card px-3 py-2 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-ring" spellcheck="false" placeholder={ i18n.T(ctx, "settings.signatures.source_placeholder") } data-signature-source></textarea>
-								<p class="text-[11px] text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.mode_hint") }</p>
-							</div>
-							<div class="flex items-center justify-between gap-3">
-								<span class="text-xs text-muted-foreground" data-signature-save-status></span>
-								<div class="flex items-center gap-2">
-									<button type="button" class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:border-destructive/30 hover:text-destructive" data-signature-delete-current>{ i18n.T(ctx, "settings.account.delete") }</button>
-									<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-										@icon.Save(icon.Props{Class: "size-3.5"})
-										{ i18n.T(ctx, "settings.signatures.save") }
-									</button>
-								</div>
-							</div>
-						</form>
-					</div>
-				</div>
-
-				<form class="rounded-lg border border-border bg-background/60 p-4 space-y-4" data-account-signature-settings>
-					<div>
-						<h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.signatures.use_title") }</h3>
-						<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.signatures.use_description") }</p>
-					</div>
-					@AccountSignatureAssignmentRow("new", i18n.T(ctx, "settings.signatures.new"), data.Settings.NewEnabled, data.Settings.NewSignatureID, "", data.Signatures)
-					@AccountSignatureAssignmentRow("reply", i18n.T(ctx, "settings.signatures.replies"), data.Settings.ReplyEnabled, data.Settings.ReplySignatureID, data.Settings.ReplyPlacement, data.Signatures)
-					@AccountSignatureAssignmentRow("forward", i18n.T(ctx, "settings.signatures.forwards"), data.Settings.ForwardEnabled, data.Settings.ForwardSignatureID, data.Settings.ForwardPlacement, data.Signatures)
-					<div class="flex items-center justify-between gap-3 pt-2">
-						<span class="text-xs text-muted-foreground" data-signature-settings-status></span>
-						<button type="submit" class="btn-skeuo inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
-							@icon.Check(icon.Props{Class: "size-3.5"})
-							{ i18n.T(ctx, "settings.signatures.save_assignments") }
-						</button>
-					</div>
-				</form>
-			</div>
-		}
-	}
-}
-
-templ AccountSignatureAssignmentRow(kind string, label string, enabled bool, selectedID string, placement string, signatures []models.Signature) {
-	<div class="rounded-md border border-border/70 bg-card/60 p-3 space-y-2">
-		<label class="flex items-center gap-2 text-sm font-medium text-foreground">
-			@checkbox.Checkbox(checkbox.Props{Name: kind + "_enabled", Value: "true", Checked: enabled})
-			{ label }
-		</label>
-		@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_signature_id", Class: "bg-background"}) {
-				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.none")}) {
-					{ signatureLabel(ctx, signatures, selectedID) }
-				}
-			}
-			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-				@selectbox.Item(selectbox.ItemProps{Value: "", Selected: selectedID == ""}) { { i18n.T(ctx, "settings.signatures.none") } }
-				for _, sig := range signatures {
-					@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Selected: selectedID == sig.ID}) { { sig.Name } }
-				}
-			}
-		}
-		if kind != "new" {
-			<div class="grid gap-1.5">
-				<label class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "settings.signatures.place") }</label>
-				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-					@selectbox.Trigger(selectbox.TriggerProps{Name: kind + "_placement", Class: "bg-background", DisableClear: true}) {
-						@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.signatures.before")}) {
-							if placement == "after" {
-								{ i18n.T(ctx, "settings.signatures.after") }
-							} else {
-								{ i18n.T(ctx, "settings.signatures.before") }
-							}
-						}
-					}
-					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-						@selectbox.Item(selectbox.ItemProps{Value: "before", Selected: placement != "after"}) { { i18n.T(ctx, "settings.signatures.before") } }
-						@selectbox.Item(selectbox.ItemProps{Value: "after", Selected: placement == "after"}) { { i18n.T(ctx, "settings.signatures.after") } }
-					}
-				}
-			</div>
-		}
+		</div>
 	</div>
 }
 
@@ -3946,8 +3995,8 @@ templ AddAccountDialog() {
 				.account-wizard-shell { min-height:0; height:auto; grid-template-rows:auto minmax(0,1fr); }
 				@media (min-width: 768px) { .account-wizard-shell { grid-template-rows:minmax(0,1fr); } }
 				.account-wizard-shell > aside { min-height:0; height:auto; overflow-y:auto; }
-				.account-wizard-panel { display:flex; height:auto; min-height:0; flex-direction:column; overflow:hidden; padding-right:.25rem; }
-				.account-wizard-scroll { flex:1 1 auto; min-height:0; overflow-y:auto; padding:6px calc(.25rem + 6px) calc(1rem + 6px) 6px; }
+				.account-wizard-panel { display:flex; height:100%; min-height:0; flex-direction:column; overflow:hidden; padding-right:.25rem; }
+				.account-wizard-scroll { flex:1 1 auto; min-height:0; max-height:calc(100dvh - 16rem); overflow-y:auto; padding:6px calc(.25rem + 6px) calc(1rem + 6px) 6px; }
 				.account-wizard-sticky-header { position:sticky; top:-6px; z-index:20; margin:-6px -6px 1rem; padding:6px 6px .75rem; background:var(--card); box-shadow:0 1px 0 color-mix(in oklab, var(--border) 70%, transparent); }
 				.account-wizard-controls { flex-shrink:0; margin-top:.5rem; border-top:1px solid var(--border); background:var(--card); padding-top:.75rem; padding-bottom:2px; }
 				.account-wizard-panel .account-wizard-controls { display:none; }
@@ -6036,11 +6085,29 @@ func syncFolderShortName(f models.FolderSyncStatus) string {
 	return top + separator + "…" + separator + name
 }
 
-// syncFolderNeedsFullName reports whether the pill shortens the folder's
-// name, or may cut it off, so its tooltip gives the whole path.
-func syncFolderNeedsFullName(f models.FolderSyncStatus) bool {
+// syncFolderNeedsFullName reports whether the pill shows something other than
+// the folder's whole path, or may cut it off, so its tooltip gives the path.
+func syncFolderNeedsFullName(ctx context.Context, f models.FolderSyncStatus) bool {
 	full := syncFolderDisplayName(f)
-	return syncFolderShortName(f) != full || len([]rune(full)) > 32
+	return syncFolderLabel(ctx, f) != full || len([]rune(full)) > 32
+}
+
+// syncFolderTitle names a folder in sentences: a special folder by its name
+// in the page's language, like the sidebar, and any other by its path.
+func syncFolderTitle(ctx context.Context, f models.FolderSyncStatus) string {
+	if name, ok := i18n.DefaultFolderName(ctx, f.Role, strings.TrimSpace(f.FolderName)); ok {
+		return name
+	}
+	return syncFolderDisplayName(f)
+}
+
+// syncFolderLabel is the text on a folder's pill: a special folder's name in
+// the page's language, or the shortened path of any other.
+func syncFolderLabel(ctx context.Context, f models.FolderSyncStatus) string {
+	if name, ok := i18n.DefaultFolderName(ctx, f.Role, strings.TrimSpace(f.FolderName)); ok {
+		return name
+	}
+	return syncFolderShortName(f)
 }
 
 func syncSettingsHasConfigurableFolderModes(settings models.SyncSettings) bool {
@@ -6451,6 +6518,9 @@ func mailOperationKindLabel(ctx context.Context, operationType string) string {
 }
 
 func mailOperationStateLabel(ctx context.Context, operation models.MailOperationSummary) string {
+	if operation.Parked {
+		return i18n.T(ctx, "settings.operations.state.parked")
+	}
 	if operation.State == "blocked" {
 		return i18n.T(ctx, "settings.operations.state.blocked")
 	}
@@ -6502,11 +6572,344 @@ func mailOperationTimeLabel(ctx context.Context, value time.Time) string {
 	return i18n.Dates(ctx).ShortDateTime(value.Local())
 }
 
+// mailOperationParkedReason says, in the page's language, why a parked
+// operation can't be completed.
+func mailOperationParkedReason(ctx context.Context, operation models.MailOperationSummary) string {
+	switch operation.ParkedReason {
+	case models.MailOperationParkedFolderRemoved:
+		return i18n.T(ctx, "settings.operations.parked.folder_removed")
+	default:
+		return operation.LastError
+	}
+}
+
+// mailOperationParkedSince is when an operation was parked. Rows that don't
+// keep an update time fall back to when they were queued.
+func mailOperationParkedSince(ctx context.Context, operation models.MailOperationSummary) string {
+	since := operation.UpdatedAt
+	if since.IsZero() {
+		since = operation.CreatedAt
+	}
+	return i18n.T(ctx, "settings.operations.parked_since", "time", mailOperationTimeLabel(ctx, since))
+}
+
+// mailOperationUndoText is what the confirm dialog says undoing the operation
+// does.
+func mailOperationUndoText(ctx context.Context, operation models.MailOperationSummary) string {
+	if operation.Type == models.MailOperationLabelMutation {
+		return i18n.T(ctx, "settings.operations.undo.label")
+	}
+	switch operation.Operation {
+	case "move":
+		return i18n.T(ctx, "settings.operations.undo.move")
+	case "delete":
+		return i18n.T(ctx, "settings.operations.undo.delete")
+	case "starred":
+		return i18n.T(ctx, "settings.operations.undo.starred")
+	default:
+		return i18n.T(ctx, "settings.operations.undo.read")
+	}
+}
+
+// mailOperationOrigin says who queued an operation, with what, and when:
+// "You · Empty folder · 18/11, 14:55". Operations queued before Gofer
+// recorded this have none.
+func mailOperationOrigin(ctx context.Context, operation models.MailOperationSummary) string {
+	if operation.ActionSource == "" || operation.ActionKind == "" {
+		return ""
+	}
+	action := i18n.T(ctx, "settings.operations.action."+operation.ActionKind)
+	at := mailOperationTimeLabel(ctx, operation.CreatedAt)
+	switch {
+	case operation.ActionSource == "rule" && operation.ActionRuleName != "":
+		return i18n.T(ctx, "settings.operations.origin.rule", "rule", operation.ActionRuleName, "action", action, "time", at)
+	case operation.ActionSource == "rule":
+		return i18n.T(ctx, "settings.operations.origin.rule_deleted", "action", action, "time", at)
+	default:
+		return i18n.T(ctx, "settings.operations.origin.you", "action", action, "time", at)
+	}
+}
+
+// mailOperationHasDetails reports whether a row offers Details: anything
+// that failed or can't be completed.
+func mailOperationHasDetails(operation models.MailOperationSummary) bool {
+	return operation.LastError != "" || operation.Parked
+}
+
+// mailOperationDetail is one line of an operation's Details.
+type mailOperationDetail struct {
+	Label, Value string
+	Code         bool
+}
+
+// mailOperationDetails lists what Details shows, in order. Times an
+// operation doesn't keep are left out, and so is the next try of work that
+// won't be tried again.
+func mailOperationDetails(ctx context.Context, operation models.MailOperationSummary) []mailOperationDetail {
+	details := []mailOperationDetail{}
+	if operation.LastError != "" {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.error"), Value: operation.LastError, Code: true})
+	}
+	if !operation.CreatedAt.IsZero() {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.queued"), Value: mailOperationTimeLabel(ctx, operation.CreatedAt)})
+	}
+	if !operation.UpdatedAt.IsZero() {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.last_change"), Value: mailOperationTimeLabel(ctx, operation.UpdatedAt)})
+	}
+	details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.attempts"), Value: i18n.Number(ctx, operation.Attempts)})
+	if !operation.Parked {
+		details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.next_try"), Value: mailOperationTimeLabel(ctx, operation.NextRetryAt)})
+	}
+	details = append(details, mailOperationDetail{Label: i18n.T(ctx, "settings.operations.details.reference"), Value: operation.ID, Code: true})
+	return details
+}
+
+// mailOperationDetailsText is what Copy details puts on the clipboard: the
+// row and its Details as plain text, ready to paste into a bug report.
+func mailOperationDetailsText(ctx context.Context, operation models.MailOperationSummary) string {
+	lines := []string{
+		mailOperationKindLabel(ctx, operation.Type) + " · " + mailOperationStateLabel(ctx, operation),
+		i18n.T(ctx, "settings.operations.details.account") + ": " + operation.AccountEmail,
+	}
+	if target := mailOperationTargetLabel(operation); target != "" {
+		lines = append(lines, i18n.T(ctx, "settings.operations.details.change")+": "+target)
+	}
+	if origin := mailOperationOrigin(ctx, operation); origin != "" {
+		lines = append(lines, origin)
+	}
+	if operation.Parked {
+		lines = append(lines, mailOperationParkedReason(ctx, operation))
+	}
+	for _, detail := range mailOperationDetails(ctx, operation) {
+		lines = append(lines, detail.Label+": "+detail.Value)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func mailOperationActionLabel(ctx context.Context, operation models.MailOperationSummary) string {
 	if operation.CanReconcile {
 		return i18n.T(ctx, "settings.operations.reconcile_now")
 	}
 	return i18n.T(ctx, "settings.operations.retry_now")
+}
+
+// MailOperationGroupChangesLimit is how many of an action's changes its
+// message list shows.
+const MailOperationGroupChangesLimit = 100
+
+// mailOperationURL is where a change's own Retry or Undo posts.
+func mailOperationURL(operationID, verb string) string {
+	return "/api/mail-operations/" + url.PathEscape(operationID) + "/" + verb
+}
+
+// mailActionURL is where a group's Retry or Undo posts.
+func mailActionURL(actionID, verb string) string {
+	return "/api/mail-operations/actions/" + url.PathEscape(actionID) + "/" + verb
+}
+
+// mailOperationListItem is one row of the list: a group, or a change with no
+// recorded action.
+type mailOperationListItem struct {
+	Group     *models.MailOperationGroup
+	Operation *models.MailOperationSummary
+}
+
+// mailOperationListItems puts groups and single changes in one order: those
+// that need attention first, then the most recently changed.
+func mailOperationListItems(list models.MailOperationsList) []mailOperationListItem {
+	items := make([]mailOperationListItem, 0, list.Total())
+	for i := range list.Groups {
+		items = append(items, mailOperationListItem{Group: &list.Groups[i]})
+	}
+	for i := range list.Operations {
+		items = append(items, mailOperationListItem{Operation: &list.Operations[i]})
+	}
+	attention := func(item mailOperationListItem) bool {
+		if item.Group != nil {
+			return item.Group.NeedsAttention()
+		}
+		return item.Operation.NeedsAttention()
+	}
+	updated := func(item mailOperationListItem) time.Time {
+		if item.Group != nil {
+			return item.Group.UpdatedAt
+		}
+		return item.Operation.UpdatedAt
+	}
+	slices.SortStableFunc(items, func(a, b mailOperationListItem) int {
+		if attention(a) != attention(b) {
+			if attention(a) {
+				return -1
+			}
+			return 1
+		}
+		return updated(b).Compare(updated(a))
+	})
+	return items
+}
+
+// mailOperationFolderName is a folder as the sidebar names it. A folder Gofer
+// no longer has is "a deleted folder"; no folder at all is "".
+func mailOperationFolderName(ctx context.Context, folderID, name, role string) string {
+	if folderID == "" {
+		return ""
+	}
+	if name == "" {
+		return i18n.T(ctx, "settings.operations.group.deleted_folder")
+	}
+	return i18n.FolderName(ctx, role, name)
+}
+
+// mailOperationGroupKinds are the actions whose title only needs how many
+// messages they changed.
+var mailOperationGroupKinds = map[string]bool{
+	"archive": true, "unarchive": true, "delete": true, "mark_read": true, "mark_unread": true,
+	"star": true, "unstar": true, "spam": true, "not_spam": true, "move": true,
+	"label_add": true, "label_remove": true,
+}
+
+// mailOperationGroupCount is how many messages the action changed, or its
+// changes when they have no message.
+func mailOperationGroupCount(group models.MailOperationGroup) int {
+	if group.Messages > 0 {
+		return group.Messages
+	}
+	return group.Jobs
+}
+
+// mailOperationGroupTitle says what the action does, in plain words: "Move 3
+// messages from Inbox to Archive", "Empty Trash". A folder or label is named
+// only when every change shares it.
+func mailOperationGroupTitle(ctx context.Context, group models.MailOperationGroup) string {
+	count := mailOperationGroupCount(group)
+	from := mailOperationFolderName(ctx, group.FolderID, group.FolderName, group.FolderRole)
+	to := mailOperationFolderName(ctx, group.DestinationFolderID, group.DestinationName, group.DestinationRole)
+	key := "settings.operations.group.title." + group.ActionKind
+	switch group.ActionKind {
+	case "empty_folder", "mark_folder_read":
+		if from == "" {
+			return i18n.T(ctx, key)
+		}
+		return i18n.T(ctx, key+".folder", "folder", from)
+	case "move":
+		switch {
+		case from != "" && to != "":
+			key += ".from_to"
+		case to != "":
+			key += ".to"
+		}
+	case "label_add", "label_remove":
+		if group.LabelName != "" {
+			key += ".label"
+		}
+	default:
+		if !mailOperationGroupKinds[group.ActionKind] {
+			key = "settings.operations.group.title.other"
+		}
+	}
+	return i18n.N(ctx, key, count, "from", from, "to", to, "label", group.LabelName)
+}
+
+// mailOperationGroupState is the one state a group shows: the worst of its
+// changes.
+func mailOperationGroupState(ctx context.Context, group models.MailOperationGroup) string {
+	switch {
+	case group.Failed > 0:
+		return i18n.T(ctx, "settings.operations.state.failed")
+	case group.Parked > 0:
+		return i18n.T(ctx, "settings.operations.state.parked")
+	case group.Blocked > 0:
+		return i18n.T(ctx, "settings.operations.state.blocked")
+	case group.Active > 0:
+		return i18n.T(ctx, "settings.operations.state.in_progress")
+	default:
+		return i18n.T(ctx, "settings.operations.state.queued")
+	}
+}
+
+// mailOperationGroupProblems says how many of the action's changes need
+// attention, and why: "2 of 340 changes failed".
+func mailOperationGroupProblems(ctx context.Context, group models.MailOperationGroup) []string {
+	problems := []string{}
+	if group.Failed > 0 {
+		problems = append(problems, i18n.N(ctx, "settings.operations.group.failed", group.Failed, "total", group.Jobs))
+	}
+	if group.Parked > 0 {
+		problems = append(problems, i18n.N(ctx, "settings.operations.group.parked", group.Parked, "total", group.Jobs))
+	}
+	if group.Blocked > 0 {
+		problems = append(problems, i18n.N(ctx, "settings.operations.group.blocked", group.Blocked, "total", group.Jobs))
+	}
+	return problems
+}
+
+// mailOperationGroupAccount is the account the action changed, or how many.
+func mailOperationGroupAccount(ctx context.Context, group models.MailOperationGroup) string {
+	if group.Accounts > 1 {
+		return i18n.N(ctx, "settings.operations.group.accounts", group.Accounts)
+	}
+	return group.AccountEmail
+}
+
+// mailOperationGroupOrigin says who started the action, and when.
+func mailOperationGroupOrigin(ctx context.Context, group models.MailOperationGroup) string {
+	at := mailOperationTimeLabel(ctx, group.CreatedAt)
+	switch {
+	case group.ActionSource == "rule" && group.ActionRuleName != "":
+		return i18n.T(ctx, "settings.operations.group.origin.rule", "rule", group.ActionRuleName, "time", at)
+	case group.ActionSource == "rule":
+		return i18n.T(ctx, "settings.operations.group.origin.rule_deleted", "time", at)
+	default:
+		return i18n.T(ctx, "settings.operations.group.origin.you", "time", at)
+	}
+}
+
+// mailOperationChangeSubject is a message as the list names it. A message
+// Gofer no longer has is said so.
+func mailOperationChangeSubject(ctx context.Context, change models.MailOperationGroupMessage) string {
+	switch {
+	case change.Subject != "":
+		return change.Subject
+	case change.FromEmail == "" && change.FromName == "":
+		return i18n.T(ctx, "settings.operations.group.message_gone")
+	default:
+		return i18n.T(ctx, "mail.no_subject")
+	}
+}
+
+// mailOperationChangeFolders is where one change moves its message, or the
+// folder it is in, as the sidebar names them.
+func mailOperationChangeFolders(ctx context.Context, change models.MailOperationGroupMessage) string {
+	from := mailOperationFolderName(ctx, change.Operation.FolderID, change.FolderName, change.FolderRole)
+	to := mailOperationFolderName(ctx, change.Operation.DestinationFolderID, change.DestinationName, change.DestinationRole)
+	switch {
+	case from != "" && to != "" && from != to:
+		return from + " → " + to
+	case to != "":
+		return to
+	default:
+		return from
+	}
+}
+
+// mailOperationChangesShareFolders reports whether every change in the list
+// is in the same folders, so the rows don't each repeat them.
+func mailOperationChangesShareFolders(changes []models.MailOperationGroupMessage) bool {
+	for _, change := range changes {
+		first := changes[0].Operation
+		if change.Operation.FolderID != first.FolderID || change.Operation.DestinationFolderID != first.DestinationFolderID {
+			return false
+		}
+	}
+	return true
+}
+
+// mailOperationChangeSender is who sent the message, as the list shows it.
+func mailOperationChangeSender(change models.MailOperationGroupMessage) string {
+	if change.FromName != "" {
+		return change.FromName
+	}
+	return change.FromEmail
 }
 
 templ SettingsOperationsTab() {
@@ -6525,110 +6928,338 @@ templ SettingsOperationsTab() {
 		<div id="mail-operations-content" hx-get="/settings/operations/content" hx-trigger="load" hx-swap="outerHTML" class="settings-card rounded-lg border bg-card p-6 text-sm text-muted-foreground">
 			{ i18n.T(ctx, "settings.operations.loading") }
 		</div>
+		@mailOperationUndoDialog()
 	</div>
 }
 
-// mailOperationsRefreshSeconds is how often the list reloads itself; the page
-// counts down to it.
-const mailOperationsRefreshSeconds = 15
+// mailOperationDetailsSection is a row's Details: the full error, its times
+// and attempts, and a button that copies all of it. The list reopens the
+// ones that were open after it reloads itself (see settings.js).
+templ mailOperationDetailsSection(operation models.MailOperationSummary) {
+	@collapsible.Collapsible(collapsible.Props{Class: "mt-2", Attributes: templ.Attributes{"data-mail-operation-details": operation.ID}}) {
+		@collapsible.Trigger(collapsible.TriggerProps{Class: "group inline-flex cursor-pointer"}) {
+			<button type="button" class="inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+				@icon.ChevronRight(icon.Props{Class: "size-3.5 transition-transform group-aria-expanded:rotate-90"})
+				{ i18n.T(ctx, "settings.operations.details") }
+			</button>
+		}
+		@collapsible.Content() {
+			<div class="pt-2">
+				<div class="rounded-md border border-border/60 bg-muted/30 p-3">
+					<dl class="grid grid-cols-1 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-1.5">
+						for _, detail := range mailOperationDetails(ctx, operation) {
+							<dt class="font-medium text-muted-foreground">{ detail.Label }</dt>
+							// Server replies and references can be one long word; let
+							// them break anywhere rather than widen the page.
+							<dd class={ "min-w-0 break-words text-foreground", templ.KV("whitespace-pre-wrap font-mono [overflow-wrap:anywhere]", detail.Code) }>{ detail.Value }</dd>
+						}
+					</dl>
+					<textarea id={ "mail-operation-copy-" + operation.ID } class="hidden" readonly aria-hidden="true" tabindex="-1">{ mailOperationDetailsText(ctx, operation) }</textarea>
+					<div class="mt-3 flex justify-end">
+						@copybutton.CopyButton(copybutton.Props{TargetID: "mail-operation-copy-" + operation.ID, Label: i18n.T(ctx, "settings.operations.details.copy")})
+					</div>
+				</div>
+			</div>
+		}
+	}
+}
+
+// mailOperationUndoDialog asks before an operation is undone. It sits outside
+// the list, which reloads itself, so a reload can't close it; the Undo button
+// that opens it fills in the operation and what undoing it does.
+templ mailOperationUndoDialog() {
+	@dataActionDialog("mail-operation-undo-dialog", "", i18n.T(ctx, "settings.operations.undo.title"), "sm:max-w-md") {
+		<div class={ dataDialogFormClass }>
+			@dataDialogScroll("pb-4") {
+				<p class="text-sm leading-relaxed text-muted-foreground" data-mail-operation-undo-text></p>
+			}
+			@dataDialogFooter() {
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: templ.Attributes{"type": "button"}}) {
+						{ i18n.T(ctx, "common.cancel") }
+					}
+				}
+				@button.Button(button.Props{Attributes: templ.Attributes{"type": "button", "data-mail-operation-undo-confirm": ""}}) {
+					{ i18n.T(ctx, "settings.operations.undo") }
+				}
+			}
+		</div>
+	}
+}
 
 // SettingsOperationsContent is the list of mail operations. It reloads itself
-// when the countdown in settings.js reaches zero, or when Refresh is pressed;
-// either way the whole block is replaced and the countdown starts again.
-templ SettingsOperationsContent(status models.MailOperationsStatus) {
+// whenever the person's background mail work changes (settings.js), or when
+// Refresh is pressed; either way the whole block is replaced.
+templ SettingsOperationsContent(status models.MailOperationsList) {
 	<div
 		id="mail-operations-content"
 		hx-get="/settings/operations/content"
 		hx-trigger="mail-operations-refresh"
 		hx-swap="outerHTML"
 		class="settings-card rounded-lg border bg-card p-6 space-y-4"
-		data-mail-operations-refresh={ strconv.Itoa(mailOperationsRefreshSeconds) }
 	>
-		<div class="flex flex-wrap items-start justify-between gap-3">
-			<div>
+		// Row one is always the title and Refresh; whether the list is live
+		// sits in the subtitle so Refresh fits beside the title on any
+		// screen. Row two appears only when something needs attention.
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
 				<h3 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.operations.background") }</h3>
-				<p class="mt-1 text-xs text-muted-foreground">{ i18n.N(ctx, "settings.operations.total", status.Total) }</p>
+				<p class="mt-1 text-xs text-muted-foreground">
+					{ i18n.N(ctx, "settings.operations.total", status.Total()) }
+					<span aria-hidden="true">·</span>
+					<span data-mail-operations-status>{ i18n.T(ctx, "settings.operations.live") }</span>
+				</p>
 			</div>
-			<div class="flex flex-wrap items-center justify-end gap-2">
-				if status.ActionRequired > 0 {
-					<span class="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-						@icon.TriangleAlert(icon.Props{Class: "size-3.5"})
-						{ i18n.N(ctx, "settings.operations.attention", status.ActionRequired) }
-					</span>
-				}
-				<span class="text-[11px] tabular-nums text-muted-foreground" aria-live="off" data-mail-operations-countdown>
-					{ i18n.T(ctx, "settings.operations.countdown", "seconds", mailOperationsRefreshSeconds) }
-				</span>
-				@button.Button(button.Props{
-					Variant: button.VariantOutline,
-					Size:    button.SizeSm,
-					Class:   "h-7 gap-1.5 px-2.5 text-xs",
-					Attributes: templ.Attributes{
-						"type":                "button",
-						"hx-get":              "/settings/operations/content",
-						"hx-target":           "#mail-operations-content",
-						"hx-swap":             "outerHTML",
-						"hx-disabled-elt":     "this",
-						"data-mail-operations-refresh-now": "",
-					},
-				}) {
-					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "settings.operations.refresh") }
-				}
-			</div>
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Size:    button.SizeSm,
+				Class:   "h-7 shrink-0 gap-1.5 px-2.5 text-xs",
+				Attributes: templ.Attributes{
+					"type":                             "button",
+					"hx-get":                           "/settings/operations/content",
+					"hx-target":                        "#mail-operations-content",
+					"hx-swap":                          "outerHTML",
+					"hx-disabled-elt":                  "this",
+					"data-mail-operations-refresh-now": "",
+				},
+			}) {
+				@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "settings.operations.refresh") }
+			}
 		</div>
-		if len(status.Operations) == 0 {
-			<div class="rounded-md border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "settings.operations.empty") }</div>
-		} else {
-			<div class="space-y-2">
-				for _, operation := range status.Operations {
-					<div class={
-						"settings-item rounded-lg border bg-background/40 p-4",
-						templ.KV("border-amber-500/25", operation.CanRetry || operation.CanReconcile),
-						templ.KV("border-border/60", !operation.CanRetry && !operation.CanReconcile),
-					} data-mail-operation-id={ operation.ID }>
-						<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-							<div class="min-w-0">
-								<div class="flex flex-wrap items-center gap-2">
-									<span class="text-sm font-semibold text-foreground">{ mailOperationKindLabel(ctx, operation.Type) }</span>
-									<span class={
-										"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-										templ.KV("border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200", operation.CanRetry || operation.CanReconcile),
-										templ.KV("border-border bg-card text-muted-foreground", !operation.CanRetry && !operation.CanReconcile),
-									}>{ mailOperationStateLabel(ctx, operation) }</span>
-								</div>
-								<div class="mt-1 text-xs text-muted-foreground">
-									{ operation.AccountEmail }
-									if mailOperationTargetLabel(operation) != "" {
-										<span> · { mailOperationTargetLabel(operation) }</span>
-									}
-								</div>
-								if operation.LastError != "" {
-									<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">
-										{ operation.LastError }
-										// Once a folder is chosen, Retry files the copy there.
-										if strings.Contains(operation.LastError, models.NoSentFolderError) {
-											<a href={ templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)) } class="ml-1 font-semibold underline underline-offset-2" data-mail-operation-choose-sent>{ i18n.T(ctx, "settings.operations.choose_sent") }</a>
-										}
-									</div>
-								}
-								<div class="mt-2 text-[11px] text-muted-foreground">
-									{ i18n.T(ctx, "settings.operations.attempt", "attempt", operation.Attempts, "time", mailOperationTimeLabel(ctx, operation.NextRetryAt)) }
-								</div>
-							</div>
-							<div class="flex shrink-0 items-center gap-2">
-								if operation.CanRetry || operation.CanReconcile {
-									<button type="button" data-mail-operation-retry data-mail-operation-id={ operation.ID } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
-										@icon.RefreshCw(icon.Props{Class: "size-3.5"})
-										{ mailOperationActionLabel(ctx, operation) }
-									</button>
-								}
-							</div>
-						</div>
-					</div>
+		if status.ActionRequired > 0 || status.Retryable > 0 {
+			<div class="flex flex-col gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between" data-mail-operations-attention>
+				<p class="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200">
+					@icon.TriangleAlert(icon.Props{Class: "size-3.5 shrink-0"})
+					{ i18n.N(ctx, "settings.operations.attention", status.ActionRequired) }
+				</p>
+				if status.Retryable > 0 {
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Size:    button.SizeSm,
+						Class:   "h-7 w-full shrink-0 gap-1.5 bg-card px-2.5 text-xs sm:w-auto",
+						Attributes: templ.Attributes{
+							"type":                           "button",
+							"data-mail-operations-retry-all": "",
+						},
+					}) {
+						@icon.RotateCcw(icon.Props{Class: "size-3.5"})
+						{ i18n.N(ctx, "settings.operations.retry_all", status.Retryable) }
+					}
 				}
 			</div>
 		}
+		if status.Total() == 0 {
+			<div class="rounded-md border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "settings.operations.empty") }</div>
+		} else {
+			<div class="space-y-2">
+				for _, item := range mailOperationListItems(status) {
+					if item.Group != nil {
+						@mailOperationGroupRow(*item.Group)
+					} else {
+						@mailOperationRow(*item.Operation)
+					}
+				}
+			</div>
+		}
+	</div>
+}
+
+// mailOperationGroupRow is one action and what became of its changes. Its
+// message list loads the first time it is opened; when the list reloads
+// itself, the groups that were open come back with theirs.
+templ mailOperationGroupRow(group models.MailOperationGroup) {
+	<div class={
+		"settings-item rounded-lg border bg-background/40 p-4",
+		templ.KV("border-amber-500/25", group.NeedsAttention()),
+		templ.KV("border-border/60", !group.NeedsAttention()),
+	} data-mail-operation-group-row={ group.ActionID }>
+		// The buttons sit beside the title only; what follows uses the full
+		// width, so the message list has room.
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0">
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="text-sm font-semibold text-foreground" data-mail-operation-group-title>{ mailOperationGroupTitle(ctx, group) }</span>
+					<span class={
+						"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+						templ.KV("border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200", group.NeedsAttention()),
+						templ.KV("border-border bg-card text-muted-foreground", !group.NeedsAttention()),
+					}>{ mailOperationGroupState(ctx, group) }</span>
+				</div>
+				<div class="mt-1 text-xs text-muted-foreground">{ mailOperationGroupAccount(ctx, group) }</div>
+				<div class="mt-0.5 text-xs text-muted-foreground" data-mail-operation-origin>{ mailOperationGroupOrigin(ctx, group) }</div>
+			</div>
+			<div class="flex shrink-0 flex-wrap items-center gap-2">
+				if group.Parked > 0 {
+					<button type="button" data-mail-operation-undo data-mail-operation-undo-url={ mailActionURL(group.ActionID, "undo") } data-mail-operation-undo-text={ i18n.N(ctx, "settings.operations.undo.group", group.Parked) } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+						@icon.Undo2(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "settings.operations.undo") }
+					</button>
+				}
+				if group.Failed > 0 {
+					<button type="button" data-mail-operation-retry data-mail-operation-retry-url={ mailActionURL(group.ActionID, "retry") } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+						@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+						{ i18n.N(ctx, "settings.operations.group.retry", group.Failed) }
+					</button>
+				}
+			</div>
+		</div>
+		if problems := mailOperationGroupProblems(ctx, group); len(problems) > 0 {
+			<div class="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200" data-mail-operation-group-problems>
+				for _, problem := range problems {
+					<p>{ problem }</p>
+				}
+				if group.Parked > 0 {
+					<p class="mt-1 text-muted-foreground">{ i18n.T(ctx, "settings.operations.parked.folder_removed") }</p>
+				}
+			</div>
+		}
+		@collapsible.Collapsible(collapsible.Props{Class: "mt-2", Open: group.ChangesLoaded, Attributes: templ.Attributes{"data-mail-operation-group": group.ActionID}}) {
+			@collapsible.Trigger(collapsible.TriggerProps{Class: "group inline-flex cursor-pointer"}) {
+				<button
+					type="button"
+					class="inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+					if !group.ChangesLoaded {
+						data-mail-operation-group-load
+						hx-get={ "/settings/operations/actions/" + url.PathEscape(group.ActionID) }
+						hx-trigger="mail-operation-group-open"
+						hx-target={ "#mail-operation-group-changes-" + group.ActionID }
+						hx-swap="innerHTML"
+					}
+				>
+					@icon.ChevronRight(icon.Props{Class: "size-3.5 transition-transform group-aria-expanded:rotate-90"})
+					{ i18n.N(ctx, "settings.operations.group.messages", mailOperationGroupCount(group)) }
+				</button>
+			}
+			@collapsible.Content() {
+				<div id={ "mail-operation-group-changes-" + group.ActionID } class="pt-2" data-mail-operation-group-changes>
+					if group.ChangesLoaded {
+						@MailOperationGroupChanges(group.Changes)
+					} else {
+						<p class="text-[11px] text-muted-foreground">{ i18n.T(ctx, "settings.operations.group.loading") }</p>
+					}
+				</div>
+			}
+		}
+	</div>
+}
+
+// MailOperationGroupChanges is a group's message list: each change with its
+// message, state, error and Details, and its own Retry or Undo.
+templ MailOperationGroupChanges(changes []models.MailOperationGroupMessage) {
+	if len(changes) == 0 {
+		<p class="text-[11px] text-muted-foreground">{ i18n.T(ctx, "settings.operations.group.no_messages") }</p>
+	} else {
+		{{ shared := mailOperationChangesShareFolders(changes) }}
+		<ul class="divide-y divide-border/60 rounded-md border border-border/60 bg-card/60">
+			for _, change := range changes {
+				<li class="px-3 py-2" data-mail-operation-change={ change.Operation.ID }>
+					<div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+						<div class="min-w-0">
+							<p class="truncate text-xs font-medium text-foreground">{ mailOperationChangeSubject(ctx, change) }</p>
+							<p class="mt-0.5 text-[11px] text-muted-foreground">
+								if sender := mailOperationChangeSender(change); sender != "" {
+									<span>{ sender } · </span>
+								}
+								if !shared {
+									if folders := mailOperationChangeFolders(ctx, change); folders != "" {
+										<span>{ folders } · </span>
+									}
+								}
+								<span class={ templ.KV("font-semibold text-amber-800 dark:text-amber-200", change.Operation.NeedsAttention()) }>{ mailOperationStateLabel(ctx, change.Operation) }</span>
+							</p>
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							@mailOperationButtons(change.Operation)
+						</div>
+					</div>
+					// The error and Details use the row's full width.
+					if change.Operation.LastError != "" && !change.Operation.Parked {
+						<p class="mt-1 line-clamp-2 break-words text-[11px] text-red-800 dark:text-red-200" data-mail-operation-error>{ change.Operation.LastError }</p>
+					}
+					if mailOperationHasDetails(change.Operation) {
+						@mailOperationDetailsSection(change.Operation)
+					}
+				</li>
+			}
+		</ul>
+		if len(changes) >= MailOperationGroupChangesLimit {
+			<p class="mt-2 text-[11px] text-muted-foreground">{ i18n.T(ctx, "settings.operations.group.first", "count", MailOperationGroupChangesLimit) }</p>
+		}
+	}
+}
+
+// mailOperationButtons are a change's own Undo or Retry.
+templ mailOperationButtons(operation models.MailOperationSummary) {
+	if operation.CanUndo {
+		<button type="button" data-mail-operation-undo data-mail-operation-undo-url={ mailOperationURL(operation.ID, "undo") } data-mail-operation-undo-text={ mailOperationUndoText(ctx, operation) } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+			@icon.Undo2(icon.Props{Class: "size-3.5"})
+			{ i18n.T(ctx, "settings.operations.undo") }
+		</button>
+	} else if operation.CanRetry || operation.CanReconcile {
+		<button type="button" data-mail-operation-retry data-mail-operation-retry-url={ mailOperationURL(operation.ID, "retry") } class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
+			@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+			{ mailOperationActionLabel(ctx, operation) }
+		</button>
+	}
+}
+
+// mailOperationRow is one change that has no recorded action: a draft, a
+// Sent copy, or a change queued before Gofer recorded actions.
+templ mailOperationRow(operation models.MailOperationSummary) {
+	<div class={
+		"settings-item rounded-lg border bg-background/40 p-4",
+		templ.KV("border-amber-500/25", operation.CanRetry || operation.CanReconcile),
+		templ.KV("border-border/60", !operation.CanRetry && !operation.CanReconcile),
+	} data-mail-operation-id={ operation.ID }>
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0">
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="text-sm font-semibold text-foreground">{ mailOperationKindLabel(ctx, operation.Type) }</span>
+					<span class={
+						"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+						templ.KV("border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200", operation.CanRetry || operation.CanReconcile),
+						templ.KV("border-border bg-card text-muted-foreground", !operation.CanRetry && !operation.CanReconcile),
+					}>{ mailOperationStateLabel(ctx, operation) }</span>
+				</div>
+				<div class="mt-1 text-xs text-muted-foreground">
+					{ operation.AccountEmail }
+					if mailOperationTargetLabel(operation) != "" {
+						<span> · { mailOperationTargetLabel(operation) }</span>
+					}
+				</div>
+				if origin := mailOperationOrigin(ctx, operation); origin != "" {
+					<div class="mt-0.5 text-xs text-muted-foreground" data-mail-operation-origin>{ origin }</div>
+				}
+				if operation.Parked {
+					<div class="mt-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground" data-mail-operation-parked-reason>
+						{ mailOperationParkedReason(ctx, operation) }
+					</div>
+				} else if operation.LastError != "" {
+					<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">
+						// Long server replies are cut short here; Details has all of it.
+						<span class="line-clamp-2 break-words" data-mail-operation-error>{ operation.LastError }</span>
+						// Once a folder is chosen, Retry files the copy there.
+						if strings.Contains(operation.LastError, models.NoSentFolderError) {
+							<a href={ templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)) } class="mt-1 inline-block font-semibold underline underline-offset-2" data-mail-operation-choose-sent>{ i18n.T(ctx, "settings.operations.choose_sent") }</a>
+						}
+					</div>
+				}
+				<div class="mt-2 text-[11px] text-muted-foreground">
+					if operation.Parked {
+						{ mailOperationParkedSince(ctx, operation) }
+					} else {
+						{ i18n.T(ctx, "settings.operations.attempt", "attempt", operation.Attempts, "time", mailOperationTimeLabel(ctx, operation.NextRetryAt)) }
+					}
+				</div>
+				if mailOperationHasDetails(operation) {
+					@mailOperationDetailsSection(operation)
+				}
+			</div>
+			<div class="flex shrink-0 items-center gap-2">
+				@mailOperationButtons(operation)
+			</div>
+		</div>
 	</div>
 }
 

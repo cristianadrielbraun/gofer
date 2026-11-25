@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -31,8 +33,38 @@ func UserProviderDraftRetryable(err error) bool {
 	return !ok || status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || status >= 500
 }
 
+// gmailDraftKeyHeader carries a draft's Gofer key in the drafts Gofer saves
+// to Gmail. Gmail replaces the Message-ID of a draft uploaded through its API
+// with one of its own, but keeps this header and X-Gofer-Draft-Revision.
+const gmailDraftKeyHeader = "X-Gofer-Draft-Key"
+
+// When Gofer looks for a Gmail draft whose create reply was lost, it reads the
+// drafts dated from gmailDraftSearchBefore before that save until
+// gmailDraftSearchAfter after it. The margins allow for clock differences and
+// for a save that waited in the queue before it was uploaded.
+const (
+	gmailDraftSearchBefore = time.Hour
+	gmailDraftSearchAfter  = 24 * time.Hour
+)
+
 type UserProviderDraft struct {
 	ID, MessageID, InternetMessageID, RevisionToken string
+	// untagged marks a Gmail draft without X-Gofer-Draft-Key, whose
+	// InternetMessageID is therefore Gmail's own Message-ID: a draft written
+	// elsewhere, or one Gofer saved before it added the header.
+	untagged bool
+}
+
+// BelongsTo reports whether d is the draft Gofer keeps under key. revision is
+// the last version of it Gofer recorded saving, or "" when there is none. A
+// Gmail draft Gofer saved before it added X-Gofer-Draft-Key carries only
+// Gmail's replacement Message-ID, so it belongs to key when it still holds
+// that recorded revision, which only Gofer writes.
+func (d UserProviderDraft) BelongsTo(key, revision string) bool {
+	if key == "" {
+		return false
+	}
+	return d.InternetMessageID == key || (d.untagged && revision != "" && d.RevisionToken == revision)
 }
 
 type userDraftRequest func(string, string, string, []byte, any) (bool, error)
@@ -114,13 +146,22 @@ type userGmailDraftResponse struct {
 
 func (r userGmailDraftResponse) draft() UserProviderDraft {
 	d := UserProviderDraft{ID: r.ID, MessageID: r.Message.ID}
+	key := ""
 	for _, h := range r.Message.Payload.Headers {
 		switch {
 		case strings.EqualFold(h.Name, "Message-ID"):
 			d.InternetMessageID = strings.TrimSpace(h.Value)
 		case strings.EqualFold(h.Name, "X-Gofer-Draft-Revision"):
 			d.RevisionToken = strings.TrimSpace(h.Value)
+		case strings.EqualFold(h.Name, gmailDraftKeyHeader):
+			key = strings.TrimSpace(h.Value)
 		}
+	}
+	// Gmail's Message-ID says nothing about which Gofer draft this is.
+	if key != "" {
+		d.InternetMessageID = key
+	} else {
+		d.untagged = true
 	}
 	return d
 }
@@ -182,9 +223,16 @@ func (p *UserProviderMail) GetDraft(ctx context.Context, id string) (UserProvide
 	return p.getDraft(id, request)
 }
 
-// FindDrafts uses the stable Internet ID, then checks the actual headers. It
-// never treats a partial, repeated or excessive page sequence as an empty search.
-func (p *UserProviderMail) FindDrafts(ctx context.Context, internetID string) ([]UserProviderDraft, error) {
+// FindDrafts returns the drafts Gofer keeps under internetID, checking each
+// one's actual headers. It never treats a partial, repeated or excessive page
+// sequence as an empty search.
+//
+// Gmail replaces the Message-ID of drafts Gofer uploads, so a search by it only
+// finds drafts written elsewhere. When saved is not zero, FindDrafts also reads
+// the Gmail drafts dated around it and keeps those whose X-Gofer-Draft-Key is
+// internetID: that is how a save whose reply was lost is found again. Outlook
+// keeps the Message-ID and ignores saved.
+func (p *UserProviderMail) FindDrafts(ctx context.Context, internetID string, saved time.Time) ([]UserProviderDraft, error) {
 	if strings.TrimSpace(internetID) == "" || strings.ContainsAny(internetID, "\r\n") {
 		return nil, errors.New("draft Internet identity is required")
 	}
@@ -194,19 +242,33 @@ func (p *UserProviderMail) FindDrafts(ctx context.Context, internetID string) ([
 	}
 	defer finish()
 	values := url.Values{}
-	endpoint := ""
-	if p.scope.config.Provider == "gmail" {
-		values.Set("q", "rfc822msgid:"+internetID)
-		values.Set("maxResults", "25")
-		endpoint = gmailAPIBaseURL + "/users/me/drafts?" + values.Encode()
-	} else {
+	if p.scope.config.Provider != "gmail" {
 		values.Set("$filter", "internetMessageId eq '"+strings.ReplaceAll(internetID, "'", "''")+"' and isDraft eq true")
 		values.Set("$select", "id")
 		values.Set("$top", "25")
-		endpoint = outlookGraphBaseURL + "/me/mailFolders/drafts/messages?" + values.Encode()
+		return p.searchDrafts(request, outlookGraphBaseURL+"/me/mailFolders/drafts/messages", values, internetID, true, map[string]bool{}, nil)
 	}
-	var drafts []UserProviderDraft
-	seenPages, seenIDs := map[string]bool{}, map[string]bool{}
+	values.Set("q", "rfc822msgid:"+internetID)
+	values.Set("maxResults", "25")
+	seen := map[string]bool{}
+	drafts, err := p.searchDrafts(request, gmailAPIBaseURL+"/users/me/drafts", values, internetID, true, seen, nil)
+	if err != nil || saved.IsZero() {
+		return drafts, err
+	}
+	dated := url.Values{}
+	dated.Set("q", "after:"+strconv.FormatInt(saved.Add(-gmailDraftSearchBefore).Unix(), 10)+" before:"+strconv.FormatInt(saved.Add(gmailDraftSearchAfter).Unix(), 10))
+	dated.Set("maxResults", "25")
+	return p.searchDrafts(request, gmailAPIBaseURL+"/users/me/drafts", dated, internetID, false, seen, drafts)
+}
+
+// searchDrafts reads every page of one draft listing and appends the drafts
+// that belong to internetID to drafts. A strict listing was filtered by
+// internetID already, so a draft in it that belongs elsewhere is an error; a
+// listing by date holds other drafts too, and those are skipped. Drafts in seen
+// were read by an earlier listing and are not read again.
+func (p *UserProviderMail) searchDrafts(request userDraftRequest, base string, values url.Values, internetID string, strict bool, seen map[string]bool, drafts []UserProviderDraft) ([]UserProviderDraft, error) {
+	endpoint := base + "?" + values.Encode()
+	seenPages, listed := map[string]bool{}, map[string]bool{}
 	for endpoint != "" {
 		if seenPages[endpoint] || len(seenPages) >= 4 {
 			return nil, errors.New("provider draft search exceeds its page bound")
@@ -226,10 +288,14 @@ func (p *UserProviderMail) FindDrafts(ctx context.Context, internetID string) ([
 			ids = result.Value
 		}
 		for _, item := range ids {
-			if item.ID == "" || seenIDs[item.ID] || len(seenIDs) >= 100 {
+			if item.ID == "" || listed[item.ID] || len(listed) >= 100 {
 				return nil, errors.New("provider draft search returned invalid identities")
 			}
-			seenIDs[item.ID] = true
+			listed[item.ID] = true
+			if seen[item.ID] {
+				continue
+			}
+			seen[item.ID] = true
 			draft, err := p.getDraft(item.ID, request)
 			if status, ok := providerAPIStatus(err); ok && status == http.StatusNotFound {
 				continue
@@ -237,8 +303,11 @@ func (p *UserProviderMail) FindDrafts(ctx context.Context, internetID string) ([
 			if err != nil {
 				return nil, err
 			}
-			if draft.InternetMessageID != internetID {
-				return nil, errors.New("provider draft search returned another message")
+			if !draft.BelongsTo(internetID, "") {
+				if strict {
+					return nil, errors.New("provider draft search returned another message")
+				}
+				continue
 			}
 			drafts = append(drafts, draft)
 		}
@@ -247,7 +316,7 @@ func (p *UserProviderMail) FindDrafts(ctx context.Context, internetID string) ([
 			endpoint = ""
 			if result.NextPageToken != "" {
 				values.Set("pageToken", result.NextPageToken)
-				endpoint = gmailAPIBaseURL + "/users/me/drafts?" + values.Encode()
+				endpoint = base + "?" + values.Encode()
 			}
 		}
 	}
@@ -263,7 +332,7 @@ func (p *UserProviderMail) SaveDraft(ctx context.Context, id string, mime []byte
 		return UserProviderDraft{}, err
 	}
 	internetID, revision := strings.TrimSpace(msg.Header.Get("Message-ID")), strings.TrimSpace(msg.Header.Get("X-Gofer-Draft-Revision"))
-	if internetID == "" || revision == "" {
+	if internetID == "" || revision == "" || strings.ContainsAny(internetID, "\r\n") {
 		return UserProviderDraft{}, errors.New("draft MIME identity and revision are required")
 	}
 	_, finish, request, err := p.draftSession(ctx)
@@ -277,7 +346,13 @@ func (p *UserProviderMail) SaveDraft(ctx context.Context, id string, mime []byte
 		if id != "" {
 			endpoint, method = endpoint+"/"+url.PathEscape(id), http.MethodPut
 		}
-		body, _ := json.Marshal(map[string]any{"message": map[string]string{"raw": base64.RawURLEncoding.EncodeToString(mime)}})
+		// Gmail keeps this header when it replaces the Message-ID, so later
+		// saves and deletes can still tell this draft is Gofer's.
+		upload := mime
+		if msg.Header.Get(gmailDraftKeyHeader) == "" {
+			upload = append([]byte(gmailDraftKeyHeader+": "+internetID+"\r\n"), mime...)
+		}
+		body, _ := json.Marshal(map[string]any{"message": map[string]string{"raw": base64.RawURLEncoding.EncodeToString(upload)}})
 		var reply userGmailDraftResponse
 		if _, err := request(method, endpoint, "application/json", body, &reply); err != nil {
 			return d, err
@@ -316,7 +391,7 @@ func (p *UserProviderMail) DeleteDraft(ctx context.Context, draft UserProviderDr
 	if err != nil {
 		return err
 	}
-	if draft.InternetMessageID == "" || current.InternetMessageID != draft.InternetMessageID || (draft.RevisionToken != "" && current.RevisionToken != draft.RevisionToken) {
+	if !current.BelongsTo(draft.InternetMessageID, draft.RevisionToken) || (draft.RevisionToken != "" && current.RevisionToken != draft.RevisionToken) {
 		return errors.New("provider draft changed before deletion")
 	}
 	endpoint := gmailAPIBaseURL + "/users/me/drafts/" + url.PathEscape(draft.ID)

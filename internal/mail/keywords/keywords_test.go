@@ -23,12 +23,14 @@ func TestValidateAllowsProviderKeywordIDs(t *testing.T) {
 }
 
 func TestIsStatusCoversJMAPSpellings(t *testing.T) {
-	for _, status := range []string{"\\Seen", "$seen", "$Flagged", "$draft", "$answered", "$Junk", "$IsTrusted", "$X-ME-Annot-2"} {
+	for _, status := range []string{"\\Seen", "$seen", "$Flagged", "$draft", "$answered", "$Junk", "$IsTrusted", "$X-ME-Annot-2",
+		"$HasAttachment", "$hasnoattachment", "$SubmitPending", "$Submitted", "$AutoSent",
+		"$Muted", "$Followed", "$Notify", "$Unsubscribed", "$CanUnsubscribe", "$Imported"} {
 		if !IsStatus(status) {
 			t.Errorf("IsStatus(%q) = false", status)
 		}
 	}
-	for _, label := range []string{"$label1", "Client", "$VendorFlag"} {
+	for _, label := range []string{"$label1", "Client", "$VendorFlag", "$Important", "$MailFlagBit0"} {
 		if IsStatus(label) {
 			t.Errorf("IsStatus(%q) = true", label)
 		}

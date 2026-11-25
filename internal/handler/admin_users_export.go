@@ -44,6 +44,7 @@ func (h *Handler) handleExportAdminUsers(w http.ResponseWriter, r *http.Request)
 	people, err := h.auth.ExportAdministratorUsers(ctx, user.ID, session.ID, auth.AdministratorUserQuery{
 		Search: query.Search, Status: auth.UserStatus(query.Status),
 		Attention: auth.AdministratorUserAttention(query.Attention), Sort: auth.AdministratorUserSort(query.Sort),
+		Group: query.Group,
 	})
 	switch {
 	case err == nil:

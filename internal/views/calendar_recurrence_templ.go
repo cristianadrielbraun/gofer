@@ -468,7 +468,7 @@ func CalendarRecurrenceFields(data CalendarCreateData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = datepicker.DatePicker(datepicker.Props{ID: "calendar-create-repeat-until", Name: "repeat_until", Value: calendarCreatePickerValue("2006-01-02", until)}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = datepicker.DatePicker(datepicker.Props{ID: "calendar-create-repeat-until", Name: "repeat_until", Value: calendarCreatePickerValue("2006-01-02", until), StartOfWeek: pickerStartOfWeek(ctx)}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

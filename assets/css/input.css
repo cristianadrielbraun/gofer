@@ -600,6 +600,9 @@
 
 .compose-attachment-menu {
   position: fixed;
+  /* It opens as a popover: undo the browser's centring of one. */
+  inset: auto;
+  margin: 0;
   z-index: 90;
   padding: 0.25rem;
   border: 1px solid var(--border);
@@ -1160,7 +1163,10 @@
   overflow-wrap: anywhere;
 }
 
-.compose-rich-editor a {
+/* A link in the signature editor looks like one too, so a kept link isn't
+   taken for plain text. */
+.compose-rich-editor a,
+[data-signature-editor] a {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -1664,8 +1670,11 @@ input[role="switch"] + .gofer-switch-track::after {
 }
 
 /* A contacts pill names every value of its filter, account names included,
-   so it takes the room the row has, and pills share it once they don't fit. */
-.contacts-active-filter-strip .mail-active-filter-pill {
+   so it takes the room the row has, and pills share it once they don't fit.
+   So does a rules pill, which names a folder and its account, or every
+   category chosen. */
+.contacts-active-filter-strip .mail-active-filter-pill,
+.rules-active-filter-strip .mail-active-filter-pill {
   flex: 0 1 auto;
   min-width: 4rem;
   max-width: 100%;
@@ -1673,7 +1682,8 @@ input[role="switch"] + .gofer-switch-track::after {
 
 /* Room at the sides as well, for the border and shadow of a pill as wide
    as the row, kept out of the alignment with the search above. */
-.contacts-active-filter-strip .mail-active-filter-visible {
+.contacts-active-filter-strip .mail-active-filter-visible,
+.rules-active-filter-strip .mail-active-filter-visible {
   padding-inline: 2px;
   margin-inline: -2px;
 }
@@ -2974,6 +2984,62 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   align-items: center;
 }
 
+/* A card's action buttons and its star take spots of one size, so they line
+   up in whatever order the layout gives them. */
+.mail-card-action-btn,
+.mail-list-card .star-btn[data-mail-card-field="starred"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+}
+
+/* A card's action buttons (Read, Archive, Delete, Labels, Spam): quiet
+   icons whose lines light up under the pointer, Delete's in red. */
+.mail-card-action-btn {
+  border-radius: 0.25rem;
+  color: var(--color-muted-foreground);
+  opacity: 0.8;
+  cursor: pointer;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.mail-list-card button.mail-card-action-btn:hover,
+.mail-list-card button.mail-card-action-btn:focus-visible,
+/* With several cards selected, the button under the pointer on one of them
+   lights up on all of them, as a click acts on them all (app.js). */
+#mail-list-scroll[data-mail-selection-hover-action="read"] .mail-list-item[data-mail-selected] [data-mail-card-action="read"],
+#mail-list-scroll[data-mail-selection-hover-action="archive"] .mail-list-item[data-mail-selected] [data-mail-card-action="archive"],
+#mail-list-scroll[data-mail-selection-hover-action="delete"] .mail-list-item[data-mail-selected] [data-mail-card-action="delete"],
+#mail-list-scroll[data-mail-selection-hover-action="labels"] .mail-list-item[data-mail-selected] [data-mail-card-action="labels"],
+#mail-list-scroll[data-mail-selection-hover-action="spam"] .mail-list-item[data-mail-selected] [data-mail-card-action="spam"] {
+  color: var(--color-foreground);
+  opacity: 1;
+}
+
+.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:hover,
+.mail-list-card button.mail-card-action-btn[data-mail-card-action="delete"]:focus-visible,
+#mail-list-scroll[data-mail-selection-hover-action="delete"] .mail-list-item[data-mail-selected] [data-mail-card-action="delete"] {
+  color: var(--color-destructive);
+}
+
+/* The card's buttons, and its star while unstarred, show while the pointer
+   is over the card or the keyboard is on it, unless the "only on hover"
+   setting is off (ui-settings.js). With several cards selected and the
+   pointer over one of them, every selected card shows its action buttons,
+   which act on them all; the star stars one message, so it doesn't follow.
+   Screens without a pointer that hovers always show them; phones lay their
+   card out on their own. */
+@media (hover: hover) and (min-width: 1024px) {
+  #mail-list-scroll:not([data-mail-card-actions-always], [data-mail-selection-hover]) .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible),
+  #mail-list-scroll[data-mail-selection-hover]:not([data-mail-card-actions-always]) .mail-list-item:not([data-mail-selected]) > .mail-list-card:not(:hover, :focus-visible) .mail-card-hover-action:not(:focus-visible),
+  #mail-list-scroll[data-mail-selection-hover]:not([data-mail-card-actions-always]) .mail-list-card:not(:hover, :focus-visible) .star-btn.mail-card-hover-action:not(:focus-visible) {
+    opacity: 0;
+  }
+}
+
 .mail-list-card-empty-icon-slot {
   display: inline-flex;
   width: 1rem;
@@ -3183,19 +3249,19 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   column-gap: 0.25em;
 }
 
-.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="thread"]) {
+.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) {
   min-width: 1.75rem;
   justify-content: center;
   padding-inline: 0;
 }
 
-.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"]) {
+.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) {
   width: 1.75rem;
 }
 
 /* The editor's card is enlarged on purpose, so its small icons grow too. */
-.mail-card-layout-drag-layer :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"]) > svg,
-.mail-card-layout-preview-card :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"]) > svg {
+.mail-card-layout-drag-layer :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) > svg,
+.mail-card-layout-preview-card :is([data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="thread"], [data-mail-card-field="readAction"], [data-mail-card-field="archiveAction"], [data-mail-card-field="deleteAction"], [data-mail-card-field="labelsAction"], [data-mail-card-field="spamAction"]) > svg {
   width: 1rem;
   height: 1rem;
 }
@@ -3426,7 +3492,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="account"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="accountMarker"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="to"],
-#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="cc"] {
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="cc"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="readAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="archiveAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="deleteAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="labelsAction"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="spamAction"] {
   display: none !important;
 }
 
@@ -3443,7 +3514,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #mail-list-scroll[data-mail-card-hidden~="labels"] [data-mail-card-field="labels"],
 #mail-list-scroll[data-mail-card-hidden~="attachment"] [data-mail-card-field="attachment"],
 #mail-list-scroll[data-mail-card-hidden~="starred"] [data-mail-card-field="starred"],
-#mail-list-scroll[data-mail-card-hidden~="unread"] [data-mail-card-field="unread"] {
+#mail-list-scroll[data-mail-card-hidden~="unread"] [data-mail-card-field="unread"],
+#mail-list-scroll[data-mail-card-hidden~="readAction"] [data-mail-card-field="readAction"],
+#mail-list-scroll[data-mail-card-hidden~="archiveAction"] [data-mail-card-field="archiveAction"],
+#mail-list-scroll[data-mail-card-hidden~="deleteAction"] [data-mail-card-field="deleteAction"],
+#mail-list-scroll[data-mail-card-hidden~="labelsAction"] [data-mail-card-field="labelsAction"],
+#mail-list-scroll[data-mail-card-hidden~="spamAction"] [data-mail-card-field="spamAction"] {
   display: none !important;
 }
 
@@ -3952,7 +4028,8 @@ body.mail-list-column-resizing {
   border-radius: min(0.25rem, var(--radius));
 }
 
-:is([data-calendar-agenda-event], [data-calendar-month-grid]) {
+/* The hour grid is a card like the month grid. */
+:is([data-calendar-agenda-event], [data-calendar-month-grid], [data-calendar-week-card]) {
   border-radius: calc(var(--radius) + min(var(--radius), 4px));
 }
 
@@ -4395,9 +4472,29 @@ body.mail-list-column-resizing {
   will-change: transform;
 }
 
+/* Collapsed sheets out of view aren't styled, laid out or drawn until they
+   scroll near, so a long conversation opens without doing that work for every
+   message. Until then a sheet counts as about a collapsed sheet's height, or
+   the height it had when last drawn. An open message is always drawn: the
+   reader scrolls to it as the conversation arrives, which needs its real
+   height, and its body only loads and measures itself while drawn. */
+.mail-thread-card {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 11rem;
+}
+
+.mail-thread-card:has(details[open]) {
+  content-visibility: visible;
+}
+
 @container (max-width: 560px) {
   .mail-view-scroll-top-button {
     right: 0;
+  }
+
+  /* A collapsed sheet's buttons wrap under its sender here, so it's taller. */
+  .mail-thread-card {
+    contain-intrinsic-block-size: auto 14rem;
   }
 
   .mail-view-frame {
@@ -5343,6 +5440,11 @@ body.mail-list-column-resizing {
     transition: transform 0.15s ease-in, box-shadow 0.15s ease-in;
   }
 
+  /* A menu sized to its items still spans the screen as a sheet. */
+  .mobile-sheet[data-tui-selectbox-fit-items="true"]:popover-open {
+    width: 100% !important;
+  }
+
   .mobile-sheet[data-tui-popover-open="true"]:popover-open {
     transform: none;
     box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.35);
@@ -5596,6 +5698,7 @@ body.mail-list-column-resizing {
   /* While selecting, a tap anywhere on a card selects it: its star and thread
      toggle don't take the tap. */
   #mail-list[data-mail-selecting] #mail-list-scroll .star-btn,
+  #mail-list[data-mail-selecting] #mail-list-scroll [data-mail-card-action],
   #mail-list[data-mail-selecting] #mail-list-scroll [data-thread-toggle] {
     pointer-events: none;
   }
@@ -5712,7 +5815,10 @@ body.mail-list-column-resizing {
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="cc"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="account"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="labels"] > * + *,
-  #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address {
+  #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address,
+  /* The phone card has no spot for the card layout's action buttons, and
+     phones archive and delete by swiping. */
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-action] {
     display: none;
   }
 
@@ -7235,6 +7341,25 @@ body.mail-list-column-resizing {
   transition: none;
 }
 
+/* A rule dragged with others selected carries them, and says how many go. */
+[data-mail-rule-row][data-order-group]::after {
+  content: attr(data-order-group);
+  position: absolute;
+  top: -0.5rem;
+  right: -0.5rem;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 [data-settings-account-card] > .settings-account-card,
 [data-mail-rule-row] > .mail-rule-card {
   transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
@@ -7445,10 +7570,12 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 
   /* The step bar. It neither scrolls nor rounds its corners, so the cells at its
-     edges are not clipped. */
+     edges are not clipped. One column per section: three, and a fourth when
+     the Proxy row shows. The columns are explicit so mail's sub-steps, on a
+     row below, span the whole bar. */
   .account-wizard-dialog .account-wizard-shell > aside {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.375rem;
     min-height: 0;
     overflow: visible;
@@ -7456,6 +7583,16 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     border-radius: 0;
     background: transparent;
     padding: 0;
+  }
+
+  .account-wizard-dialog .account-wizard-shell > aside:has([data-account-proxy-row]) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  /* The add wizard keeps its Proxy row in a container of its own; the row is
+     the cell, and with no proxies the empty container takes no place. */
+  .account-wizard-dialog #add-account-proxy-row {
+    display: contents;
   }
 
   .account-wizard-shell > aside > :first-child {
@@ -7641,6 +7778,7 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 
   .account-wizard-dialog .account-wizard-scroll {
+    max-height: none;
     padding: 6px 6px 1rem;
   }
 
@@ -7676,55 +7814,219 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 }
 
+/* === SIGNATURES DIALOG ===
+   Both tabs share one grid cell. The closed one stays laid out but hidden, so
+   the dialog is as tall as the taller tab and keeps its size when the tabs
+   switch. */
+
+.signatures-dialog [data-signature-tab-panels] > [data-tui-tabs-content] {
+  display: block;
+}
+
+.signatures-dialog [data-signature-tab-panels] > [data-tui-tabs-content][data-tui-tabs-state="inactive"] {
+  visibility: hidden;
+}
+
+/* Hiding is a change of visibility, which controls with transition-all (the
+   button component, among others) would animate: the closed tab's buttons
+   lingered on screen after switching. Nothing animates while hidden. */
+.signatures-dialog [data-signature-tab-panels] > [data-tui-tabs-content][data-tui-tabs-state="inactive"] * {
+  transition: none !important;
+}
+
+/* The footer's status line: "Changes save automatically", "Saved" in the
+   success color, or an error. Each change slides the old text up and out and
+   the new one up from below (settings.js sets data-status-swap). */
+.signatures-dialog [data-signatures-status] {
+  transition: opacity 150ms ease, transform 150ms ease, color 150ms ease;
+}
+
+.signatures-dialog [data-signatures-status][data-status-swap="out"] {
+  opacity: 0;
+  transform: translateY(-0.375rem);
+}
+
+.signatures-dialog [data-signatures-status][data-status-swap="in"] {
+  opacity: 0;
+  transform: translateY(0.375rem);
+  transition: none;
+}
+
+.signatures-dialog [data-signatures-status][data-status-tone="success"] {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.signatures-dialog [data-signatures-status][data-status-tone="error"] {
+  color: var(--destructive);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signatures-dialog [data-signatures-status] {
+    transition: none;
+    transform: none !important;
+  }
+}
+
 /* === SMALL SCREENS: SIGNATURES ===
-   The signatures dialogs scroll inside their panel, so the title and close button stay
-   put. The library and account sections lose their card boxes and sit one after
-   the other, split by a line. */
+   On a phone the signatures dialog is a page. Its panel fills the screen with no
+   padding of its own, so the tabs' bodies scroll edge to edge between the title
+   and the footer, and each part keeps the page's 1rem side margin. */
 
 @media (max-width: 1023.98px) {
-  .signatures-dialog {
-    overflow: hidden;
-  }
-
   .signatures-dialog > [data-tui-dialog-panel] {
     height: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-  }
-
-  .signatures-dialog [data-account-signatures-manager] > .grid,
-  .signatures-dialog [data-account-signatures-manager].grid {
+    max-height: none;
     gap: 0;
+    padding: 0 0 env(safe-area-inset-bottom);
   }
 
-  .signatures-dialog [data-account-signatures-manager] .rounded-lg.border.bg-background\/60 {
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    padding: 0.25rem 0 1.25rem;
+  .signatures-dialog > [data-tui-dialog-panel] > :first-child {
+    margin-inline: 0;
   }
 
-  .signatures-dialog [data-account-signatures-manager] .min-w-0.space-y-4 + .rounded-lg.border.bg-background\/60 {
-    border-top: 1px solid var(--border);
-    padding-top: 1.25rem;
+  .signatures-dialog :is([data-signature-tabs], [data-data-dialog-scroll], [data-data-dialog-footer]) {
+    padding-inline: 1rem;
   }
 
-  .signatures-dialog [data-signature-new] {
+  .signatures-dialog :is([data-signature-new], [data-signature-row]) {
     height: 2.5rem;
   }
 
-  .signatures-dialog :is([data-signature-form], [data-account-signature-settings]) button[type="submit"] {
+  .signatures-dialog [data-data-dialog-footer] button {
     min-height: 2.5rem;
+  }
+}
+
+/* === CALENDAR: HOUR GRID HEADERS ===
+   The day headers are their own section above the hours' scroller. Where they
+   line up with the hours' days, their rows end in a track as wide as the hours'
+   scrollbar (--calendar-week-gutter, set by app.js), and the last day reaches
+   over it to the card's edge, its contents kept over its own column. The day
+   strip (Day view, and on phones) is a picker, not lined up with the hours, so
+   it has no such track (see ONE DAY AT A TIME and the phone rules). */
+[data-calendar-week-header] > div:first-child > :last-child,
+[data-calendar-all-day-row] > :last-child {
+  grid-column-end: span 2;
+}
+
+[data-calendar-week-header] > div:first-child > :last-child {
+  padding-right: var(--calendar-week-gutter, 0px);
+}
+
+[data-calendar-all-day-row] > :last-child {
+  padding-right: calc(0.375rem + var(--calendar-week-gutter, 0px));
+}
+
+/* The last day has no divider: below the headers the scrollbar (or the card's
+   edge) already ends it, and in the headers a divider would box the empty track
+   off as an extra column, so the headers' background runs on to the edge. */
+[data-calendar-week-header] > div > :last-child,
+[data-calendar-week-timeline] > [data-calendar-timed-column]:last-child,
+#calendar-main[data-calendar-view="day"] [data-calendar-week-grid] :is([data-calendar-all-day-column], [data-calendar-timed-column])[data-calendar-shown-day] {
+  border-right: 0;
+}
+
+/* === CALENDAR: ZOOM SLIDER ===
+   The thumb and fill glide to each new level instead of jumping. While Fit is on
+   the slider is greyed out: Fit is none of its levels, and the thumb only marks
+   where - and + will go on from. Solid greys, not transparency, so the thumb
+   doesn't show the fill through it. */
+[data-calendar-week-zoom-slider] [data-thumb] {
+  transition: left 200ms cubic-bezier(0.32, 0.72, 0.24, 1), background-color 150ms ease-out;
+}
+
+[data-calendar-week-zoom-slider] [data-fill] {
+  transition: right 200ms cubic-bezier(0.32, 0.72, 0.24, 1), background-color 150ms ease-out;
+}
+
+[data-calendar-week-zoom-slider][data-calendar-week-zoom-fit] [data-fill] {
+  background-color: color-mix(in oklab, var(--muted-foreground) 35%, var(--secondary));
+}
+
+[data-calendar-week-zoom-slider][data-calendar-week-zoom-fit] [data-thumb] {
+  background-color: color-mix(in oklab, var(--muted-foreground) 70%, var(--secondary));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-calendar-week-zoom-slider] :is([data-thumb], [data-fill]) {
+    transition: none;
+  }
+}
+
+/* === CALENDAR: ONE DAY AT A TIME ===
+   Day view shows one day of its week at full width, with the week above as a strip
+   to pick the day. Small screens show Week and Work week the same way (see below).
+   The day shown carries data-calendar-shown-day; while it changes, the day leaving
+   carries data-calendar-shown-day-leaving and both share the one column. */
+
+@media (min-width: 1024px) {
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child {
+    grid-template-columns: repeat(var(--calendar-days), minmax(0, 1fr));
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child > :last-child {
+    grid-column-end: auto;
+    padding-right: 0;
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
+    display: none;
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-header] [data-calendar-day][data-calendar-shown-day] > button {
+    background: color-mix(in oklab, var(--primary) 12%, transparent);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-all-day-row], [data-calendar-week-timeline]) {
+    grid-template-columns: 56px minmax(0, 1fr);
+    clip-path: inset(0);
+    overflow-x: hidden;
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-all-day-row] {
+    grid-template-columns: 56px minmax(0, 1fr) var(--calendar-week-gutter, 0px);
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-all-day-column], [data-calendar-timed-column]):not([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
+    display: none;
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  /* The all-day row is in the headers: the day shown reaches over the scrollbar's
+     track to the card's edge (HOUR GRID HEADERS). */
+  #calendar-main[data-calendar-view="day"] [data-calendar-all-day-column]:is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
+    grid-column: 2 / -1;
+    padding-right: calc(0.375rem + var(--calendar-week-gutter, 0px));
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-all-day-row]:not(:has([data-calendar-shown-day] [data-calendar-week-all-day]:not([hidden]))) {
+    display: none;
+  }
+
+  #calendar-main[data-calendar-view="day"] :is([data-calendar-week-timeline], [data-calendar-all-day-row]) > :first-child {
+    position: relative;
+    z-index: 15;
+    background: var(--background);
+  }
+
+  #calendar-main[data-calendar-view="day"] [data-calendar-week-all-day][data-calendar-continues-before] > .invisible {
+    visibility: visible;
   }
 }
 
 /* === SMALL SCREENS: CALENDAR ===
    The top bar names the month or week, and the controls share one row below it.
    The month view is a compact grid that marks busy days with one dot per calendar,
-   with the selected day's events (or what is coming up) listed underneath. The week
-   view turns its day headers into a strip to pick a day, and shows that day's hours
-   at full width. */
+   with the selected day's events (or what is coming up) listed underneath. Day,
+   Week and Work week turn their day headers into a strip to pick a day, and show
+   that day's hours at full width; 3 days keeps its three columns. The view menu
+   offers Day, 3 days and Month, since Week and Work week would look like Day. */
 
 .calendar-day-dots {
   display: none;
@@ -7762,8 +8064,16 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     height: 2.25rem;
   }
 
-  #calendar-main [data-calendar-view-nav] > a {
+  #calendar-main [data-calendar-view-nav] .select-trigger {
+    width: 100%;
+    height: 100%;
     font-size: 0.8125rem;
+  }
+
+  /* Week and Work week would look like Day here; the menu lists them only
+     while one of them is open. The menu may sit outside the calendar. */
+  .select-item[data-calendar-view-phone="false"]:not([data-tui-selectbox-selected="true"]) {
+    display: none;
   }
 
   /* The legend is for the desktop chips; the sync status stays. */
@@ -7801,8 +8111,8 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     min-height: 0;
   }
 
-  /* The week view shows one day at a time and has no agenda. */
-  #main-content:has([data-calendar-view="week"]) > [data-calendar-agenda] {
+  /* The hour-grid views have no agenda. */
+  #main-content:has(#calendar-main:not([data-calendar-view="month"])) > [data-calendar-agenda] {
     display: none;
   }
 
@@ -7868,24 +8178,37 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     padding: 0.375rem 0.75rem;
   }
 
+  /* On phones the hour grid runs edge to edge instead of sitting in a card. */
+  #calendar-main [data-calendar-week-card] {
+    margin: 0;
+    border-inline: 0;
+    border-bottom: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
   #calendar-main [data-calendar-week-scroll] {
     overflow-x: hidden;
   }
 
-  #calendar-main [data-calendar-week-grid] {
+  #calendar-main :is([data-calendar-week-header] > div, [data-calendar-week-timeline]) {
     min-width: 0;
-    border-inline: 0;
   }
 
-  #calendar-main [data-calendar-week-header] > div:first-child {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child {
+    grid-template-columns: repeat(var(--calendar-days), minmax(0, 1fr));
   }
 
-  #calendar-main [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child > :last-child {
+    grid-column-end: auto;
+    padding-right: 0;
+  }
+
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
     display: none;
   }
 
-  #calendar-main [data-calendar-week-header] [data-calendar-day] {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] [data-calendar-day] {
     border-right: 0;
   }
 
@@ -7894,22 +8217,34 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     padding: 0.5rem 0 0.375rem;
   }
 
-  #calendar-main [data-calendar-week-header] [data-calendar-day][data-calendar-phone-day] > button {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-header] [data-calendar-day][data-calendar-shown-day] > button {
     background: color-mix(in oklab, var(--primary) 12%, transparent);
     box-shadow: inset 0 -2px 0 var(--primary);
   }
 
-  #calendar-main [data-calendar-all-day-row],
-  #calendar-main [data-calendar-week-timeline] {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-row] {
+    grid-template-columns: 3rem minmax(0, 1fr) var(--calendar-week-gutter, 0px);
+  }
+
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-timeline] {
     grid-template-columns: 3rem minmax(0, 1fr);
   }
 
-  #calendar-main [data-calendar-all-day-column]:not([data-calendar-phone-day]),
-  #calendar-main [data-calendar-timed-column]:not([data-calendar-phone-day]) {
+  #calendar-main[data-calendar-view="3day"] [data-calendar-week-header] > div:first-child,
+  #calendar-main[data-calendar-view="3day"] [data-calendar-all-day-row] {
+    grid-template-columns: 3rem repeat(var(--calendar-days), minmax(0, 1fr)) var(--calendar-week-gutter, 0px);
+  }
+
+  #calendar-main[data-calendar-view="3day"] [data-calendar-week-timeline] {
+    grid-template-columns: 3rem repeat(var(--calendar-days), minmax(0, 1fr));
+  }
+
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-column]:not([data-calendar-shown-day]),
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-timed-column]:not([data-calendar-shown-day]) {
     display: none;
   }
 
-  #calendar-main [data-calendar-all-day-row]:not(:has([data-calendar-phone-day] [data-calendar-week-all-day]:not([hidden]))) {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-row]:not(:has([data-calendar-shown-day] [data-calendar-week-all-day]:not([hidden]))) {
     display: none;
   }
 
@@ -7920,7 +8255,7 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
 
   /* One day is shown at a time, so an all-day event that started on an earlier day
      still shows its title here rather than leaving it on that first day. */
-  #calendar-main [data-calendar-week-all-day][data-calendar-continues-before] > .invisible {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-week-all-day][data-calendar-continues-before] > .invisible {
     visibility: visible;
   }
 }
@@ -8025,14 +8360,16 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     overflow-x: hidden;
   }
 
-  #calendar-main :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-phone-day], [data-calendar-phone-day-leaving]) {
+  #calendar-main:not([data-calendar-view="3day"]) :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
     display: block;
     grid-row: 1;
     grid-column: 2;
   }
 
-  #calendar-main [data-calendar-all-day-column]:is([data-calendar-phone-day], [data-calendar-phone-day-leaving]) {
+  #calendar-main:not([data-calendar-view="3day"]) [data-calendar-all-day-column]:is([data-calendar-shown-day], [data-calendar-shown-day-leaving]) {
     display: grid;
+    grid-column: 2 / -1;
+    padding-right: calc(0.375rem + var(--calendar-week-gutter, 0px));
   }
 
   #calendar-main [data-calendar-week-timeline] > :first-child,
@@ -8563,4 +8900,30 @@ html:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:not([da
 html.dark:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:not([data-email-body-style-toggle]) [data-tui-tabs-indicator] {
   background: color-mix(in oklab, var(--input) 30%, transparent) !important;
   border-color: var(--input) !important;
+}
+
+/* === ACCOUNT IDENTITIES DIALOG ===
+   An account with many From addresses makes a list taller than the screen:
+   the list scrolls under the title. On a phone the whole page scrolls. */
+
+.account-identities-dialog > [data-tui-dialog-panel] {
+  max-height: calc(100dvh - 2rem);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.account-identities-dialog #account-identities-panel {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  margin-inline: -0.25rem;
+  padding-inline: 0.25rem;
+}
+
+@media (max-width: 1023.98px) {
+  .account-identities-dialog > [data-tui-dialog-panel] {
+    height: 100%;
+    max-height: none;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
 }

@@ -22,6 +22,31 @@ func TestCalendarWeekRequestUsesExactLocalSevenDayWindow(t *testing.T) {
 	}
 }
 
+func TestCalendarRequestStartsWeeksOnTheSavedDay(t *testing.T) {
+	// October 25, 2026 is a Sunday: the last day of a Monday-first week and
+	// the first of a Sunday-first one.
+	for _, test := range []struct{ target, weekStart, start, end string }{
+		{"/calendar?view=week&date=2026-10-25", "", "2026-10-19", "2026-10-26"},
+		{"/calendar?view=week&date=2026-10-25", "monday", "2026-10-19", "2026-10-26"},
+		{"/calendar?view=week&date=2026-10-25", "sunday", "2026-10-25", "2026-11-01"},
+		{"/calendar?view=week&date=2026-10-25", "saturday", "2026-10-24", "2026-10-31"},
+		{"/calendar?view=week&date=2026-10-25", "someday", "2026-10-19", "2026-10-26"},
+		{"/calendar?month=2026-10", "", "2026-09-28", "2026-11-02"},
+		{"/calendar?month=2026-10", "sunday", "2026-09-27", "2026-11-01"},
+		{"/calendar?month=2026-10", "saturday", "2026-09-26", "2026-11-07"},
+		// Day keeps its week up to date, for the strip; 3 days only its own.
+		{"/calendar?view=day&date=2026-10-25", "sunday", "2026-10-25", "2026-11-01"},
+		{"/calendar?view=3day&date=2026-10-25", "", "2026-10-25", "2026-10-28"},
+		{"/calendar?view=workweek&date=2026-10-25", "", "2026-10-19", "2026-10-24"},
+	} {
+		data := calendarDataFromRequest(httptest.NewRequest(http.MethodGet, test.target, nil), map[string]string{"timezone": "Europe/Prague", "week_start": test.weekStart})
+		start, end := calendarVisibleWindow(data)
+		if start.Format("2006-01-02") != test.start || end.Format("2006-01-02") != test.end {
+			t.Errorf("%s with week_start %q shows %s to %s, want %s to %s", test.target, test.weekStart, start.Format("2006-01-02"), end.Format("2006-01-02"), test.start, test.end)
+		}
+	}
+}
+
 func TestCalendarOpensInSavedViewUnlessLinkNamesOne(t *testing.T) {
 	settings := map[string]string{"calendar_view": "week"}
 	for target, expected := range map[string]string{
@@ -57,6 +82,9 @@ func TestHandleCalendarRefreshPreservesWeekView(t *testing.T) {
 		{"week", "2026-10-01", http.StatusOK},
 		{"week", "invalid", http.StatusBadRequest},
 		{"other", "2026-10-01", http.StatusBadRequest},
+		{"day", "2026-10-01", http.StatusOK},
+		{"3day", "2026-10-01", http.StatusOK},
+		{"workweek", "2026-10-01", http.StatusOK},
 	} {
 		form := url.Values{"view": {test.view}, "date": {test.date}, "month": {"2026-10"}}
 		r := httptest.NewRequest(http.MethodPost, "/api/calendar/sync", strings.NewReader(form.Encode()))
@@ -67,8 +95,9 @@ func TestHandleCalendarRefreshPreservesWeekView(t *testing.T) {
 		if w.Code != test.status {
 			t.Fatalf("refresh %s %s: status %d, body %s", test.view, test.date, w.Code, w.Body.String())
 		}
-		if test.status == http.StatusOK && (!strings.Contains(w.Body.String(), `data-calendar-period="week:2026-09-28"`) || !strings.Contains(w.Body.String(), `data-calendar-view="week"`)) {
-			t.Fatal("refresh switched away from the requested week")
+		period := map[string]string{"week": "week:2026-09-28", "day": "day:2026-09-28", "3day": "3day:2026-10-01", "workweek": "workweek:2026-09-28"}[test.view]
+		if test.status == http.StatusOK && (!strings.Contains(w.Body.String(), `data-calendar-period="`+period+`"`) || !strings.Contains(w.Body.String(), `data-calendar-view="`+test.view+`"`)) {
+			t.Fatalf("refresh switched away from the requested %s", test.view)
 		}
 	}
 }

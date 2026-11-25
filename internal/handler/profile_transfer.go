@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -47,6 +48,10 @@ type profileFile struct {
 	Accounts    []profileAccount   `json:"accounts,omitempty"`
 	// Contacts are the contacts kept only in Gofer, as vCard 4.0.
 	Contacts string `json:"contacts,omitempty"`
+	// MailRules are the user's mail rules, as a rules file has them. They
+	// name accounts by address, as the file's accounts are found again, so
+	// a Gofer older than them imports the rest of the profile without them.
+	MailRules *mailrules.File `json:"mail_rules,omitempty"`
 }
 
 // profilePreferences keep settings as stored, with account IDs replaced by
@@ -252,6 +257,14 @@ func exportProfile(ctx context.Context, store *config.AccountStore, db *storage.
 	}
 	sort.Strings(file.Preferences.AllowedSenders)
 
+	rules, err := mailRulesData(ctx, db, owner)
+	if err != nil {
+		return nil, err
+	}
+	if len(rules.Rules) > 0 {
+		file.MailRules = mailrules.Export(rules.Rules, rules.Accounts, now)
+	}
+
 	if includeContacts {
 		contacts, err := profileLocalContacts(ctx, db, owner)
 		if err != nil {
@@ -422,6 +435,13 @@ func parseProfile(data []byte) (*profileFile, error) {
 		}
 	}
 	file.Accounts = kept
+	if file.MailRules != nil {
+		if err := mailrules.CheckFile(file.MailRules); errors.Is(err, mailrules.ErrNewerFile) {
+			return nil, errors.New("This profile was exported by a newer version of Gofer. Update Gofer to import it.")
+		} else if err != nil {
+			return nil, errors.New("This profile file is damaged.")
+		}
+	}
 	refs := make(map[string]bool, len(file.Accounts))
 	for _, account := range file.Accounts {
 		if !profileAccountRefPattern.MatchString(account.Ref) || profileAccountRefPattern.FindString(account.Ref) != account.Ref || refs[account.Ref] {
@@ -651,6 +671,10 @@ type profileImportOptions struct {
 	// ContactActions say what to do with contacts that look like existing
 	// ones, by their position in the profile.
 	ContactActions map[int]string
+	// Rules adds the profile's mail rules, and RuleActions say what to do
+	// with those whose name is taken, by their position among them.
+	Rules       bool
+	RuleActions map[int]string
 }
 
 type profileImportResult struct {
@@ -662,6 +686,10 @@ type profileImportResult struct {
 	ContactsReplaced int
 	ContactsSkipped  int
 	Preferences      bool
+	Rules            mailRulesImported
+	// RulesTooMany is set when the rules would have taken the user past the
+	// most rules one may have, so none were added.
+	RulesTooMany bool
 }
 
 func (h *Handler) importProfile(ctx context.Context, owner string, file *profileFile, options profileImportOptions) (profileImportResult, error) {
@@ -714,6 +742,16 @@ func (h *Handler) importProfile(ctx context.Context, owner string, file *profile
 		}
 	}
 
+	// Rules come after the accounts, to find them; an account just added
+	// has no folders yet, so its rules wait for them.
+	if options.Rules && file.MailRules != nil {
+		if err := h.withProfileStore(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
+			return importProfileMailRules(ctx, db, owner, file.MailRules, options.RuleActions, &result)
+		}); err != nil {
+			return result, fmt.Errorf("import mail rules: %w", err)
+		}
+	}
+
 	if options.Preferences {
 		if err := h.withProfileStore(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
 			return importProfilePreferences(ctx, db, owner, file.Preferences, accountIDs)
@@ -733,6 +771,49 @@ func (h *Handler) importProfile(ctx context.Context, owner string, file *profile
 		}
 	}
 	return result, nil
+}
+
+// importProfileMailRules adds a profile's mail rules after the user's own, as
+// importing a rules file from Rules does, with actions saying what to do
+// with each rule whose name is taken. A rule for an account the import just
+// added is turned off until that account syncs its folders, and turned on
+// again then if it was on. Rules that would take the user past the most one
+// may have are not added, and result says so.
+func importProfileMailRules(ctx context.Context, db *storage.DB, owner string, file *mailrules.File, actions map[int]string, result *profileImportResult) error {
+	data, err := mailRulesData(ctx, db, owner)
+	if err != nil {
+		return err
+	}
+	rules, counts := chooseMailRulesImport(mailRulesImportView(ctx, file, "", data, actions), data.Rules)
+	if len(rules) > 0 {
+		if _, err := db.ImportMailRulesGuarded(ctx, owner, rules, nil); errors.Is(err, storage.ErrTooManyMailRules) {
+			result.RulesTooMany = true
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
+	result.Rules = counts
+	return nil
+}
+
+// profileMailRulesData is what the profile's rules would be imported among:
+// the user's rules and accounts, and the accounts the profile adds, which
+// have no folders yet.
+func profileMailRulesData(ctx context.Context, db *storage.DB, owner string, file *profileFile, plans map[string]profileAccountPlan) (models.MailRulesData, error) {
+	data, err := mailRulesData(ctx, db, owner)
+	if err != nil {
+		return data, err
+	}
+	for _, account := range file.Accounts {
+		if plans[account.Ref].Status == profileImportNew && account.Provider != providers.ProviderDAV {
+			color, _ := normalizeAccountColor(account.Color)
+			data.Accounts = append(data.Accounts, models.MailRuleAccount{
+				ID: "profile" + account.Ref, Name: account.DisplayName, Email: account.EmailAddress, Color: color, Provider: account.Provider,
+			})
+		}
+	}
+	return data, nil
 }
 
 // importProfileSignatures adds the profile's signatures. A signature that

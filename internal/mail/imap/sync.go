@@ -40,13 +40,13 @@ type FolderSyncOptions struct {
 }
 
 type messageDateCandidates struct {
-	envelopeDate time.Time
+	headerDate   time.Time
 	internalDate time.Time
 }
 
 func (c messageDateCandidates) resolve(fallback time.Time) (time.Time, bool) {
-	if !c.envelopeDate.IsZero() {
-		return c.envelopeDate.UTC(), false
+	if !c.headerDate.IsZero() {
+		return c.headerDate.UTC(), false
 	}
 	if !c.internalDate.IsZero() {
 		return c.internalDate.UTC(), false
@@ -66,6 +66,54 @@ func finalizeSyncMessage(syncMsg *storage.SyncMessage, folderID string, dates me
 		syncMsg.Subject = i18n.NoSubject
 	}
 	syncMsg.Snippet = truncate(syncMsg.Subject, 200)
+}
+
+// syncFetchOptions asks for what a message row needs. The subject, people,
+// date and Message-ID come from the message's own header lines, not from
+// ENVELOPE: some servers, such as QQ Mail's, put a header holding a quote
+// into ENVELOPE without escaping it, and go-imap then drops the connection,
+// so the folder could never finish syncing. Header lines come as a literal,
+// which nothing inside them can break.
+func syncFetchOptions() *imap.FetchOptions {
+	return &imap.FetchOptions{
+		UID:          true,
+		Flags:        true,
+		InternalDate: true,
+		RFC822Size:   true,
+		BodySection: []*imap.FetchItemBodySection{{
+			Specifier: imap.PartSpecifierHeader,
+			HeaderFields: []string{
+				"Date", "Subject", "From", "To", "Cc", "Bcc",
+				"Message-ID", "In-Reply-To", "References", "List-Id",
+			},
+			Peek: true,
+		}},
+	}
+}
+
+// applySyncHeaders fills a synced message from the header lines fetched
+// with syncFetchOptions.
+func applySyncHeaders(syncMsg *storage.SyncMessage, dates *messageDateCandidates, raw []byte) {
+	headers := message.ParseSyncHeaders(raw)
+	syncMsg.Subject = headers.Subject
+	syncMsg.MessageID = headers.MessageID
+	syncMsg.InReplyTo = headers.InReplyTo
+	syncMsg.References = headers.References
+	syncMsg.ListID = headers.ListID
+	syncMsg.FromName = headers.FromName
+	syncMsg.FromEmail = headers.FromEmail
+	syncMsg.ToRecipients = syncRecipients(headers.To)
+	syncMsg.CCRecipients = syncRecipients(headers.CC)
+	syncMsg.BCCRecipients = syncRecipients(headers.BCC)
+	dates.headerDate = headers.Date
+}
+
+func syncRecipients(recipients []message.Recipient) []storage.Recipient {
+	var out []storage.Recipient
+	for _, recipient := range recipients {
+		out = append(out, storage.Recipient{Name: recipient.Name, Email: recipient.Email})
+	}
+	return out
 }
 
 func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, options FolderSyncOptions, fn func([]storage.SyncMessage) error) (*SyncResult, error) {
@@ -111,18 +159,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, op
 		return result, nil
 	}
 
-	fetchOpts := &imap.FetchOptions{
-		UID:          true,
-		Envelope:     true,
-		Flags:        true,
-		InternalDate: true,
-		RFC822Size:   true,
-		BodySection: []*imap.FetchItemBodySection{{
-			Specifier:    imap.PartSpecifierHeader,
-			HeaderFields: []string{"References", "In-Reply-To", "List-Id"},
-			Peek:         true,
-		}},
-	}
+	fetchOpts := syncFetchOptions()
 
 	writer := newBatchWriter(fn)
 	defer writer.close()
@@ -157,51 +194,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, op
 				case imapclient.FetchItemDataBodySection:
 					body, err := io.ReadAll(item.Literal)
 					if err == nil {
-						inReplyTo, references := message.ParseThreadHeaders(body)
-						if inReplyTo != "" {
-							syncMsg.InReplyTo = inReplyTo
-						}
-						syncMsg.References = references
-						syncMsg.ListID = message.ParseListID(body)
-					}
-				case imapclient.FetchItemDataEnvelope:
-					if item.Envelope != nil {
-						syncMsg.Subject = message.DecodeHeader(item.Envelope.Subject)
-						syncMsg.MessageID = item.Envelope.MessageID
-						if len(item.Envelope.InReplyTo) > 0 && syncMsg.InReplyTo == "" {
-							syncMsg.InReplyTo = item.Envelope.InReplyTo[0]
-						}
-						if len(item.Envelope.From) > 0 {
-							syncMsg.FromName = message.DecodeHeader(item.Envelope.From[0].Name)
-							syncMsg.FromEmail = item.Envelope.From[0].Addr()
-						}
-						if !item.Envelope.Date.IsZero() {
-							dates.envelopeDate = item.Envelope.Date
-						}
-						for _, addr := range item.Envelope.To {
-							if email := addr.Addr(); email != "" {
-								syncMsg.ToRecipients = append(syncMsg.ToRecipients, storage.Recipient{
-									Name:  message.DecodeHeader(addr.Name),
-									Email: email,
-								})
-							}
-						}
-						for _, addr := range item.Envelope.Cc {
-							if email := addr.Addr(); email != "" {
-								syncMsg.CCRecipients = append(syncMsg.CCRecipients, storage.Recipient{
-									Name:  message.DecodeHeader(addr.Name),
-									Email: email,
-								})
-							}
-						}
-						for _, addr := range item.Envelope.Bcc {
-							if email := addr.Addr(); email != "" {
-								syncMsg.BCCRecipients = append(syncMsg.BCCRecipients, storage.Recipient{
-									Name:  message.DecodeHeader(addr.Name),
-									Email: email,
-								})
-							}
-						}
+						applySyncHeaders(&syncMsg, &dates, body)
 					}
 				case imapclient.FetchItemDataFlags:
 					syncMsg.Labels = labelsFromFlags(item.Flags)
@@ -298,18 +291,7 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 		uidSet = imap.UIDSet{{Start: imap.UID(highestUID + 1), Stop: 0}}
 	}
 
-	fetchOpts := &imap.FetchOptions{
-		UID:          true,
-		Envelope:     true,
-		Flags:        true,
-		InternalDate: true,
-		RFC822Size:   true,
-		BodySection: []*imap.FetchItemBodySection{{
-			Specifier:    imap.PartSpecifierHeader,
-			HeaderFields: []string{"References", "In-Reply-To", "List-Id"},
-			Peek:         true,
-		}},
-	}
+	fetchOpts := syncFetchOptions()
 
 	cmd := c.client.Fetch(uidSet, fetchOpts)
 	// However long the mailbox was away, new mail is saved in batches as
@@ -343,51 +325,7 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 			case imapclient.FetchItemDataBodySection:
 				body, err := io.ReadAll(item.Literal)
 				if err == nil {
-					inReplyTo, references := message.ParseThreadHeaders(body)
-					if inReplyTo != "" {
-						syncMsg.InReplyTo = inReplyTo
-					}
-					syncMsg.References = references
-					syncMsg.ListID = message.ParseListID(body)
-				}
-			case imapclient.FetchItemDataEnvelope:
-				if item.Envelope != nil {
-					syncMsg.Subject = message.DecodeHeader(item.Envelope.Subject)
-					syncMsg.MessageID = item.Envelope.MessageID
-					if len(item.Envelope.InReplyTo) > 0 && syncMsg.InReplyTo == "" {
-						syncMsg.InReplyTo = item.Envelope.InReplyTo[0]
-					}
-					if len(item.Envelope.From) > 0 {
-						syncMsg.FromName = message.DecodeHeader(item.Envelope.From[0].Name)
-						syncMsg.FromEmail = item.Envelope.From[0].Addr()
-					}
-					if !item.Envelope.Date.IsZero() {
-						dates.envelopeDate = item.Envelope.Date
-					}
-					for _, addr := range item.Envelope.To {
-						if email := addr.Addr(); email != "" {
-							syncMsg.ToRecipients = append(syncMsg.ToRecipients, storage.Recipient{
-								Name:  message.DecodeHeader(addr.Name),
-								Email: email,
-							})
-						}
-					}
-					for _, addr := range item.Envelope.Cc {
-						if email := addr.Addr(); email != "" {
-							syncMsg.CCRecipients = append(syncMsg.CCRecipients, storage.Recipient{
-								Name:  message.DecodeHeader(addr.Name),
-								Email: email,
-							})
-						}
-					}
-					for _, addr := range item.Envelope.Bcc {
-						if email := addr.Addr(); email != "" {
-							syncMsg.BCCRecipients = append(syncMsg.BCCRecipients, storage.Recipient{
-								Name:  message.DecodeHeader(addr.Name),
-								Email: email,
-							})
-						}
-					}
+					applySyncHeaders(&syncMsg, &dates, body)
 				}
 			case imapclient.FetchItemDataFlags:
 				syncMsg.Labels = labelsFromFlags(item.Flags)

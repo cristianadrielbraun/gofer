@@ -17,6 +17,7 @@ import (
 const (
 	AdminSectionOverview        = "overview"
 	AdminSectionUsers           = "users"
+	AdminSectionGroups          = "groups"
 	AdminSectionAdministrators  = "administrators"
 	AdminSectionMailSecurity    = "security"
 	AdminSectionActivity        = "activity"
@@ -100,6 +101,7 @@ var adminNavigation = []adminNavGroup{
 	}},
 	{label: "admin.nav.group.people", items: []adminNavItem{
 		{section: AdminSectionUsers, path: "/admin/users", label: "admin.nav.users", icon: icon.Users},
+		{section: AdminSectionGroups, path: AdminGroupsPath, label: "admin.nav.groups", icon: icon.UsersRound},
 		{section: AdminSectionAdministrators, path: AdminAdministratorsPath, label: "admin.nav.administrators", icon: icon.ShieldUser},
 	}},
 	{label: "admin.nav.group.security", items: []adminNavItem{

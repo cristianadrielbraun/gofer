@@ -257,6 +257,17 @@ document.addEventListener("click", function (e) {
 document.addEventListener("DOMContentLoaded", syncContactHeaderOverflow)
 document.addEventListener("htmx:afterSettle", function () { syncContactHeaderOverflow() })
 
+// A tooltip that repeats a label in full (tooltip.TriggerProps.WhenCut)
+// opens only while the label is cut short: otherwise its trigger is
+// switched to "manual". This runs before the tooltip's own hover handling,
+// which opens only "hover" triggers.
+document.addEventListener("pointerover", function (event) {
+  var trigger = event.target.closest && event.target.closest("[data-tooltip-when-cut]")
+  if (!trigger) return
+  var cut = Array.prototype.some.call(trigger.querySelectorAll(".truncate"), function (text) { return text.scrollWidth > text.clientWidth })
+  trigger.setAttribute("data-tui-popover-type", cut ? "hover" : "manual")
+}, true)
+
 // collapseContactSection closes part of a contact form, padding and divider
 // included, and hides it once closed; the dialog follows as it shrinks.
 function collapseContactSection(section, done) {
@@ -372,6 +383,9 @@ document.addEventListener("DOMContentLoaded", function () {
   // rows not loaded in the list. A message's account never changes, so it's
   // kept until the next such selection.
   var selectedMailAccounts = new Map()
+  // What the pointer was last over, for the selected cards to follow a card
+  // under it (syncMailSelectionHover).
+  var mailPointerTarget = null
   // The messages shown under each expanded thread row, by the row's id. Once
   // one of them is picked on its own, the thread row stands for its own
   // message only, and these say which of the others are picked too.
@@ -510,6 +524,7 @@ document.addEventListener("DOMContentLoaded", function () {
   })
   setupOutgoingSendStatus()
   setupMailOperationActions()
+  setupMailOperationsAttention()
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
@@ -579,25 +594,24 @@ document.addEventListener("DOMContentLoaded", function () {
       var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
       button.dataset.active = count > 0 ? "true" : "false"
-      // The count is the pill after the icon; the first span is the "Filters" label.
-      var badge = button.querySelector("span.rounded-full")
+      // The count after the icon; the first span is the "Filters" label.
+      var badge = button.querySelector("[data-contact-filter-count]")
       if (count === 0) {
         if (badge) badge.remove()
         return
       }
       if (!badge) {
         badge = document.createElement("span")
-        badge.className = "min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"
+        badge.className = "min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"
+        badge.setAttribute("data-contact-filter-count", "")
         button.appendChild(badge)
       }
       badge.textContent = String(count)
     }
 
     // The strip under the search with a pill for each active filter, the mail
-    // list's own (styles and open/close transition included). A pill's text is
-    // the label of the matching entry in the filter form, which the server
-    // draws with the same names.
-    var contactPillClearTimer = null
+    // list's own (syncFilterPills). A pill's text is the label of the matching
+    // entry in the filter form, which the server draws with the same names.
 
     function activeFilterPills(filters) {
       var pills = []
@@ -625,44 +639,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function syncActiveFilterChips(filters) {
-      var strip = document.querySelector("[data-contact-active-filter-pills]")
-      if (!strip) return
-      if (contactPillClearTimer) { clearTimeout(contactPillClearTimer); contactPillClearTimer = null }
-      var pills = activeFilterPills(filters)
-      if (pills.length === 0) {
-        // The pills stay while the strip closes, then go.
-        strip.classList.add("hidden")
-        contactPillClearTimer = setTimeout(function () {
-          contactPillClearTimer = null
-          if (strip.classList.contains("hidden")) strip.innerHTML = ""
-        }, 190)
-        return
-      }
-      var existing = Object.create(null)
-      strip.querySelectorAll("[data-contact-active-filter-key]").forEach(function (pill) {
-        existing[pill.getAttribute("data-contact-active-filter-key")] = true
+      var pills = activeFilterPills(filters).map(function (pill) {
+        return { name: pill.name, text: pill.text, label: goferT("js.contacts.filter.remove", { filter: pill.text }) }
       })
-      // Each pill is the server's own, tooltip included, from its template.
-      var template = document.querySelector("[data-contact-active-filter-pill-template]")
-      var visible = document.createElement("div")
-      visible.className = "mail-active-filter-visible"
-      pills.forEach(function (pill) {
-        var key = pill.name + ":" + pill.text
-        var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
-        var button = node && node.querySelector("[data-contact-active-filter-remove]")
-        if (!button) return
-        button.setAttribute("data-contact-active-filter-remove", pill.name)
-        button.setAttribute("data-contact-active-filter-key", key)
-        button.setAttribute("aria-label", goferT("js.contacts.filter.remove", { filter: pill.text }))
-        button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
-        var label = button.querySelector(".mail-active-filter-pill-label")
-        if (label) label.textContent = pill.text
-        var tip = node.querySelector("[data-contact-active-filter-tooltip]")
-        if (tip) tip.textContent = pill.text
-        visible.appendChild(node)
+      syncFilterPills(document.querySelector("[data-contact-active-filter-pills]"), document.querySelector("[data-contact-active-filter-pill-template]"), pills, {
+        remove: "data-contact-active-filter-remove", key: "data-contact-active-filter-key", tooltip: "data-contact-active-filter-tooltip",
       })
-      strip.replaceChildren(visible)
-      strip.classList.remove("hidden")
     }
 
     // The sidebar item that stands for the filters, as the server picks it.
@@ -1976,6 +1958,9 @@ document.addEventListener("DOMContentLoaded", function () {
     document.body.addEventListener("htmx:afterSwap", function (event) {
       syncTranslationControls(event.target || document)
     })
+    document.body.addEventListener("gofer:thread-body-added", function (event) {
+      syncTranslationControls(event.target || document)
+    })
     document.body.addEventListener("htmx:oobAfterSwap", function (event) {
       syncTranslationControls(event.target || document)
     })
@@ -2190,6 +2175,8 @@ document.addEventListener("DOMContentLoaded", function () {
     setupMailTouchSelection()
     setupMailPullToRefresh()
     setupMailSwipeActions()
+    setupMailCardActionLabels()
+    setupMailSelectionHover()
 
     // With no reading pane, a click selects a message, and a double click
     // opens it in the list's place (a single click does, with that setting on).
@@ -2200,7 +2187,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (Date.now() < suppressMailRowClickUntil) return
       if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
       var link = e.target.closest && e.target.closest("#mail-list-scroll :is(.mail-list-item[data-email-id], .thread-sub-item) > a")
-      if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+      if (!link || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action]")) return
       e.preventDefault()
       e.stopPropagation()
       var singleClickOpen = window.GoferSettings && GoferSettings.get("mail_single_click_open") === "true"
@@ -2250,10 +2237,18 @@ document.addEventListener("DOMContentLoaded", function () {
         if (toggleList) toggleList.toggleThreadExpand(threadToggle.dataset.threadToggle, { select: false })
         return
       }
+      // A card's action button acts on its message and leaves the row as it is.
+      var cardAction = e.target.closest && e.target.closest("#mail-list-scroll [data-mail-card-action]")
+      if (cardAction) {
+        e.preventDefault()
+        e.stopPropagation()
+        runMailCardAction(cardAction)
+        return
+      }
       // While selecting, or with Ctrl/Cmd, a thread's message picks itself
       // instead of opening.
       var subLink = e.target.closest && e.target.closest("#mail-list-scroll .thread-sub-item[data-sub-email-id] > a")
-      if (subLink && (e.metaKey || e.ctrlKey || mailSelectionModeActive()) && !e.target.closest(".star-btn")) {
+      if (subLink && (e.metaKey || e.ctrlKey || mailSelectionModeActive()) && !e.target.closest(".star-btn, [data-mail-card-action]")) {
         e.preventDefault()
         e.stopPropagation()
         toggleMailThreadSubSelected(subLink.parentElement)
@@ -2834,7 +2829,7 @@ document.addEventListener("DOMContentLoaded", function () {
         start = null
         if (!mobile.matches || e.touches.length !== 1 || mailSelectionModeActive()) return
         var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
-        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        if (!link || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action]")) return
         start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
         row = link.parentElement
         anchor = link
@@ -2893,7 +2888,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function setupMailTouchSelection() {
-      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle]", function (link) {
+      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle], [data-mail-card-action]", function (link) {
         var row = link.closest(".mail-list-item[data-email-id]")
         if (!row || !row.isConnected) return false
         if (!mailSelectionModeActive()) {
@@ -3165,6 +3160,127 @@ document.addEventListener("DOMContentLoaded", function () {
       performMailSelectionAction(button ? mailSelectionActionName(button) : action, target ? mailRowById(target.id) : null)
     }
 
+    // A card's action buttons (mailCardActionButtons) act on the selection
+    // when their card is in it, as the context menu does. Otherwise they act
+    // on that card's message alone, or its whole thread when the card stands
+    // for one, and leave the selection as it is.
+    function runMailCardAction(button) {
+      var row = button.closest(".mail-list-item[data-email-id]")
+      if (!row || !row.dataset.emailId) return
+      var action = mailCardActionName(button, row)
+      var only = selectedMailIds.has(row.dataset.emailId) ? null : [{ id: row.dataset.emailId, thread: row.dataset.hasThread === "true" }]
+      var run = function () { performMailSelectionAction(action, button, only) }
+      // In Trash, Delete is for good. The button is a single click away on
+      // every card, so it asks first.
+      if (action === "delete" && mailFolderIsTrash(currentMailListFolderID())) {
+        var count = only ? 1 : selectedMailIds.size
+        window.goferConfirm({
+          title: goferTn("js.mail.delete.confirm_title", count),
+          message: goferTn("js.mail.delete.in_trash", count),
+          destructive: true,
+          confirmLabel: goferT("js.mail.delete.permanently"),
+        }).then(function (accepted) { if (accepted) run() })
+        return
+      }
+      run()
+    }
+
+    // What a card button does here: Read follows the message's state, Spam
+    // undoes in Spam. Archive and Delete follow the folder in
+    // performMailSelectionAction.
+    function mailCardActionName(button, row) {
+      var action = button.getAttribute("data-mail-card-action")
+      if (action === "read") return row.dataset.isRead === "true" ? "unread" : "read"
+      if (action === "spam" && mailFolderIsSpam(currentMailListFolderID())) return "not-spam"
+      return action
+    }
+
+    // A card button's label says what it will do, which depends on the folder
+    // and, for Read, on the message's state since the card was drawn.
+    function syncMailCardActionLabel(button) {
+      var row = button.closest(".mail-list-item[data-email-id]")
+      if (!row) return
+      var folderID = currentMailListFolderID()
+      var action = mailCardActionName(button, row)
+      var label = ""
+      if (action === "read") label = goferT("js.mail.action.mark_read")
+      else if (action === "unread") label = goferT("js.mail.action.mark_unread")
+      else if (action === "archive") label = mailFolderIsArchive(folderID) ? goferT("js.mail.action.move_to_inbox") : goferT("js.mail.action.archive")
+      else if (action === "delete") label = mailFolderIsTrash(folderID) ? goferT("js.mail.action.delete_permanently") : goferT("js.mail.action.delete")
+      else if (action === "spam") label = goferT("js.mail.action.report_spam")
+      else if (action === "not-spam") label = goferT("js.mail.action.not_spam")
+      if (!label) return
+      button.setAttribute("aria-label", label)
+      button.title = label
+    }
+
+    // Labels the card buttons under root as the cards are drawn, for screen
+    // readers that read a card without hovering or focusing it. ui-settings.js
+    // calls this as it lays the cards out. Hidden buttons aren't read out, so
+    // a layout that shows none is left alone.
+    function syncMailCardActionLabels(root) {
+      var scroll = document.getElementById("mail-list-scroll")
+      if (!scroll || !/Action(,|$)/.test(scroll.dataset.mailCardFields || "")) return
+      var buttons = (root && root !== document ? root : scroll).querySelectorAll("[data-mail-card-action]")
+      for (var i = 0; i < buttons.length; i++) syncMailCardActionLabel(buttons[i])
+    }
+
+    function setupMailCardActionLabels() {
+      window.syncMailCardActionLabels = syncMailCardActionLabels
+      if (document.body._goferMailCardActionLabelsBound) return
+      document.body._goferMailCardActionLabelsBound = true
+      // Cards drawn before this ran.
+      syncMailCardActionLabels()
+      // Hovering or focusing a button catches up with what changed since,
+      // such as Read after the message was marked read.
+      var sync = function (e) {
+        var button = e.target.closest && e.target.closest("#mail-list-scroll [data-mail-card-action]")
+        if (button) syncMailCardActionLabel(button)
+      }
+      document.addEventListener("mouseover", sync, { passive: true })
+      document.addEventListener("focusin", sync)
+    }
+
+    // With several cards selected, a card's button acts on all of them
+    // (runMailCardAction), so the pointer over one of them shows every
+    // selected card's action buttons, and the button under it lights up on
+    // all of them. The CSS follows the list's data-mail-selection-hover and
+    // data-mail-selection-hover-action.
+    function setupMailSelectionHover() {
+      if (document.body._goferMailSelectionHoverBound) return
+      document.body._goferMailSelectionHoverBound = true
+      document.addEventListener("mouseover", function (e) {
+        mailPointerTarget = e.target
+        syncMailSelectionHover()
+      }, { passive: true })
+      // Leaving the window.
+      document.addEventListener("mouseout", function (e) {
+        if (e.relatedTarget) return
+        mailPointerTarget = null
+        syncMailSelectionHover()
+      }, { passive: true })
+    }
+
+    // syncMailSelectionControls also runs this, as the selection changes
+    // under a still pointer.
+    function syncMailSelectionHover() {
+      var scroll = document.getElementById("mail-list-scroll")
+      if (!scroll) return
+      var target = mailPointerTarget && mailPointerTarget.isConnected && mailPointerTarget.closest ? mailPointerTarget : null
+      var row = target && target.closest("#mail-list-scroll .mail-list-item[data-email-id]")
+      var shared = !!row && selectedMailIds.size > 1 && selectedMailIds.has(row.dataset.emailId)
+      var button = shared ? target.closest("[data-mail-card-action]") : null
+      setScrollAttribute("data-mail-selection-hover", shared ? "" : null)
+      setScrollAttribute("data-mail-selection-hover-action", button ? button.getAttribute("data-mail-card-action") : null)
+
+      // Only a change touches the list, which restyles it.
+      function setScrollAttribute(name, value) {
+        if (scroll.getAttribute(name) === value) return
+        if (value === null) scroll.removeAttribute(name)
+        else scroll.setAttribute(name, value)
+      }
+    }
+
     // Right-clicking a folder in the sidebar offers what applies to the whole
     // folder; right-clicking an account offers to sync it. Phones keep the
     // long press for the drawer's own gestures.
@@ -3183,6 +3299,10 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         e.preventDefault()
         window.tui.popover.close("sidebar-context-menu")
+        // How many rules move mail into the folder loads now, only when its
+        // Rules item shows.
+        var rules = root.querySelector('[data-sidebar-context-action="folder-rules"]')
+        if (rules && !rules.hidden) loadFolderRulesCount(rules.querySelector("[data-folder-rules-count]"), target.folderID)
         placePointPopover(root, e.clientX, e.clientY)
         window.tui.popover.open("sidebar-context-menu")
         // Sizes load while the menu is open, so the dialog opens filled.
@@ -4337,6 +4457,9 @@ document.addEventListener("DOMContentLoaded", function () {
         // A paused account has no sync button to press.
         "sync-account": target.kind === "account" && !!sidebarAccountSyncButton(target.accountID),
         "mailbox-size": target.kind !== "tag" && !!target.accountID,
+        // Rules move mail into an account's folders, but never into Sent or
+        // Drafts, nor into a view such as Starred.
+        "folder-rules": target.kind === "folder" && !!target.accountID && !target.virtual && ["sent", "drafts", "starred", "scheduled"].indexOf(target.role) < 0 && !/^starred(-|$)/.test(target.folderID),
         // Gmail has labels rather than folders, so its items say so.
         "new-folder": target.kind === "account" && target.provider !== "gmail",
         "new-label": target.kind === "account" && target.provider === "gmail",
@@ -4377,6 +4500,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var button = sidebarAccountSyncButton(target.accountID)
         if (button) button.click()
       } else if (action === "mailbox-size") window.goferOpenMailboxSize(target.accountID, target.kind === "folder" ? target.folderID : "")
+      else if (action === "folder-rules") openFolderRules(target)
       else if (action === "new-folder") createMailFolder(target.accountID, "", "")
       else if (action === "new-subfolder") createMailFolder(target.accountID, target.folderID, target.name)
       else if (action === "folder-appearance") window.goferOpenFolderAppearance(target)
@@ -4435,6 +4559,11 @@ document.addEventListener("DOMContentLoaded", function () {
         virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
       }
       showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+    }
+
+    // The rules that move mail into a folder, in Settings → Rules.
+    function openFolderRules(target) {
+      window.location.assign("/settings/rules?folder=" + encodeURIComponent(target.folderID))
     }
 
     // The account settings' folders dialog runs these too.
@@ -4537,6 +4666,7 @@ document.addEventListener("DOMContentLoaded", function () {
       "visibility-hide-folder": function (t) { return setFolderVisibility(t, false) },
       "visibility-show-folder": function (t) { return setFolderVisibility(t, true) },
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
+      "folder-rules": openFolderRules,
       "new-subfolder": function (t) { createMailFolder(t.accountID, t.folderID, t.name) },
       "folder-appearance": function (t) { window.goferOpenFolderAppearance(t) },
       "rename-folder": renameMailFolder,
@@ -5082,6 +5212,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var deleteSlotFrom = toolbarSynced ? null : mailDeleteSlotLeft()
       syncMailSelectAllControls(selectedMailIds.size)
       syncMailRowSelection()
+      syncMailSelectionHover()
 
       var count = selectedMailIds.size
       if (count === 0 && !keepMailSelectionModeWhenEmpty) setMailSelectionMode(false)
@@ -5387,10 +5518,10 @@ document.addEventListener("DOMContentLoaded", function () {
       return action
     }
 
-    function markSelectedReadInBackground(ids) {
-      var targets = selectedMailTargets(ids)
+    // finish is what performMailSelectionAction does with the selection.
+    function markSelectedReadInBackground(ids, targets, finish) {
       for (var i = 0; i < ids.length; i++) applyOptimisticRead(ids[i])
-      clearMailSelection()
+      finish()
 
       sendBulkMessageAction("/api/messages/read", targets).then(function () {
         if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -5462,14 +5593,19 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // anchor is where the action was asked for, for a popover about it.
-    function performMailSelectionAction(action, anchor) {
-      if (mailSelectionBusy || selectedMailIds.size === 0) return
-      var ids = Array.from(selectedMailIds)
-      if (action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) && archiveSelectionBlocked(ids, anchor)) return
+    // only, when given, is what to act on instead of the selection, as
+    // { id, thread } targets, and the selection then stays as it is: a
+    // card's button on a card outside the selection.
+    function performMailSelectionAction(action, anchor, only) {
+      if (mailSelectionBusy || (!only && selectedMailIds.size === 0)) return
+      var ids = only ? only.map(function (target) { return target.id }) : Array.from(selectedMailIds)
+      var actionTargets = function () { return only || selectedMailTargets(ids) }
+      var finish = only ? function () {} : clearMailSelection
+      if (action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) && archiveSelectionBlocked(ids, anchor, only)) return
       if (action === "labels") {
-        var labelTargets = selectedMailTargets(ids)
+        var labelTargets = actionTargets()
         openLabelsDialog(labelTargets, function () {
-          clearMailSelection()
+          finish()
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
             virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
           }
@@ -5481,12 +5617,12 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       if (action === "read") {
-        markSelectedReadInBackground(ids)
+        markSelectedReadInBackground(ids, actionTargets(), finish)
         return
       }
       if (action === "unread") {
-        var unreadTargets = selectedMailTargets(ids)
-        clearMailSelection()
+        var unreadTargets = actionTargets()
+        finish()
         sendBulkMessageAction("/api/messages/read", unreadTargets, { state: "unread" }).then(function () {
           for (var u = 0; u < ids.length; u++) invalidateMailListItem(ids[u])
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -5499,13 +5635,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (action === "archive" && mailFolderIsArchive(currentMailListFolderID())) action = "unarchive"
       if (action === "archive" || action === "unarchive" || action === "delete" || action === "star" || action === "unstar" || action === "spam" || action === "not-spam") {
-        var targets = selectedMailTargets(ids)
+        var targets = actionTargets()
         var current = virtualMailList && virtualMailList.selectedEmailId
         var starring = action === "star" || action === "unstar"
         var removesFromFolder = !starring
         if (removesFromFolder && current && ids.indexOf(current) !== -1) setMailViewEmpty()
         if (removesFromFolder) applyOptimisticRemove(ids)
-        clearMailSelection()
+        finish()
         var path = action === "unarchive" ? "/api/messages/unarchive" : action === "archive" ? "/api/messages/archive" : (action === "delete" ? "/api/messages/delete" : (action === "spam" ? "/api/messages/spam" : (action === "not-spam" ? "/api/messages/not-spam" : "/api/messages/star")))
         var extra = starring ? { state: action === "star" ? "starred" : "unstarred" } : null
         if (action === "delete") extra = { folder_id: currentMailListFolderID() }
@@ -5535,7 +5671,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var mailView = document.getElementById("mail-view")
         var current = virtualMailList && virtualMailList.selectedEmailId
         if ((action === "archive" || action === "delete") && current && ids.indexOf(current) !== -1 && mailView) setMailViewEmpty()
-        clearMailSelection()
+        finish()
         for (var i = 0; i < ids.length; i++) invalidateMailListItem(ids[i])
         if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
           virtualMailList.refreshCurrentFolder({ noAnimation: action === "read" }).catch(function () {})
@@ -5558,8 +5694,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // archiveSelectionBlocked shows why ids can't all be archived and returns
     // true, or returns false when they can. When some of them can, the
-    // popover offers to archive just those.
-    function archiveSelectionBlocked(ids, anchor) {
+    // popover offers to archive just those. only is performMailSelectionAction's.
+    function archiveSelectionBlocked(ids, anchor, only) {
       var missing = selectionWithoutArchive(ids)
       if (!missing.length) return false
       var archivable = ids.filter(function (id) { return missing.indexOf(mailRowAccountID(id)) === -1 })
@@ -5568,6 +5704,10 @@ document.addEventListener("DOMContentLoaded", function () {
         anchor = button && button.offsetParent ? button : mailRowById(ids[0])
       }
       showArchiveUnavailable(anchor, missing, archivable.length ? function () {
+        if (only) {
+          performMailSelectionAction("archive", null, only.filter(function (target) { return archivable.indexOf(target.id) !== -1 }))
+          return
+        }
         selectedMailIds.clear()
         archivable.forEach(function (id) { setMailSelected(id, true) })
         syncMailSelectionControls()
@@ -8157,7 +8297,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (e.pointerType !== "touch" && e.pointerType !== "pen") return
       clearTouchPrefetch()
       var row = e.target && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id]")
-      if (!row || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-row-check]")) return
+      if (!row || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-card-action], [data-mail-row-check]")) return
       touchPrefetchRow = row
       touchPrefetchTimer = setTimeout(function () {
         clearTouchPrefetch()
@@ -8641,6 +8781,15 @@ document.addEventListener("DOMContentLoaded", function () {
       showComposeSendResult(data)
     })
 
+    // The person's background mail work changed: the attention mark and an
+    // open Mail operations list (settings.js) read it again. After a
+    // reconnect they do so once, since changes may have been missed.
+    source.addEventListener("mail-operations-changed", mailOperationsChanged)
+    source.addEventListener("connected", function () {
+      if (setupSSE.reconnecting) mailOperationsChanged()
+      setupSSE.reconnecting = false
+    })
+
     source.addEventListener("mutation", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { data = null }
@@ -8799,6 +8948,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     source.onerror = function () {
       // Updates sent while reconnecting are lost.
+      setupSSE.reconnecting = true
       markKeptStale("mail", "all")
       markKeptStale("calendar", "all")
       markKeptStale("contacts", "sidebar")
@@ -9848,7 +9998,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (span) {
               var badge = document.createElement("span")
               badge.dataset.folderUnread = id
-              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
+              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
               badge.textContent = String(counts[id])
               link.appendChild(badge)
             }
@@ -10248,7 +10398,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-title-row flex items-center justify-between">' +
       '<div class="mail-list-title flex items-center gap-2 min-w-0">' +
       '<h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + escapeHTML(folderName) + '</h2>' +
-      (count ? '<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
+      (count ? '<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
       '</div>' +
       '<div class="h-8 w-8 rounded-md bg-muted/50"></div>' +
       '</div>' +
@@ -10289,8 +10439,29 @@ document.addEventListener("DOMContentLoaded", function () {
           evt.detail.pathInfo.requestPath.match(/^\/email\/[^/?]+(?:\?.*)?$/)
       ) {
         showMailViewLoading(evt.detail.elt)
+        selectOpeningEmail(evt)
       }
     })
+
+    // The list marks the message as soon as it starts loading, together with
+    // the reader's loading sheet. Marking it once the reader arrived left the
+    // previous message marked for as long as a long conversation took.
+    function selectOpeningEmail(evt) {
+      if (!virtualMailList) return
+      var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
+      var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
+      if (preserveMailListSelectionFor === emailId) {
+        preserveMailListSelectionFor = null
+        virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+      } else if (suppressEmailUrlPushFor === emailId) {
+        suppressEmailUrlPushFor = null
+        virtualMailList.selectedEmailId = emailId
+        virtualMailList.selectedInThread = inThread
+        virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+      } else {
+        virtualMailList.onEmailSelected(emailId, { inThread: inThread })
+      }
+    }
 
 	document.body.addEventListener("htmx:afterRequest", function (evt) {
 	  if (
@@ -10299,20 +10470,6 @@ document.addEventListener("DOMContentLoaded", function () {
 		evt.detail.pathInfo.requestPath.startsWith("/email/")
 	  ) {
 		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
-		var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
-		if (virtualMailList) {
-		  if (preserveMailListSelectionFor === emailId) {
-		    preserveMailListSelectionFor = null
-		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
-		  } else if (suppressEmailUrlPushFor === emailId) {
-		    suppressEmailUrlPushFor = null
-		    virtualMailList.selectedEmailId = emailId
-		    virtualMailList.selectedInThread = inThread
-		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
-		  } else {
-		    virtualMailList.onEmailSelected(emailId, { inThread: inThread })
-		  }
-		}
 		scheduleAutoMarkRead(emailId, evt.detail.elt)
 	  }
 	})
@@ -10751,7 +10908,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mailPendingHeaderHTML() {
     return '<div class="mail-list-header px-4 py-4 space-y-3">' +
-      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
+      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="mail-list-search-section"><div class="mail-list-search-primary">' + pendingMailSearchHTML() +
         '<div class="mail-list-search-actions">' + pendingFiltersButtonHTML() + '</div></div></div>' +
     '</div>'
@@ -11161,8 +11318,9 @@ document.addEventListener("DOMContentLoaded", function () {
       var template = document.getElementById("calendar-loading-month")
       if (!template) return
       var content = template.content.cloneNode(true)
-      var view = window.GoferSettings && GoferSettings.get("calendar_view") === "week" ? "week" : "month"
-      var weekTemplate = view === "week" && document.getElementById("calendar-loading-week")
+      var saved = window.GoferSettings && GoferSettings.get("calendar_view")
+      var view = CALENDAR_VIEWS.indexOf(saved) >= 0 ? saved : "month"
+      var weekTemplate = view !== "month" && document.getElementById("calendar-loading-" + view)
       var panes = weekTemplate ? weekTemplate.content.cloneNode(true) : content
       ;["sidebar-app-body", "sidebar-sync-controls", "mail-list", "mail-view"].forEach(function (id) {
         var root = document.getElementById(id)
@@ -11264,8 +11422,8 @@ document.addEventListener("DOMContentLoaded", function () {
       return column.fixed || column.min || 0
     }
 
-    function widthSetting(model, widths, ids) {
-      var values = model.ratios(window.GoferSettings ? GoferSettings.get(model.widthsKey) : null)
+    function widthSetting(model, widths, ids, scroll) {
+      var values = model.ratios(model.widths(scroll))
       var total = 0
       for (var i = 0; i < widths.length; i++) {
         if (!model.columns[columnIndex(model, ids[i])].fixed) total += widths[i]
@@ -11331,7 +11489,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         widths[visibleIndex] = nextLeft
         widths[visibleIndex + 1] = nextRight
-        model.applyWidths(widthSetting(model, widths, state.ids), scroll)
+        model.applyWidths(widthSetting(model, widths, state.ids, scroll), scroll)
       }
 
       function onUp() {
@@ -11339,7 +11497,7 @@ document.addEventListener("DOMContentLoaded", function () {
         document.removeEventListener("pointerup", onUp)
         document.body.classList.remove("mail-list-column-resizing")
         handle.removeAttribute("data-resizing")
-        if (window.GoferSettings) GoferSettings.set(model.widthsKey, widthSetting(model, widths, state.ids))
+        model.saveWidths(widthSetting(model, widths, state.ids, scroll), scroll)
       }
 
       document.addEventListener("pointermove", onMove)
@@ -11359,6 +11517,18 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      // "Only for this folder" gives the folder or tag on screen columns of
+      // its own, starting from the ones it shows, or takes them away.
+      var placeItem = e.target.closest("[data-mail-table-place-item]")
+      if (placeItem) {
+        var placeMenu = placeItem.closest("[data-mail-table-column-menu]")
+        var placeModel = placeMenu && menuModel(placeMenu)
+        if (!placeModel || !placeModel.hasPlace()) return
+        placeModel.setOwn(!placeModel.hasOwn())
+        syncColumnMenu(placeMenu)
+        return
+      }
+
       var item = e.target.closest("[data-mail-table-column-item]")
       if (item) {
         var menuPanel = item.closest("[data-mail-table-column-menu]")
@@ -11375,7 +11545,7 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
         selected.sort(function (a, b) { return columnIndex(model, a) - columnIndex(model, b) })
-        if (window.GoferSettings) GoferSettings.set(model.columnsKey, selected.join(","))
+        model.saveColumns(selected)
         var parentMenu = item.closest("[data-mail-list-display-menu]")
         if (parentMenu) syncDisplayMenu(parentMenu)
         else syncColumnMenu(menuPanel)
@@ -11394,6 +11564,14 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var i = 0; i < model.ids.length; i++) {
         var check = menu.querySelector('[data-mail-table-column-check="' + model.ids[i] + '"]')
         if (check) check.classList.toggle("opacity-0", selected.indexOf(model.ids[i]) === -1)
+      }
+      var place = menu.querySelector("[data-mail-table-place-item]")
+      if (place) {
+        var own = model.hasOwn()
+        place.setAttribute("aria-disabled", model.hasPlace() ? "false" : "true")
+        place.setAttribute("aria-checked", own ? "true" : "false")
+        var placeCheck = place.querySelector("[data-mail-table-place-check]")
+        if (placeCheck) placeCheck.checked = own
       }
     }
 
@@ -11428,6 +11606,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // A thread counts as read only once all its messages are, so opening one
     // marks the whole thread read, not just the message that was opened.
     var thread = (row && row.dataset.hasThread === "true") || !!document.querySelector('#mail-view [data-read-thread="' + emailId + '"]')
+    keepMailListItemRead(emailId)
     fetch("/api/messages/" + emailId + (thread ? "/thread/read" : "/read") + "?state=read", { method: "POST" })
       .then(function (r) { return r.json() })
       .then(function (data) {
@@ -12249,10 +12428,10 @@ function setupMailOperationActions() {
     if (!button) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    var operationID = button.getAttribute("data-mail-operation-id") || ""
-    if (!operationID) return
+    var url = button.getAttribute("data-mail-operation-retry-url") || ""
+    if (!url) return
     button.disabled = true
-    fetch("/api/mail-operations/" + encodeURIComponent(operationID) + "/retry", {
+    fetch(url, {
       method: "POST",
       headers: { "Accept": "application/json" },
     }).then(function (response) {
@@ -12266,6 +12445,7 @@ function setupMailOperationActions() {
       } else {
         window.location.reload()
       }
+      refreshMailOperationsAttention(true)
       if (typeof showGoferToast === "function") {
         showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.queued"), description: goferT("js.operations.queued_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
       }
@@ -12275,6 +12455,202 @@ function setupMailOperationActions() {
       }
       button.disabled = false
     })
+  })
+  // Retry all failed needs no confirmation: retrying loses nothing. The toast
+  // says how many went, and how many couldn't.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-mail-operations-retry-all]") : null
+    if (!button) return
+    event.preventDefault()
+    button.disabled = true
+    fetch("/api/mail-operations/retry-failed", {
+      method: "POST",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || goferT("js.operations.retry_failed"))
+        return data
+      })
+    }).then(function (data) {
+      if (window.htmx && typeof window.htmx.ajax === "function") {
+        window.htmx.ajax("GET", "/settings/operations/content", { target: "#mail-operations-content", swap: "outerHTML" })
+      } else {
+        window.location.reload()
+      }
+      refreshMailOperationsAttention(true)
+      var retried = data.retried || 0
+      var skipped = data.skipped || 0
+      var title = retried > 0 ? goferTn("js.operations.retry_all.retrying", retried) : goferT("js.operations.retry_all.none")
+      var description = retried > 0 ? goferT("js.operations.retry_all.help") : ""
+      if (skipped > 0) description = (description ? description + " " : "") + goferTn("js.operations.retry_all.skipped", skipped)
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: title, description: description, variant: skipped > 0 ? "warning" : "success", icon: skipped > 0 ? "warning" : "success", position: "bottom-right", duration: 5000, dismissible: true })
+      }
+    }).catch(function (error) {
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.retry_failed_title"), description: error && error.message ? error.message : goferT("js.operations.unchanged"), variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+      }
+      button.disabled = false
+    })
+  })
+  // Undo asks first. The dialog lives outside the list, which reloads itself,
+  // and remembers where the Undo that opened it posts: one change, or every
+  // change of a group that can't be completed.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-mail-operation-undo]") : null
+    if (!button) return
+    event.preventDefault()
+    var dialog = document.getElementById("mail-operation-undo-dialog")
+    if (!dialog || !window.tui || !window.tui.dialog) return
+    dialog.setAttribute("data-mail-operation-undo-url", button.getAttribute("data-mail-operation-undo-url") || "")
+    var text = dialog.querySelector("[data-mail-operation-undo-text]")
+    if (text) text.textContent = button.getAttribute("data-mail-operation-undo-text") || ""
+    var confirm = dialog.querySelector("[data-mail-operation-undo-confirm]")
+    if (confirm) confirm.disabled = false
+    window.tui.dialog.open("mail-operation-undo-dialog")
+  })
+  document.addEventListener("click", function (event) {
+    var confirm = event.target && event.target.closest ? event.target.closest("[data-mail-operation-undo-confirm]") : null
+    if (!confirm) return
+    event.preventDefault()
+    var dialog = document.getElementById("mail-operation-undo-dialog")
+    var url = dialog ? dialog.getAttribute("data-mail-operation-undo-url") || "" : ""
+    if (!url) return
+    confirm.disabled = true
+    fetch(url, {
+      method: "POST",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || goferT("js.operations.unchanged"))
+        return data
+      })
+    }).then(function () {
+      if (window.tui && window.tui.dialog) window.tui.dialog.close("mail-operation-undo-dialog")
+      if (window.htmx && typeof window.htmx.ajax === "function") {
+        window.htmx.ajax("GET", "/settings/operations/content", { target: "#mail-operations-content", swap: "outerHTML" })
+      } else {
+        window.location.reload()
+      }
+      refreshMailOperationsAttention(true)
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.undone"), description: goferT("js.operations.undone_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
+      }
+    }).catch(function (error) {
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.undo_failed_title"), description: error && error.message ? error.message : goferT("js.operations.unchanged"), variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+      }
+      confirm.disabled = false
+    })
+  })
+}
+
+// Background mail work that needs attention shows as a dot on the way into
+// Settings and a count on Mail operations, and once as a toast outside
+// Settings. The page asks when it loads, after live events about mail, when
+// it is shown again, and after a Retry or Undo; nothing polls. State lives on
+// the function, since startup calls it before later vars are assigned.
+function mailOperationsAttentionState() {
+  var fn = mailOperationsAttentionState
+  if (!fn.state) fn.state = { data: null, last: 0, timer: null, loading: false }
+  return fn.state
+}
+
+function setupMailOperationsAttention() {
+  var state = mailOperationsAttentionState()
+  if (state.setup) return
+  state.setup = true
+  refreshMailOperationsAttention(true)
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) refreshMailOperationsAttention(false)
+  })
+  // Sidebars arrive with the dot hidden; show what is already known.
+  document.addEventListener("htmx:afterSettle", function () {
+    applyMailOperationsAttention(document, mailOperationsAttentionState().data)
+  })
+  if (typeof window.goferOnContent === "function") {
+    window.goferOnContent("[data-mail-operations-attention-dot], [data-mail-operations-attention-count]", function () {
+      applyMailOperationsAttention(document, mailOperationsAttentionState().data)
+    })
+  }
+}
+
+// refreshMailOperationsAttention asks again, at most once every few seconds
+// unless now is set; a request held back runs when the wait is over.
+// mailOperationsChanged tells what follows background mail work that it
+// changed.
+function mailOperationsChanged() {
+  refreshMailOperationsAttention(false)
+  document.dispatchEvent(new CustomEvent("gofer:mail-operations-changed"))
+}
+
+function refreshMailOperationsAttention(now) {
+  var state = mailOperationsAttentionState()
+  var wait = 5000 - (Date.now() - state.last)
+  if (!now && wait > 0) {
+    if (!state.timer) state.timer = setTimeout(function () { state.timer = null; refreshMailOperationsAttention(true) }, wait)
+    return
+  }
+  if (state.loading) return
+  state.loading = true
+  state.last = Date.now()
+  fetch("/api/mail-operations/attention", { headers: { "Accept": "application/json" } }).then(function (response) {
+    return response.ok ? response.json() : null
+  }).then(function (data) {
+    state.loading = false
+    if (!data) return
+    state.data = data
+    applyMailOperationsAttention(document, data)
+    showMailOperationsAttentionToast(data)
+  }).catch(function () {
+    state.loading = false
+  })
+}
+
+function applyMailOperationsAttention(root, data) {
+  var count = data && data.count > 0 ? data.count : 0
+  var label = count > 0 ? goferTn("js.operations.attention.title", count, { count: goferNumber(count) }) : ""
+  root.querySelectorAll("[data-mail-operations-attention-dot]").forEach(function (dot) { dot.hidden = count === 0 })
+  root.querySelectorAll("[data-mail-operations-attention-count]").forEach(function (badge) {
+    badge.hidden = count === 0
+    badge.textContent = count > 0 ? goferNumber(count) : ""
+  })
+  root.querySelectorAll("[data-mail-operations-attention-label]").forEach(function (text) { text.textContent = label })
+}
+
+// mailOperationsAttentionToastWanted reports whether the toast should show:
+// something needs attention that wasn't shown before, and the person isn't in
+// Settings, Contacts, Calendar or the admin pages.
+function mailOperationsAttentionToastWanted(data, pathname, seen) {
+  if (!data || !(data.count > 0) || !data.fingerprint || data.fingerprint === seen) return false
+  return !/^\/(settings|contacts|calendar|admin)(\/|$)/.test(pathname || "")
+}
+
+function showMailOperationsAttentionToast(data) {
+  var key = "gofer.mailOperations.attentionSeen"
+  var seen = ""
+  try { seen = window.localStorage.getItem(key) || "" } catch (_) {}
+  if (!mailOperationsAttentionToastWanted(data, window.location.pathname, seen)) return
+  try { window.localStorage.setItem(key, data.fingerprint) } catch (_) {}
+  if (typeof showGoferToast !== "function") return
+  showGoferToast({
+    id: "mail-operations-attention-toast",
+    title: goferTn("js.operations.attention.title", data.count, { count: goferNumber(data.count) }),
+    description: goferT("js.operations.attention.help"),
+    variant: "warning",
+    icon: "warning",
+    position: "bottom-right",
+    duration: 10000,
+    dismissible: true,
+    actions: [{
+      label: goferT("js.operations.attention.open"),
+      onClick: function () {
+        var toast = document.getElementById("mail-operations-attention-toast")
+        if (toast && typeof dismissGoferToast === "function") dismissGoferToast(toast)
+        if (typeof window.goferNavigate === "function") window.goferNavigate("/settings/operations")
+        else window.location.href = "/settings/operations"
+      },
+    }],
   })
 }
 
@@ -13640,15 +14016,15 @@ function _mailSyncRunTotalsForMode(mode) {
   return out
 }
 
-function _mailSyncAccountCardHTML(account) {
+function _mailSyncAccountCardHTML(account, id) {
   var accountPct = _mailSyncAccountProgressPercent(account)
   var folderMeta = _mailSyncAccountFolderMeta(account)
   return '<div class="rounded-lg border border-border bg-background/45 p-3">' +
     '<div class="flex items-center justify-between gap-3">' +
-      '<div class="min-w-0"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
+      '<div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
       '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(folderMeta) + '</div>' +
       (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(goferT("js.sync.current_folder", { folder: account.currentFolderLabel })) + '</div>' : '') +
-      (account.error ? '<div class="mt-1 truncate text-xs text-destructive">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
+      (account.error ? '<div class="mt-1 truncate text-xs text-destructive" data-mail-sync-error="' + _escapeComposeHTML(account.error) + '" data-mail-sync-error-account="' + _escapeComposeHTML(id) + '">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
       '<div class="shrink-0 text-xs font-medium ' + _mailSyncStatusClass(account.status) + '">' + _mailSyncStatusLabel(account.status) + '</div>' +
     '</div>' +
     '<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div class="h-full rounded-full bg-primary transition-all" style="width:' + accountPct + '%"></div></div>' +
@@ -13725,11 +14101,32 @@ function renderMailSyncProgressDialog() {
       '<div class="h-1.5 overflow-hidden rounded-full bg-muted"><div class="h-full rounded-full bg-primary transition-all" style="width:' + sectionPct + '%"></div></div>' +
       '<div class="space-y-2">'
     for (var i = 0; i < sectionIDs.length; i++) {
-      html += _mailSyncAccountCardHTML(_mailSyncState.accounts[sectionIDs[i]])
+      html += _mailSyncAccountCardHTML(_mailSyncState.accounts[sectionIDs[i]], sectionIDs[i])
     }
     html += '</div></section>'
   }
+  var openTip = accountsEl.querySelector('[data-mail-sync-error-tip] > [data-tui-popover-content][data-tui-popover-open="true"]')
   accountsEl.innerHTML = html
+  _mailSyncAttachErrorTooltips(dialog, accountsEl, openTip ? openTip.parentElement.id : "")
+}
+
+// Each account's error, cut to one line, gets a tooltip with the full text,
+// from the dialog's template. The cards are rebuilt on every progress update,
+// so a tooltip open at the time opens again over the new card.
+function _mailSyncAttachErrorTooltips(dialog, accountsEl, reopenID) {
+  var template = dialog.querySelector("template[data-mail-sync-error-template]")
+  var source = template && template.content.querySelector("[data-tui-popover-root]")
+  if (!source) return
+  accountsEl.querySelectorAll("[data-mail-sync-error]").forEach(function (slot) {
+    var text = slot.getAttribute("data-mail-sync-error")
+    var tip = source.cloneNode(true)
+    tip.id = "mail-sync-error-" + slot.getAttribute("data-mail-sync-error-account").replace(/[^A-Za-z0-9_-]/g, "_")
+    tip.setAttribute("data-mail-sync-error-tip", "")
+    tip.querySelector("[data-mail-sync-error-text]").textContent = text
+    tip.querySelector("[data-mail-sync-error-full]").textContent = text
+    slot.replaceWith(tip)
+  })
+  if (reopenID && document.getElementById(reopenID) && window.tui && window.tui.popover) window.tui.popover.open(reopenID)
 }
 
 var _mailSyncScopedBusyAccountID = ""
@@ -14030,12 +14427,45 @@ function cancelCalendarPageRequests() {
   finishCalendarNavigationTransition()
 }
 
+// The calendar's views, in the order of the view menu (CalendarViews in
+// internal/views). All but Month lay their days on an hour grid.
+var CALENDAR_VIEWS = ["day", "3day", "workweek", "week", "month"]
+
+function calendarTimelineView(view) {
+  return view !== "month" && CALENDAR_VIEWS.indexOf(view) >= 0
+}
+
+// The date (YYYY-MM-DD) days after another; days may be negative.
+function calendarAddDays(date, days) {
+  var at = new Date(date + "T00:00:00Z")
+  at.setUTCDate(at.getUTCDate() + days)
+  return at.toISOString().slice(0, 10)
+}
+
+// The days an hour-grid view lays out around date, as NewCalendarTimelineData
+// does: the week holding it, that week's Monday to Friday, three days from it,
+// or, for Day, the week of its strip.
+function calendarViewDays(view, date) {
+  var at = new Date(date + "T00:00:00Z")
+  if (view === "3day") return [0, 1, 2].map(function (index) { return calendarAddDays(date, index) })
+  var first = calendarAddDays(date, -((at.getUTCDay() - goferDates.weekStart + 7) % 7))
+  var days = [0, 1, 2, 3, 4, 5, 6].map(function (index) { return calendarAddDays(first, index) })
+  if (view !== "workweek") return days
+  return days.filter(function (day) { var weekday = new Date(day + "T00:00:00Z").getUTCDay(); return weekday !== 0 && weekday !== 6 })
+}
+
+// The address of a view around date, written as the server writes it.
+function calendarViewURL(view, date) {
+  if (!calendarTimelineView(view)) return "/calendar?month=" + date.slice(0, 7)
+  return "/calendar?date=" + encodeURIComponent(date) + "&view=" + encodeURIComponent(view)
+}
+
 function calendarLoadingWeekCount(month) {
   var parts = /^(\d{4})-(\d{2})$/.exec(month || "")
   if (!parts) return null
   var year = Number(parts[1]), index = Number(parts[2]) - 1
   if (index < 0 || index > 11) return null
-  var leading = (new Date(Date.UTC(year, index, 1)).getUTCDay() + 6) % 7
+  var leading = (new Date(Date.UTC(year, index, 1)).getUTCDay() - goferDates.weekStart + 7) % 7
   return Math.ceil((leading + new Date(Date.UTC(year, index + 1, 0)).getUTCDate()) / 7)
 }
 
@@ -14043,11 +14473,10 @@ function calendarLoadingPeriodLabel(view, date) {
   if (!/^\d{4}-\d{2}(?:-\d{2})?$/.test(date || "")) return ""
   var at = new Date(date.length === 7 ? date + "-01T12:00:00Z" : date + "T12:00:00Z")
   if (isNaN(at.getTime())) return ""
-  if (view !== "week") return goferDates.monthYear(at, "UTC")
-  at.setUTCDate(at.getUTCDate() - (at.getUTCDay() + 6) % 7)
-  var end = new Date(at.getTime())
-  end.setUTCDate(end.getUTCDate() + 6)
-  return goferDates.dateRange(at, end, "UTC")
+  if (!calendarTimelineView(view)) return goferDates.monthYear(at, "UTC")
+  if (view === "day") return goferDates.longDate(at, "UTC")
+  var days = calendarViewDays(view, date.length === 7 ? date + "-01" : date)
+  return goferDates.dateRange(new Date(days[0] + "T12:00:00Z"), new Date(days[days.length - 1] + "T12:00:00Z"), "UTC")
 }
 
 function showCalendarContentPending(event) {
@@ -14062,7 +14491,7 @@ function showCalendarContentPending(event) {
   var href = trigger.getAttribute("hx-get")
   if (!href || !href.startsWith("/calendar")) return
   var url = new URL(href, window.location.href)
-  var view = url.searchParams.get("view") === "week" ? "week" : "month"
+  var view = calendarTimelineView(url.searchParams.get("view")) ? url.searchParams.get("view") : "month"
   var template = document.getElementById("calendar-loading-" + view)
   if (!template) return
   var content = template.content.cloneNode(true)
@@ -14106,22 +14535,18 @@ function showCalendarContentPending(event) {
   })
   // The incoming week's dates are known from the link, so its headers can slide in
   // with them before the response arrives.
-  if (view === "week") {
-    var weekDate = (url.searchParams.get("date") || calendar.dataset.calendarTodayDate).split("-").map(Number)
-    var weekStart = new Date(Date.UTC(weekDate[0], weekDate[1] - 1, weekDate[2]))
-    weekStart.setUTCDate(weekStart.getUTCDate() - (weekStart.getUTCDay() + 6) % 7)
-    var weekDays = []
+  if (calendarTimelineView(view)) {
+    var viewDate = url.searchParams.get("date") || calendar.dataset.calendarTodayDate
+    var weekDays = calendarViewDays(view, viewDate)
     loading.querySelectorAll("[data-calendar-week-header] [data-calendar-day]").forEach(function (day, index) {
-      var date = new Date(weekStart.getTime() + index * 86400000)
-      weekDays.push(date.toISOString().slice(0, 10))
       var number = day.querySelector("span.inline-flex")
-      if (number) number.textContent = String(date.getUTCDate())
+      if (number && weekDays[index]) number.textContent = String(Number(weekDays[index].slice(8)))
     })
-    // Small screens show one day; mark the one the loaded week will show, so the
-    // highlight does not jump when it arrives.
-    var phoneDay = Math.max(0, weekDays.indexOf(calendar.dataset.calendarTodayDate))
+    // Day view, and small screens in the week views, show one day; mark the one
+    // the loaded view will show, so the highlight does not jump when it arrives.
+    var shownDay = view === "day" ? weekDays.indexOf(viewDate) : Math.max(0, weekDays.indexOf(calendar.dataset.calendarTodayDate))
     ;["[data-calendar-week-header] [data-calendar-day]", "[data-calendar-all-day-column]", "[data-calendar-timed-column]"].forEach(function (selector) {
-      loading.querySelectorAll(selector).forEach(function (node, index) { node.toggleAttribute("data-calendar-phone-day", index === phoneDay) })
+      loading.querySelectorAll(selector).forEach(function (node, index) { node.toggleAttribute("data-calendar-shown-day", index === shownDay) })
     })
   }
   var timezone = loading.querySelector("[data-calendar-week-timezone]")
@@ -14177,7 +14602,13 @@ var _calendarSelectedDay = null
 var _calendarSelectTodayPending = ""
 var _calendarViewSwitchRequest = null
 var _calendarWeekScrollState = null
+// 0 is Fit, which gives hours with events more room. 1 and up are the slider's
+// even zoom levels, from the whole day on screen to the largest hours.
 var _calendarWeekZoom = 0
+var CALENDAR_WEEK_ZOOM_LEVELS = 6
+// The slider keeps showing the last level while Fit is on, so - and + go on
+// from there.
+var _calendarWeekZoomLevel = 2
 var _calendarViewportObserver = null
 var _calendarViewportPane = null
 var _calendarViewportSurface = null
@@ -14185,35 +14616,37 @@ var _calendarNavigationRequest = null
 var _calendarNavigationTransition = null
 // Moving between weeks slides only the day headers; the events in the hour grid fade
 // out during the slide and fade back in once it ends.
-var CALENDAR_WEEK_SLIDE_MS = 480
+var CALENDAR_WEEK_SLIDE_MS = 320
 var _calendarWeekSlide = null
-// Matches the indicator's duration-200 transition.
-var CALENDAR_VIEW_INDICATOR_MS = 200
 
+// Shows view as the chosen one in the view menu, and marks its link current.
 function setCalendarViewSwitch(view) {
   var group = document.querySelector("[data-calendar-view-nav]")
   if (!group) return
   group.querySelectorAll("[data-calendar-view-switch]").forEach(function (link) {
-    var active = link.dataset.calendarViewSwitch === view
-    link.classList.toggle("text-foreground", active)
-    link.classList.toggle("text-muted-foreground", !active)
-    link.classList.toggle("hover:text-foreground", !active)
-    link.setAttribute("aria-current", active ? "page" : "false")
+    link.setAttribute("aria-current", link.dataset.calendarViewSwitch === view ? "page" : "false")
   })
-  var indicator = group.querySelector("[data-calendar-view-indicator]")
-  if (!indicator) return
-  indicator.style.transform = view === "week" ? "translateX(calc(100% + 2px))" : "translateX(0)"
-  // Start the slide now. Otherwise the browser may only notice the change after the
-  // new view has been swapped in, and the indicator lands without sliding.
-  void window.getComputedStyle(indicator).transform
+  // The menu redraws its label when its value is set.
+  var select = group.querySelector("[data-calendar-view-select]")
+  if (select && select.value !== view) select.value = view
 }
+
+// Picking a view in the menu follows that view's link, so it loads like any
+// other move around the calendar.
+document.addEventListener("change", function (event) {
+  var select = event.target
+  if (!select.matches || !select.matches("[data-calendar-view-select]")) return
+  var calendar = document.getElementById("calendar-main")
+  var link = calendar && calendar.querySelector('[data-calendar-view-switch="' + CSS.escape(select.value) + '"]')
+  if (!link || calendar.dataset.calendarView === select.value) return
+  link.click()
+})
 
 document.body.addEventListener("htmx:beforeRequest", function (event) {
   var trigger = event.detail && event.detail.elt
   if (!trigger || !trigger.hasAttribute("data-calendar-view-switch")) return
   _calendarViewSwitchRequest = event.detail.xhr
   _calendarViewSwitchRequest.goferCalendarViewSwitch = trigger.dataset.calendarViewSwitch
-  _calendarViewSwitchRequest.goferCalendarViewSwitchStart = performance.now()
   setCalendarViewSwitch(trigger.dataset.calendarViewSwitch)
 })
 
@@ -14230,12 +14663,7 @@ document.body.addEventListener("htmx:sendAbort", handleCalendarViewSwitchResult)
 document.body.addEventListener("htmx:beforeSwap", function (event) {
   var xhr = event.detail && event.detail.xhr
   if (!xhr || typeof xhr.goferCalendarViewSwitch !== "string") return
-  if (xhr !== _calendarViewSwitchRequest) {
-    event.detail.shouldSwap = false
-    return
-  }
-  var indicator = document.querySelector("[data-calendar-view-indicator]")
-  if (indicator) xhr.goferCalendarViewTransform = window.getComputedStyle(indicator).transform
+  if (xhr !== _calendarViewSwitchRequest) event.detail.shouldSwap = false
 })
 document.body.addEventListener("htmx:afterSwap", function (event) {
   var xhr = event.detail && event.detail.xhr
@@ -14243,15 +14671,6 @@ document.body.addEventListener("htmx:afterSwap", function (event) {
   _calendarViewSwitchRequest = null
   setCalendarViewSwitch(xhr.goferCalendarViewSwitch)
   if (window.GoferSettings) GoferSettings.set("calendar_view", xhr.goferCalendarViewSwitch)
-  // The tabs were replaced with the new view. Carry on the indicator's slide from
-  // where the old one had got to, for the rest of its time, rather than restarting.
-  var indicator = document.querySelector("[data-calendar-view-indicator]")
-  var remaining = CALENDAR_VIEW_INDICATOR_MS - (performance.now() - xhr.goferCalendarViewSwitchStart)
-  if (!indicator || !indicator.animate || !xhr.goferCalendarViewTransform || remaining <= 0 ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-  indicator.style.transition = "none"
-  var slide = indicator.animate([{ transform: xhr.goferCalendarViewTransform }, { transform: indicator.style.transform }], { duration: remaining, easing: "ease-out" })
-  slide.onfinish = slide.oncancel = function () { indicator.style.transition = "" }
 })
 
 // Agenda events that were not on show fade in like the calendar's own events
@@ -14412,6 +14831,9 @@ function initializeCalendarDaySelection() {
   if (_calendarSelectedDay && _calendarSelectedDay.period !== calendar.dataset.calendarPeriod) _calendarSelectedDay = null
   var selected = _calendarSelectedDay && calendar.querySelector('[data-calendar-day="' + _calendarSelectedDay.date + '"]')
   if (!selected) _calendarSelectedDay = null
+  // Day view always has its day selected: the one it shows.
+  var dayView = calendar.dataset.calendarView === "day"
+  if (dayView) selected = calendar.querySelector('[data-calendar-week-header] [data-calendar-day="' + calendar.dataset.calendarDate + '"]')
   calendar.querySelectorAll("[data-calendar-day]").forEach(function (day) {
     day.setAttribute("data-calendar-day-selected", day === selected ? "true" : "false")
     day.querySelectorAll("[data-calendar-select-day]").forEach(function (button) {
@@ -14429,7 +14851,7 @@ function initializeCalendarDaySelection() {
   agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : goferT("js.calendar.agenda.all")
   agenda.querySelector("[data-calendar-agenda-context]").textContent = selected ?
     goferTn("js.calendar.events", visible) : calendar.dataset.calendarMonthLabel
-  agenda.querySelector("[data-calendar-agenda-clear]").hidden = !selected
+  agenda.querySelector("[data-calendar-agenda-clear]").hidden = !selected || dayView
   agenda.querySelector("#calendar-agenda-list").hidden = visible === 0
   agenda.querySelector("[data-calendar-agenda-empty]").hidden = visible !== 0
   var sources = Array.from(document.querySelectorAll("[data-calendar-visibility]"))
@@ -14438,25 +14860,26 @@ function initializeCalendarDaySelection() {
   agenda.querySelector("[data-calendar-agenda-empty-detail]").textContent = allHidden ?
     goferT("js.calendar.agenda.all_hidden_detail") : selected ?
     goferT("js.calendar.agenda.none_day_detail") :
-    calendar.dataset.calendarView === "week" ? goferT("js.calendar.agenda.none_week") : goferT("js.calendar.agenda.none_month")
+    calendar.dataset.calendarView === "3day" ? goferT("js.calendar.agenda.none_days") :
+    calendarTimelineView(calendar.dataset.calendarView) ? goferT("js.calendar.agenda.none_week") : goferT("js.calendar.agenda.none_month")
   // Switch views around the selected date rather than an unrelated week.
   var focusDate = selected ? selected.dataset.calendarDay : calendar.dataset.calendarDate
   calendar.querySelectorAll("[data-calendar-view-switch]").forEach(function (link) {
-    var url = link.dataset.calendarViewSwitch === "week" ?
-      "/calendar?date=" + encodeURIComponent(focusDate) + "&view=week" : "/calendar?month=" + focusDate.slice(0, 7)
+    var url = calendarViewURL(link.dataset.calendarViewSwitch, focusDate)
     if (link.getAttribute("hx-get") === url) return
     link.setAttribute("href", url)
     link.setAttribute("hx-get", url)
     link.setAttribute("hx-push-url", url)
     if (window.htmx) window.htmx.process(link)
   })
-  markCalendarPhoneDay(calendar, selected)
+  markCalendarShownDay(calendar, selected)
   initializeCalendarViewport()
 }
 
-// The day a small screen shows in the week view: the selected day, else today when
-// it is in the week, else the first day.
-function markCalendarPhoneDay(calendar, selected) {
+// The day the hour grid shows on its own: in Day view, and on small screens in
+// Week and Work week. It is the selected day, else today when it is in the week,
+// else the first day.
+function markCalendarShownDay(calendar, selected) {
   var grid = calendar.querySelector("[data-calendar-week-grid]")
   if (!grid) return
   var date = selected ? selected.dataset.calendarDay : ""
@@ -14467,7 +14890,7 @@ function markCalendarPhoneDay(calendar, selected) {
   }
   grid.querySelectorAll("[data-calendar-week-header] [data-calendar-day], [data-calendar-all-day-column], [data-calendar-timed-column]").forEach(function (node) {
     var nodeDate = node.dataset.calendarDay || node.dataset.calendarAllDayColumn || node.dataset.calendarTimedColumn
-    node.toggleAttribute("data-calendar-phone-day", nodeDate === date)
+    node.toggleAttribute("data-calendar-shown-day", nodeDate === date)
   })
 }
 
@@ -14481,7 +14904,7 @@ function calendarSheetElement() {
   var calendar = document.getElementById("calendar-main")
   var agenda = document.querySelector("#main-content > [data-calendar-agenda]")
   var phone = !window.matchMedia("(min-width: 1024px)").matches
-  return phone && calendar && agenda && calendar.dataset.calendarView !== "week" ? agenda : null
+  return phone && calendar && agenda && calendar.dataset.calendarView === "month" ? agenda : null
 }
 
 function calendarSheetRestingTop(agenda) {
@@ -14563,26 +14986,28 @@ window.addEventListener("resize", positionCalendarSheet)
 // the sheet's position; set it again once the swap has settled.
 document.body.addEventListener("htmx:afterSettle", positionCalendarSheet)
 
-// Small screens show one day of the week at a time. Picking another day slides the
-// hour column sideways, the new day coming in from the side it lies on.
-var CALENDAR_PHONE_DAY_SLIDE_MS = 320
-var _calendarPhoneDaySlide = null
+// Day view, and small screens in the week views, show one day at a time. Picking
+// another day slides the hour column sideways, the new day coming in from the side
+// it lies on.
+var CALENDAR_SHOWN_DAY_SLIDE_MS = 320
+var _calendarShownDaySlide = null
 
-function finishCalendarPhoneDaySlide() {
-  var slide = _calendarPhoneDaySlide
+function finishCalendarShownDaySlide() {
+  var slide = _calendarShownDaySlide
   if (!slide) return
-  _calendarPhoneDaySlide = null
+  _calendarShownDaySlide = null
   slide.animations.forEach(function (animation) { animation.cancel() })
-  slide.leaving.forEach(function (node) { node.removeAttribute("data-calendar-phone-day-leaving") })
+  slide.leaving.forEach(function (node) { node.removeAttribute("data-calendar-shown-day-leaving") })
   // The old day's events are hidden now; forget them so they do not fade out later.
   var calendar = document.getElementById("calendar-main")
   if (calendar && !calendar.hasAttribute("data-calendar-loading")) _calendarPillSnapshot = captureCalendarPills(calendar)
 }
 
-function slideCalendarPhoneDay(calendar, fromDate, toDate) {
-  finishCalendarPhoneDaySlide()
+function slideCalendarShownDay(calendar, fromDate, toDate) {
+  finishCalendarShownDaySlide()
   var grid = calendar.querySelector("[data-calendar-week-grid]")
-  if (!grid || !fromDate || fromDate === toDate || window.matchMedia("(min-width: 1024px)").matches ||
+  var oneDay = calendar.dataset.calendarView === "day" || !window.matchMedia("(min-width: 1024px)").matches
+  if (!grid || !fromDate || fromDate === toDate || !oneDay ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
   var column = function (date) {
     return Array.from(grid.querySelectorAll('[data-calendar-timed-column="' + date + '"], [data-calendar-all-day-column="' + date + '"]'))
@@ -14593,9 +15018,9 @@ function slideCalendarPhoneDay(calendar, fromDate, toDate) {
   if (!timed || !timed.offsetWidth || !timed.animate) return
   // The day change itself would cross-fade the events; the slide carries them instead.
   clearCalendarPillFades()
-  leaving.forEach(function (node) { node.setAttribute("data-calendar-phone-day-leaving", "") })
+  leaving.forEach(function (node) { node.setAttribute("data-calendar-shown-day-leaving", "") })
   var distance = (toDate > fromDate ? 1 : -1) * timed.offsetWidth
-  var timing = { duration: CALENDAR_PHONE_DAY_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
+  var timing = { duration: CALENDAR_SHOWN_DAY_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
   var slide = { leaving: leaving, animations: [] }
   leaving.forEach(function (node) {
     slide.animations.push(node.animate([{ transform: "translateX(0)" }, { transform: "translateX(" + -distance + "px)" }], timing))
@@ -14603,9 +15028,9 @@ function slideCalendarPhoneDay(calendar, fromDate, toDate) {
   entering.forEach(function (node) {
     slide.animations.push(node.animate([{ transform: "translateX(" + distance + "px)" }, { transform: "translateX(0)" }], timing))
   })
-  _calendarPhoneDaySlide = slide
+  _calendarShownDaySlide = slide
   slide.animations[slide.animations.length - 1].onfinish = function () {
-    if (_calendarPhoneDaySlide === slide) finishCalendarPhoneDaySlide()
+    if (_calendarShownDaySlide === slide) finishCalendarShownDaySlide()
   }
 }
 
@@ -14619,15 +15044,19 @@ document.addEventListener("click", function (event) {
     }
     return
   }
+  if (trigger && calendar && calendar.dataset.calendarView === "day") {
+    showCalendarDay(calendar, trigger.dataset.calendarSelectDay)
+    return
+  }
   if (trigger && calendar) {
     var scroller = calendar.querySelector("[data-calendar-week-scroll]")
     if (scroller && scroller.clientHeight) _calendarWeekScrollState = { period: calendar.dataset.calendarPeriod, zoom: _calendarWeekZoom, top: scroller.scrollTop, left: scroller.scrollLeft }
-    var shownDay = calendar.querySelector("[data-calendar-week-header] [data-calendar-day][data-calendar-phone-day]")
+    var shownDay = calendar.querySelector("[data-calendar-week-header] [data-calendar-day][data-calendar-shown-day]")
     _calendarSelectedDay = { period: calendar.dataset.calendarPeriod, date: trigger.dataset.calendarSelectDay }
     initializeCalendarDaySelection()
-    if (shownDay) slideCalendarPhoneDay(calendar, shownDay.dataset.calendarDay, trigger.dataset.calendarSelectDay)
+    if (shownDay) slideCalendarShownDay(calendar, shownDay.dataset.calendarDay, trigger.dataset.calendarSelectDay)
     document.getElementById("calendar-agenda-list").scrollTop = 0
-    if (window.matchMedia("(max-width: 1023px)").matches && calendar.dataset.calendarView !== "week") document.getElementById("calendar-agenda-heading").focus({ preventScroll: true })
+    if (window.matchMedia("(max-width: 1023px)").matches && calendar.dataset.calendarView === "month") document.getElementById("calendar-agenda-heading").focus({ preventScroll: true })
     return
   }
   if (calendar && event.target.closest && event.target.closest("[data-calendar-agenda-clear]")) {
@@ -14636,6 +15065,49 @@ document.addEventListener("click", function (event) {
     initializeCalendarDaySelection()
     if (previous) previous.focus({ preventScroll: true })
   }
+})
+
+// Day view moves to another day of its week in place, with no page to load: the
+// strip, the arrows within the week, and the address all follow the shown day,
+// so a refresh or a reload keeps it.
+function showCalendarDay(calendar, date) {
+  var from = calendar.dataset.calendarDate
+  if (!date || date === from) return
+  var scroller = calendar.querySelector("[data-calendar-week-scroll]")
+  if (scroller && scroller.clientHeight) _calendarWeekScrollState = { period: calendar.dataset.calendarPeriod, zoom: _calendarWeekZoom, top: scroller.scrollTop, left: scroller.scrollLeft }
+  calendar.dataset.calendarDate = date
+  calendar.dataset.calendarMonth = date.slice(0, 7)
+  var title = goferDates.longDate(new Date(date + "T12:00:00Z"), "UTC")
+  calendar.dataset.calendarMonthLabel = title
+  var heading = calendar.querySelector("[data-calendar-title]")
+  if (heading) heading.textContent = title
+  var setLink = function (link, url) {
+    if (link.hasAttribute("href")) link.setAttribute("href", url)
+    if (link.hasAttribute("hx-push-url")) link.setAttribute("hx-push-url", url)
+    link.setAttribute("hx-get", url)
+    if (window.htmx) window.htmx.process(link)
+  }
+  calendar.querySelectorAll("[data-calendar-navigate]").forEach(function (link) {
+    setLink(link, calendarViewURL("day", calendarAddDays(date, Number(link.dataset.calendarNavigate))))
+  })
+  var refresh = calendar.querySelector("[data-calendar-cache-refresh]")
+  if (refresh) setLink(refresh, calendarViewURL("day", date) + "&cache=1")
+  if (window.location.pathname === "/calendar") history.replaceState(history.state, "", calendarViewURL("day", date))
+  initializeCalendarDaySelection()
+  slideCalendarShownDay(calendar, from, date)
+  document.getElementById("calendar-agenda-list").scrollTop = 0
+}
+
+// In Day view, an arrow to a day of the same week only moves the strip.
+document.body.addEventListener("htmx:confirm", function (event) {
+  var trigger = event.detail && event.detail.elt
+  var calendar = document.getElementById("calendar-main")
+  if (!trigger || !calendar || !trigger.hasAttribute("data-calendar-navigate") || calendar.dataset.calendarView !== "day" ||
+      calendar.hasAttribute("data-calendar-loading")) return
+  var date = calendarAddDays(calendar.dataset.calendarDate, Number(trigger.dataset.calendarNavigate))
+  if (!calendar.querySelector('[data-calendar-week-header] [data-calendar-day="' + date + '"]')) return
+  event.preventDefault()
+  showCalendarDay(calendar, date)
 })
 
 // Switching sections swaps four side panes before the list, all at once.
@@ -14671,7 +15143,9 @@ function _calendarWeekAxis(availableHeight, periods, zoom) {
   var height = Math.max(1, availableHeight)
   var heights
   if (zoom > 0) {
-    height = Math.max(height * [1, 1.4, 2, 2.6][zoom], [0, 960, 1536, 2304][zoom])
+    // Level 1 shows the whole day; each level after it grows the hours, with a
+    // smallest hour size so short panes still zoom in.
+    height = Math.max(height * [1, 1, 1.25, 1.6, 2, 2.6, 3.4][zoom], 24 * [0, 0, 30, 40, 56, 76, 100][zoom])
     heights = Array(24).fill(height / 24)
   } else {
     var minimum = Math.min(4, height / 48)
@@ -14845,6 +15319,14 @@ function layoutCalendarWeekAllDay(grid) {
   rows.forEach(function (row, button) { button.style.gridRow = String(row + 1) })
 }
 
+// The label for a run of condensed hours, which may break after its dash and
+// nowhere else: "3 PM–" over "12 AM", never "3" over "PM–12 AM".
+function calendarHourRangeLabel(range) {
+  return String(range).replace(/\s/g, "\u00A0").replace(/([–—-])(\u00A0)?/, function (match, dash, space) {
+    return dash + (space ? " " : "\u200B")
+  })
+}
+
 function initializeCalendarWeekScroll() {
   var calendar = document.getElementById("calendar-main")
   var scroller = calendar && calendar.querySelector("[data-calendar-week-scroll]")
@@ -14852,11 +15334,14 @@ function initializeCalendarWeekScroll() {
   // Keep day widths stable as zoom adds or removes the vertical scrollbar.
   scroller.style.scrollbarGutter = "stable"
   scroller.style.overflowAnchor = "none"
-  var grid = scroller.querySelector("[data-calendar-week-grid]")
+  var grid = calendar.querySelector("[data-calendar-week-grid]")
   var header = grid && grid.querySelector("[data-calendar-week-header]")
   var timeline = grid && grid.querySelector("[data-calendar-week-timeline]")
   if (!header || !timeline) return
   layoutCalendarWeekAllDay(grid)
+  // The header rows end in an empty track as wide as the scrollbar, so their days
+  // line up with the hours' (input.css, HOUR GRID HEADERS).
+  grid.style.setProperty("--calendar-week-gutter", Math.max(0, (scroller.offsetWidth - scroller.clientWidth) || 0) + "px")
   var nodes = Array.from(grid.querySelectorAll("[data-calendar-week-event]"))
   var visibility = nodes.map(function (node) { return _calendarSourceIsVisible(node) ? "1" : "0" }).join("")
   var key = [scroller.clientHeight, scroller.clientWidth, header.offsetHeight, _calendarWeekZoom, visibility].join(":")
@@ -14867,8 +15352,8 @@ function initializeCalendarWeekScroll() {
   var wasInitialized = !!scroller.dataset.calendarLayoutKey
   nodes = nodes.filter(_calendarSourceIsVisible)
   var periods = nodes.map(function (node) { return { start: Number(node.dataset.calendarWeekStart), end: Number(node.dataset.calendarWeekEnd) } })
-  var axis = _calendarWeekAxis(Math.max(1, scroller.clientHeight - header.offsetHeight - 2), periods, _calendarWeekZoom)
-  grid.style.height = (axis.height + header.offsetHeight + 2) + "px"
+  // The headers sit above the scroller, so all of its height is for the hours.
+  var axis = _calendarWeekAxis(Math.max(1, scroller.clientHeight), periods, _calendarWeekZoom)
   grid._calendarWeekAxis = axis
   timeline.style.height = axis.height + "px"
   timeline.style.flex = "0 0 auto"
@@ -14880,6 +15365,7 @@ function initializeCalendarWeekScroll() {
     row.style.borderTopStyle = compact && !first ? "none" : "solid"
     row.querySelector("[data-calendar-half-hour]").hidden = compact || axis.heights[hour] < 28
   })
+  var ranges = []
   grid.querySelectorAll("[data-calendar-week-hour-label]").forEach(function (row) {
     var hour = Number(row.dataset.calendarWeekHourLabel)
     var text = row.querySelector("[data-calendar-week-hour-text]")
@@ -14887,13 +15373,26 @@ function initializeCalendarWeekScroll() {
     text.hidden = false
     text.textContent = goferDates.hourLabel(hour)
     text.title = ""
+    text.style.whiteSpace = ""
+    text.style.left = ""
     if (_calendarWeekZoom === 0 && !axis.expanded[hour]) {
       var end = hour + 1
       while (end < 24 && !axis.expanded[end]) end++
-      text.hidden = (hour > 0 && !axis.expanded[hour - 1]) || axis.offsets[end] - axis.offsets[hour] < 15
-      text.textContent = goferDates.hourRange(hour, end)
+      var space = axis.offsets[end] - axis.offsets[hour]
+      text.hidden = (hour > 0 && !axis.expanded[hour - 1]) || space < 15
+      text.textContent = calendarHourRangeLabel(goferDates.hourRange(hour, end))
       text.title = goferT("js.calendar.week.condensed")
+      // A range like "3 PM–12 AM" is wider than the time column, so it may break
+      // after its dash onto a second line.
+      text.style.whiteSpace = "normal"
+      text.style.left = "0.125rem"
+      if (!text.hidden) ranges.push({ text: text, space: space })
     } else if (axis.heights[hour] < 15) text.hidden = hour % 2 !== 0
+  })
+  // Read after all the writes above: a range that needs two lines but has room
+  // for one is left out rather than spilling into the next hour.
+  ranges.forEach(function (range) {
+    if (range.text.offsetHeight > range.space - 2) range.text.hidden = true
   })
   grid.querySelectorAll("[data-calendar-timed-column]").forEach(function (column) {
     var buttons = Array.from(column.querySelectorAll("[data-calendar-week-event]")).filter(_calendarSourceIsVisible)
@@ -14913,20 +15412,31 @@ function initializeCalendarWeekScroll() {
   if (_calendarWeekZoom === 0) scroller.scrollTop = 0
   else if (!wasInitialized) scroller.scrollTop = saved && saved.zoom === _calendarWeekZoom ? saved.top : _calendarWeekMinutePosition(7 * 60, axis)
   else if (previousAxis && previousAxis.zoom !== _calendarWeekZoom) {
-    var center = _calendarWeekMinuteAtPosition(previousTop + (scroller.clientHeight - header.offsetHeight - 2) / 2, previousAxis)
-    scroller.scrollTop = Math.max(0, _calendarWeekMinutePosition(center, axis) - (scroller.clientHeight - header.offsetHeight - 2) / 2)
+    var center = _calendarWeekMinuteAtPosition(previousTop + scroller.clientHeight / 2, previousAxis)
+    scroller.scrollTop = Math.max(0, _calendarWeekMinutePosition(center, axis) - scroller.clientHeight / 2)
   } else if (previousAxis) scroller.scrollTop = previousTop * axis.height / previousAxis.height
   if (!wasInitialized) scroller.scrollLeft = saved ? saved.left : 0
+  header.scrollLeft = scroller.scrollLeft
   var status = calendar.querySelector("[data-calendar-week-scale-status]")
   if (status) status.textContent = _calendarWeekZoom === 0 ? goferT("js.calendar.week.zoom_fit") : goferT("js.calendar.week.zoom_level", { size: goferNumber(Math.round(axis.height / 24)) })
   calendar.querySelectorAll("[data-calendar-week-zoom]").forEach(function (button) {
     var action = button.dataset.calendarWeekZoom
-    button.disabled = action === "out" ? _calendarWeekZoom === 0 : action === "in" && _calendarWeekZoom === 3
+    button.disabled = action === "out" ? _calendarWeekZoom === 1 : action === "in" && _calendarWeekZoom === CALENDAR_WEEK_ZOOM_LEVELS
     if (action === "fit") {
       button.setAttribute("aria-pressed", _calendarWeekZoom === 0 ? "true" : "false")
       button.classList.toggle("bg-accent", _calendarWeekZoom === 0)
     }
   })
+  var zoomSlider = calendar.querySelector("[data-calendar-week-zoom-slider]")
+  if (zoomSlider) {
+    // A slider that hasn't started yet reads its hidden input when it does.
+    var zoomInput = zoomSlider.querySelector("[data-input]")
+    if (zoomInput) zoomInput.value = String(_calendarWeekZoomLevel)
+    zoomSlider.dispatchEvent(new CustomEvent("tui-slider:set", { detail: { value: _calendarWeekZoomLevel } }))
+    zoomSlider.toggleAttribute("data-calendar-week-zoom-fit", _calendarWeekZoom === 0)
+    var thumb = zoomSlider.querySelector("[data-thumb]")
+    if (thumb && status) thumb.setAttribute("aria-valuetext", status.textContent)
+  }
 }
 
 function cancelCalendarWeekZoom(scroller) {
@@ -14938,9 +15448,10 @@ function cancelCalendarWeekZoom(scroller) {
 
 function setCalendarWeekZoom(zoom) {
   if (zoom === _calendarWeekZoom) return
+  if (zoom > 0) _calendarWeekZoomLevel = zoom
   var calendar = document.getElementById("calendar-main")
   var scroller = calendar && calendar.querySelector("[data-calendar-week-scroll]")
-  var grid = scroller && scroller.querySelector("[data-calendar-week-grid]")
+  var grid = calendar && calendar.querySelector("[data-calendar-week-grid]")
   cancelCalendarWeekZoom(scroller)
   var fromAxis = grid && grid._calendarWeekAxis
   var animate = fromAxis && scroller.clientHeight > 0 &&
@@ -14953,7 +15464,6 @@ function setCalendarWeekZoom(zoom) {
       var properties = element.hasAttribute("data-calendar-week-event") ? ["top", "height", "left", "width"] : ["height"]
       frames.push({ element: element, properties: properties })
     })
-    frames.push({ element: grid, properties: ["height"] })
     frames.forEach(function (frame) {
       var computed = window.getComputedStyle(frame.element)
       frame.from = frame.properties.map(function (property) { return parseFloat(computed[property]) })
@@ -15106,7 +15616,7 @@ function animateCalendarPills(calendar) {
     return
   }
   var current = captureCalendarPills(calendar), previous = _calendarPillSnapshot
-  if (_calendarWeekSlide && current.view === "week") {
+  if (_calendarWeekSlide && calendarTimelineView(current.view)) {
     var slide = _calendarWeekSlide
     _calendarWeekSlide = null
     _calendarPillSnapshot = current
@@ -15185,6 +15695,9 @@ function initializeCalendarViewport() {
 document.addEventListener("scroll", function (event) {
   var scroller = event.target
   if (!scroller.hasAttribute || !scroller.hasAttribute("data-calendar-week-scroll") || scroller.clientHeight === 0) return
+  // The headers are outside the scroller, so they follow it sideways by hand.
+  var weekHeader = scroller.parentElement && scroller.parentElement.querySelector("[data-calendar-week-header]")
+  if (weekHeader && weekHeader.scrollLeft !== scroller.scrollLeft) weekHeader.scrollLeft = scroller.scrollLeft
   var calendar = document.getElementById("calendar-main")
   if (calendar) _calendarWeekScrollState = { period: calendar.dataset.calendarPeriod, zoom: _calendarWeekZoom, top: scroller.scrollTop, left: scroller.scrollLeft }
 }, true)
@@ -15193,7 +15706,24 @@ document.addEventListener("click", function (event) {
   if (!button || button.disabled) return
   finishCalendarNavigationTransition()
   var action = button.dataset.calendarWeekZoom
-  setCalendarWeekZoom(action === "fit" ? 0 : Math.max(0, Math.min(3, _calendarWeekZoom + (action === "in" ? 1 : -1))))
+  if (action === "fit") return setCalendarWeekZoom(0)
+  // From Fit, - and + step from the level the slider shows.
+  var level = (_calendarWeekZoom || _calendarWeekZoomLevel) + (action === "in" ? 1 : -1)
+  setCalendarWeekZoom(Math.max(1, Math.min(CALENDAR_WEEK_ZOOM_LEVELS, level)))
+})
+// Dragging the zoom slider, clicking its track or using the arrow keys on it.
+document.addEventListener("input", function (event) {
+  var slider = event.target.closest && event.target.closest("[data-calendar-week-zoom-slider]")
+  if (!slider) return
+  finishCalendarNavigationTransition()
+  setCalendarWeekZoom(Math.max(1, Math.min(CALENDAR_WEEK_ZOOM_LEVELS, Number(event.target.value) || 1)))
+})
+// While Fit is on, grabbing the slider's thumb where it is leaves Fit for that level.
+document.addEventListener("pointerdown", function (event) {
+  var thumb = event.target.closest && event.target.closest("[data-calendar-week-zoom-slider] [data-thumb]")
+  if (!thumb || _calendarWeekZoom !== 0) return
+  finishCalendarNavigationTransition()
+  setCalendarWeekZoom(_calendarWeekZoomLevel)
 })
 window.addEventListener("resize", initializeCalendarViewport)
 document.addEventListener("gofer:panels-slid", initializeCalendarViewport)
@@ -15202,6 +15732,17 @@ document.body.addEventListener("htmx:afterSwap", function (event) {
 })
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initializeCalendarViewport)
 else initializeCalendarViewport()
+
+// What scrolls in a calendar surface: the hours' scroller in the hour-grid views,
+// the surface itself in Month.
+function calendarScrollArea(surface) {
+  return (surface && surface.querySelector("[data-calendar-week-scroll]")) || surface
+}
+
+// The same for an outgoing copy, whose data-calendar attributes are gone.
+function calendarSnapshotScrollArea(snapshot) {
+  return snapshot.querySelector("[data-gofer-snapshot-scroll]") || snapshot
+}
 
 function finishCalendarNavigationTransition() {
   var transition = _calendarNavigationTransition
@@ -15227,9 +15768,9 @@ function prepareCalendarNavigation(event) {
     var sliding = _calendarNavigationTransition
     if (sliding && sliding.weekSlide) {
       xhr.goferCalendarWeekSlideContinue = {
-        snapshot: sliding.snapshot, distance: sliding.distance, endsAt: sliding.endsAt,
+        snapshot: sliding.snapshot, moving: sliding.moving, distance: sliding.distance, endsAt: sliding.endsAt,
         incoming: window.getComputedStyle(sliding.surface).transform,
-        outgoing: window.getComputedStyle(sliding.snapshot).transform,
+        outgoing: window.getComputedStyle(sliding.moving).transform,
       }
       _calendarNavigationTransition = null
       sliding.incoming.cancel()
@@ -15244,7 +15785,7 @@ function prepareCalendarNavigation(event) {
     var incoming = window.getComputedStyle(active.surface)
     var outgoing = window.getComputedStyle(active.snapshot)
     xhr.goferCalendarNavigationSnapshot = {
-      element: active.snapshot, top: active.snapshot.scrollTop, left: active.snapshot.scrollLeft,
+      element: active.snapshot, top: calendarSnapshotScrollArea(active.snapshot).scrollTop, left: calendarSnapshotScrollArea(active.snapshot).scrollLeft,
       incoming: { opacity: incoming.opacity, transform: incoming.transform },
       outgoing: { opacity: outgoing.opacity, transform: outgoing.transform },
       crossover: active.crossover, bounds: active.bounds,
@@ -15256,6 +15797,12 @@ function prepareCalendarNavigation(event) {
   _calendarWeekSlide = null
   if (!navigation || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
   var currentCalendar = document.getElementById("calendar-main")
+  // Month to month, the grid itself stays put; only what is in its days changes
+  // (fadeInCalendarMonthContents), so there is no outgoing copy to keep.
+  if (currentCalendar && currentCalendar.dataset.calendarView === "month" && !xhr.goferCalendarNavigationCrossover) {
+    xhr.goferCalendarMonthFade = true
+    return
+  }
   var weekHeader = currentCalendar && currentCalendar.querySelector("[data-calendar-week-header]")
   if (weekHeader && !xhr.goferCalendarNavigationCrossover && weekHeader.animate) {
     var headerCopy = weekHeader.cloneNode(true)
@@ -15282,9 +15829,13 @@ function prepareCalendarNavigation(event) {
   var surface = document.querySelector("#calendar-main [data-calendar-surface]")
   if (!surface || !surface.clientHeight || !surface.animate) return
   var snapshot = surface.cloneNode(true)
+  var scrollArea = calendarScrollArea(surface)
   // The outgoing grid is only a visual layer, never a second set of live controls.
   var elements = [snapshot].concat(Array.from(snapshot.querySelectorAll("*")))
   elements.forEach(function (element) {
+    // Marked so the copy's hours can be put back where they were scrolled to.
+    if (element.hasAttribute("data-calendar-week-scroll")) element.setAttribute("data-gofer-snapshot-scroll", "")
+    if (element.hasAttribute("data-calendar-week-header")) element.setAttribute("data-gofer-snapshot-header", "")
     Array.from(element.attributes).forEach(function (attribute) {
       if (attribute.name === "id" || /^(data-calendar-|(?:data-)?hx-)/.test(attribute.name)) element.removeAttribute(attribute.name)
     })
@@ -15293,7 +15844,7 @@ function prepareCalendarNavigation(event) {
   snapshot.setAttribute("aria-hidden", "true")
   snapshot.setAttribute("data-calendar-navigation-overlay", "")
   xhr.goferCalendarNavigationSnapshot = {
-    element: snapshot, top: surface.scrollTop, left: surface.scrollLeft,
+    element: snapshot, top: scrollArea.scrollTop, left: scrollArea.scrollLeft,
     bounds: xhr.goferCalendarNavigationCrossover ? surface.getBoundingClientRect() : null,
   }
 }
@@ -15302,6 +15853,11 @@ function animateCalendarNavigation(event) {
   var xhr = event.detail && event.detail.xhr
   if (!xhr || (typeof xhr.goferCalendarNavigationDirection === "number" && xhr !== _calendarNavigationRequest)) return
   if (xhr === _calendarNavigationRequest) _calendarNavigationRequest = null
+  if (xhr.goferCalendarMonthFade) {
+    delete xhr.goferCalendarMonthFade
+    fadeInCalendarMonthContents(document.getElementById("calendar-main"), xhr.goferCalendarNavigationDirection)
+    return
+  }
   var continued = xhr.goferCalendarWeekSlideContinue
   if (continued) {
     delete xhr.goferCalendarWeekSlideContinue
@@ -15331,8 +15887,11 @@ function animateCalendarNavigation(event) {
   // background. Keep the old geometry so switching layouts cannot stretch it.
   if (crossover) snapshot.style.backgroundColor = "var(--color-card)"
   calendar.appendChild(snapshot)
-  snapshot.scrollTop = saved.top
-  snapshot.scrollLeft = saved.left
+  var snapshotScroll = calendarSnapshotScrollArea(snapshot)
+  snapshotScroll.scrollTop = saved.top
+  snapshotScroll.scrollLeft = saved.left
+  var snapshotHeader = snapshot.querySelector("[data-gofer-snapshot-header]")
+  if (snapshotHeader) snapshotHeader.scrollLeft = saved.left
   var distance = crossover ? 0 : saved.distance || xhr.goferCalendarNavigationDirection * 12
   var timing = { duration: saved.duration === undefined ? (crossover ? 140 : 220) : saved.duration, easing: crossover ? "ease-out" : "cubic-bezier(0.22, 1, 0.36, 1)" }
   var incoming = crossover ? [{ opacity: 1 }, { opacity: 1 }] : [saved.incoming || { opacity: 0, transform: "translateX(" + distance + "px) scale(0.98)" }, { opacity: 1, transform: "translateX(0) scale(1)" }]
@@ -15349,6 +15908,21 @@ function animateCalendarNavigation(event) {
   }
 }
 
+// The new month's day numbers, busy dots and "+N more" fade in, drifting a few
+// pixels from the side the user is moving towards. Events fade in on their own
+// (animateCalendarPills); the grid's lines and weekday names do not move.
+var CALENDAR_MONTH_FADE_MS = 240
+
+function fadeInCalendarMonthContents(calendar, direction) {
+  var grid = calendar && calendar.querySelector("[data-calendar-month-grid]")
+  if (!grid || !grid.animate) return
+  var timing = { duration: CALENDAR_MONTH_FADE_MS, easing: "ease-out" }
+  var frames = [{ opacity: 0, transform: "translateX(" + (direction || 0) * 4 + "px)" }, { opacity: 1, transform: "translateX(0)" }]
+  grid.querySelectorAll("[data-calendar-day-head], [data-calendar-day-dots], [data-calendar-day-overflow]:not([hidden])").forEach(function (node) {
+    node.animate(frames, timing)
+  })
+}
+
 // The old week's headers slide out while the new ones slide in from the side the
 // user is moving towards. The hour grid below stays where it is.
 function animateCalendarWeekSlide(calendar, saved, direction) {
@@ -15357,17 +15931,32 @@ function animateCalendarWeekSlide(calendar, saved, direction) {
   var parent = calendar.getBoundingClientRect()
   var bounds = saved.bounds
   var copy = saved.header
-  Object.assign(copy.style, {
+  // The copy slides inside a layer cut to the headers' place in the hour grid's
+  // card, rounded corners included, so it never shows outside the card.
+  var card = calendar.querySelector("[data-calendar-week-card]")
+  var cardStyle = card ? window.getComputedStyle(card) : null
+  var radius = cardStyle ? "max(0px, calc(" + cardStyle.borderTopLeftRadius + " - " + cardStyle.borderTopWidth + "))" : "0px"
+  var clip = document.createElement("div")
+  clip.inert = true
+  clip.setAttribute("aria-hidden", "true")
+  clip.setAttribute("data-calendar-navigation-overlay", "")
+  Object.assign(clip.style, {
     position: "absolute", top: (bounds.top - parent.top) + "px", left: (bounds.left - parent.left) + "px",
-    width: bounds.width + "px", height: bounds.height + "px", margin: "0", overflow: "hidden",
-    pointerEvents: "none", zIndex: "30", backgroundColor: "var(--color-card)",
+    width: bounds.width + "px", height: bounds.height + "px", overflow: "hidden",
+    borderRadius: radius + " " + radius + " 0 0", pointerEvents: "none", zIndex: "30",
   })
-  calendar.appendChild(copy)
+  Object.assign(copy.style, {
+    position: "absolute", top: "0", left: "0",
+    width: bounds.width + "px", height: bounds.height + "px", margin: "0", overflow: "hidden",
+    backgroundColor: "var(--color-card)",
+  })
+  clip.appendChild(copy)
+  calendar.appendChild(clip)
   var distance = direction * bounds.width
   var timing = { duration: CALENDAR_WEEK_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
   var endsAt = performance.now() + timing.duration
   if (_calendarWeekSlide) _calendarWeekSlide.endsAt = endsAt
-  startCalendarWeekSlideTransition(header, copy, distance, endsAt,
+  startCalendarWeekSlideTransition(header, clip, copy, distance, endsAt,
     [{ transform: "translateX(" + distance + "px)" }, { transform: "translateX(0)" }],
     [{ transform: "translateX(0)" }, { transform: "translateX(" + -distance + "px)" }], timing)
 }
@@ -15381,16 +15970,17 @@ function continueCalendarWeekSlide(continued) {
   if (!header || !header.animate || remaining <= 0) { continued.snapshot.remove(); return }
   calendar.appendChild(continued.snapshot)
   var timing = { duration: remaining, easing: "ease-out" }
-  startCalendarWeekSlideTransition(header, continued.snapshot, continued.distance, continued.endsAt,
+  startCalendarWeekSlideTransition(header, continued.snapshot, continued.moving, continued.distance, continued.endsAt,
     [{ transform: continued.incoming === "none" ? "translateX(0)" : continued.incoming }, { transform: "translateX(0)" }],
     [{ transform: continued.outgoing === "none" ? "translateX(0)" : continued.outgoing }, { transform: "translateX(" + -continued.distance + "px)" }], timing)
 }
 
-function startCalendarWeekSlideTransition(header, copy, distance, endsAt, incoming, outgoing, timing) {
+// snapshot is what gets removed at the end; moving is the header copy inside it.
+function startCalendarWeekSlideTransition(header, snapshot, moving, distance, endsAt, incoming, outgoing, timing) {
   var transition = {
-    weekSlide: true, snapshot: copy, surface: header, duration: timing.duration, distance: distance, endsAt: endsAt,
+    weekSlide: true, snapshot: snapshot, moving: moving, surface: header, duration: timing.duration, distance: distance, endsAt: endsAt,
     incoming: header.animate(incoming, timing),
-    outgoing: copy.animate(outgoing, timing),
+    outgoing: moving.animate(outgoing, timing),
   }
   _calendarNavigationTransition = transition
   transition.incoming.onfinish = function () {
@@ -15412,7 +16002,8 @@ function configureCalendarNavigationRequest(event) {
   _calendarNavigationRequest = detail.xhr
   detail.xhr.goferCalendarNavigationCrossover = viewSwitch
   if (viewSwitch) finishCalendarNavigationTransition()
-  detail.xhr.goferCalendarNavigationDirection = arrow ? Number(trigger.dataset.calendarNavigate) : trigger.dataset.calendarViewSwitch === "week" ? 1 : -1
+  detail.xhr.goferCalendarNavigationDirection = arrow ? Number(trigger.dataset.calendarNavigate) :
+    CALENDAR_VIEWS.indexOf(trigger.dataset.calendarViewSwitch) > CALENDAR_VIEWS.indexOf(calendar.dataset.calendarView) ? 1 : -1
 }
 document.body.addEventListener("htmx:beforeRequest", configureCalendarNavigationRequest)
 document.body.addEventListener("htmx:beforeRequest", showCalendarContentPending)
@@ -15599,7 +16190,7 @@ function configureCalendarCreateDialog(event) {
     return
   }
   var selected = _calendarSelectedDay && _calendarSelectedDay.period === calendar.dataset.calendarPeriod ? _calendarSelectedDay.date : ""
-  event.detail.parameters.date = selected || (calendar.dataset.calendarView === "week" ? calendar.dataset.calendarDate : calendar.dataset.calendarTodayDate.slice(0, 7) === calendar.dataset.calendarMonth ? calendar.dataset.calendarTodayDate : calendar.dataset.calendarMonth + "-01")
+  event.detail.parameters.date = selected || (calendarTimelineView(calendar.dataset.calendarView) ? calendar.dataset.calendarDate : calendar.dataset.calendarTodayDate.slice(0, 7) === calendar.dataset.calendarMonth ? calendar.dataset.calendarTodayDate : calendar.dataset.calendarMonth + "-01")
 }
 
 document.body.addEventListener("htmx:configRequest", function (event) {
@@ -15896,6 +16487,18 @@ function promptForLink() {
     placeholder: goferT("js.compose.link.placeholder"),
     confirmLabel: goferT("js.compose.link.confirm"),
   }).then(_normalizeLinkAddress)
+}
+
+// _safeLinkHref answers the link to keep for a link written in a signature or
+// in compose, or "" for one to drop. It keeps the same links the server keeps
+// (safeLinkURL in sanitize.go): web, mail and phone links and places in the
+// message. Like browsers and mail apps, it ignores spaces around the address
+// and line breaks inside it, which some signature generators leave there.
+function _safeLinkHref(value) {
+  value = String(value || "").replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "")
+  if (value.charAt(0) === "#") return value
+  if (value.indexOf("//") === 0) return "https:" + value
+  return /^(https?:\/\/|mailto:|tel:)/i.test(value) ? value : ""
 }
 
 // _normalizeLinkAddress turns what was typed as an address into a web or
@@ -19085,7 +19688,6 @@ function autoComposeSignatureGapHTML() {
 
 function placeComposeCursorBeforeSignature(editor, signatureNode) {
   if (!editor || !signatureNode) return
-  editor.focus()
   var target = editor.querySelector('[data-gofer-signature-cursor]')
   if (!target) target = signatureNode.previousSibling
   if (!target || target.nodeType !== Node.ELEMENT_NODE) {
@@ -19093,6 +19695,13 @@ function placeComposeCursorBeforeSignature(editor, signatureNode) {
     target = editor.querySelector('[data-gofer-signature-cursor]') || signatureNode.previousSibling
   }
   if (target.removeAttribute) target.removeAttribute("data-gofer-signature-cursor")
+  // The signature comes in after compose has opened. A cursor already in
+  // another field, such as To on a new message, stays there; the body
+  // still starts on the line above the signature for when it gets there.
+  var root = _composeRootForForm(_composeFormFrom(editor))
+  var active = document.activeElement
+  if (root && active && active !== editor && root.contains(active)) return
+  editor.focus()
   var range = document.createRange()
   if (target.nodeType === Node.ELEMENT_NODE) {
     range.selectNodeContents(target)
@@ -19242,6 +19851,30 @@ function applyDefaultComposeSignatureWhenReady(form, refresh) {
   })
 }
 
+// The compose window's small menus (the signature picker and an attachment's
+// actions) open as popovers inside the compose window: the compose dialog is
+// modal, so a menu outside it would sit under it and take no clicks. Only a
+// press outside the menu closes it, so the press that starts picking one of
+// its items doesn't remove it before the click; a menu that is already gone
+// leaves a newer one alone.
+function _openComposeMenu(menu, anchor, close) {
+  var host = (anchor && anchor.closest && anchor.closest("dialog")) || document.body
+  menu.popover = "manual"
+  host.appendChild(menu)
+  if (menu.showPopover) {
+    try { menu.showPopover() } catch (_) {}
+  }
+  var rect = anchor.getBoundingClientRect()
+  menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
+  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
+  function outside(event) {
+    if (menu.isConnected && event.target && menu.contains(event.target)) return
+    document.removeEventListener("mousedown", outside)
+    if (menu.isConnected) close()
+  }
+  setTimeout(function () { document.addEventListener("mousedown", outside) }, 0)
+}
+
 function closeComposeSignatureMenu() {
   if (_composeSignatureMenu) _composeSignatureMenu.remove()
   _composeSignatureMenu = null
@@ -19273,15 +19906,11 @@ function showComposeSignaturePicker(el) {
         menu.appendChild(btn)
       })(signatures[i])
     }
-    document.body.appendChild(menu)
     _composeSignatureMenu = menu
     // From the ⋯ menu, which closes, the picker opens by the ⋯ button.
     var overflow = el.closest && el.closest("[data-compose-overflow-menu]")
     var anchor = (overflow && overflow.querySelector("[data-compose-overflow-trigger]")) || el
-    var rect = anchor.getBoundingClientRect()
-    menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
-    menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
-    setTimeout(function () { document.addEventListener("mousedown", closeComposeSignatureMenu, { once: true }) }, 0)
+    _openComposeMenu(menu, anchor, closeComposeSignatureMenu)
   })
 }
 
@@ -20007,8 +20636,9 @@ function _sanitizeComposeHTML(html, allowDataImages) {
       }
     }
     if (tag === "A") {
-      var href = node.getAttribute("href") || ""
-      if (!/^(https?:|mailto:|#)/i.test(href)) node.removeAttribute("href")
+      var href = _safeLinkHref(node.getAttribute("href"))
+      if (href) node.setAttribute("href", href)
+      else node.removeAttribute("href")
       node.setAttribute("rel", "noopener noreferrer")
       if (href && href.charAt(0) !== "#") node.setAttribute("target", "_blank")
     } else if (tag === "IMG") {
@@ -20343,6 +20973,60 @@ function toggleComposeFormat(el) {
   })
 }
 
+// A toolbar marked data-toolbar-arrows is one Tab stop, as in the ARIA
+// toolbar pattern: Tab reaches the button last used there, and the arrow
+// keys, Home and End move between its buttons. The menus it opens keep their
+// own keys.
+function toolbarArrowButtons(toolbar) {
+  return Array.prototype.filter.call(toolbar.querySelectorAll("button"), function (button) {
+    return !button.closest("[data-tui-popover-content]")
+  })
+}
+
+// A folded part (data-mail-collapsed) slides to no width and fades out but
+// keeps its boxes, so it is ruled out by its mark.
+function _toolbarButtonShown(button) {
+  return !button.disabled && !button.closest("[data-mail-collapsed]") && button.getClientRects().length > 0
+}
+
+// syncToolbarTabStop makes current the toolbar's Tab stop, or else keeps the
+// one it has, or else takes the first button shown. It runs again whenever
+// buttons show or hide, so the stop is never a button Tab can't reach.
+function syncToolbarTabStop(toolbar, current) {
+  if (!toolbar) return
+  var buttons = toolbarArrowButtons(toolbar)
+  var shown = buttons.filter(_toolbarButtonShown)
+  // A hidden toolbar keeps its stop for when it shows again.
+  if (!shown.length) return
+  if (shown.indexOf(current) < 0) {
+    current = shown.find(function (button) { return button.tabIndex === 0 }) || shown[0]
+  }
+  buttons.forEach(function (button) { button.tabIndex = button === current ? 0 : -1 })
+}
+
+document.addEventListener("keydown", function (event) {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  var key = event.key
+  if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") return
+  var toolbar = event.target && event.target.closest ? event.target.closest("[data-toolbar-arrows]") : null
+  if (!toolbar) return
+  var shown = toolbarArrowButtons(toolbar).filter(_toolbarButtonShown)
+  var at = shown.indexOf(event.target)
+  if (at < 0) return
+  var next = key === "Home" ? 0 : key === "End" ? shown.length - 1 : (at + (key === "ArrowRight" ? 1 : -1) + shown.length) % shown.length
+  event.preventDefault()
+  syncToolbarTabStop(toolbar, shown[next])
+  shown[next].focus()
+})
+
+// A button that gets focus some other way, such as a menu handing it back
+// as it closes, becomes the stop.
+document.addEventListener("focusin", function (event) {
+  var button = event.target
+  var toolbar = button && button.closest ? button.closest("[data-toolbar-arrows]") : null
+  if (toolbar && button.tabIndex === -1 && toolbarArrowButtons(toolbar).indexOf(button) >= 0) syncToolbarTabStop(toolbar, button)
+})
+
 // The compose toolbar folds its tools into a ⋯ menu as its room runs out,
 // as the mail list's toolbar and the contact header do: undo first, then
 // quote and code, and so on (the ranks in ComposeToolbar). Bold to lists,
@@ -20374,6 +21058,8 @@ function syncComposeToolbarOverflow(toolbar, force) {
   toolbar.querySelectorAll("[data-compose-overflow-menu-item]").forEach(function (item) {
     item.style.display = parseInt(item.getAttribute("data-compose-overflow-menu-item"), 10) <= step ? "" : "none"
   })
+  // Folding, and the format switch that folds again, show and hide buttons.
+  syncToolbarTabStop(toolbar)
 }
 
 // observeComposeToolbars watches each compose toolbar's width; the dialog's
@@ -20940,7 +21626,10 @@ function updateComposeSendState(form) {
   var disabled = pending > 0 || sending
   // Switching format while an image uploads would lose it.
   var formatToggle = form.querySelector("[data-compose-format-toggle]")
-  if (formatToggle) formatToggle.disabled = disabled
+  if (formatToggle) {
+    formatToggle.disabled = disabled
+    syncToolbarTabStop(formatToggle.closest("[data-toolbar-arrows]"))
+  }
   var root = _composeRootForForm(form)
   var mobileSend = root && root.querySelector("[data-compose-mobile-send]")
   if (mobileSend) {
@@ -22317,12 +23006,8 @@ function showComposeAttachmentActions(item) {
     convertComposeAttachmentToInline(item)
   }
   menu.appendChild(convert)
-  document.body.appendChild(menu)
   _composeAttachmentMenu = menu
-  var rect = item.getBoundingClientRect()
-  menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
-  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
-  setTimeout(function () { document.addEventListener("mousedown", closeComposeAttachmentActions, { once: true }) }, 0)
+  _openComposeMenu(menu, item, closeComposeAttachmentActions)
 }
 
 function convertComposeAttachmentToInline(item) {
@@ -22622,7 +23307,7 @@ function loadDraftIntoCompose(emailId) {
       var form = document.getElementById("compose-form")
       _writeComposeFormValues(form, vals, "compose-")
       _showComposeOptionalFields(form, vals)
-      if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+      openComposeDialog("new")
     })
     .catch(function (err) {
       showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.draft.load_failed"))
@@ -23549,8 +24234,16 @@ function writeComposeIntoView(vals, mode) {
   }
   var form = document.getElementById("compose-form")
   writeComposePrefill(form, vals, "compose-", mode)
-  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  openComposeDialog(mode)
   return true
+}
+
+// openComposeDialog opens the compose dialog and puts the cursor where the
+// message goes on: To while it is empty, else Subject, else the body. Opening
+// a modal dialog focuses its first button, so the cursor is set after.
+function openComposeDialog(mode) {
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  focusComposePrefill(document.getElementById("compose-form"), mode)
 }
 
 function mailtoDecodedPath(pathname) {
@@ -23697,9 +24390,7 @@ function openNewCompose() {
     openComposeInMain(view === "full", view === "full")
     return
   }
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
   applyDefaultComposeSignatureWhenReady(document.getElementById("compose-form"), true)
 }
 
@@ -23874,6 +24565,7 @@ function syncThreadReadButtons() {
 }
 
 function toggleRead(emailId) {
+  keepMailListItemRead(emailId)
   fetch("/api/messages/" + emailId + "/read", { method: "POST" })
     .then(function (r) { return r.json() })
     .then(function (data) {
@@ -23887,6 +24579,7 @@ function toggleRead(emailId) {
 }
 
 function toggleThreadRead(emailId, threadId) {
+  keepMailListItemRead(emailId)
   if (window.GoferMailSearch && window.GoferMailSearch.scope()) {
     var row = window.GoferMailSearch.rowData(emailId)
     return runScopedMailAction(emailId, "read", true, { state: row && row.isRead === "true" ? "unread" : "read" })
@@ -25074,6 +25767,99 @@ function confirmMoveDialog(emailId, thread) {
   moveMessage(emailId, selected.getAttribute("data-mail-move-folder"), thread)
 }
 
+// loadFolderRulesCount shows in badge how many rules move mail into a
+// folder: the rules its menu's Rules item opens. It loads only when the
+// menu opens. Until the number comes the badge is a blank pill; a count
+// that comes after the menu opened again, for this folder or another, is
+// dropped, and a failure leaves no badge.
+function loadFolderRulesCount(badge, folderID) {
+  if (!badge) return Promise.resolve()
+  var load = {}
+  badge._folderRulesLoad = load
+  badge.textContent = ""
+  badge.setAttribute("data-loading", "")
+  badge.hidden = !folderID
+  if (!folderID) return Promise.resolve()
+  return fetch("/api/settings/rules/folder-count?folder=" + encodeURIComponent(folderID), { headers: { Accept: "application/json" } })
+    .then(function (response) {
+      if (!response.ok) throw new Error("rules for folder: " + response.status)
+      return response.json()
+    })
+    .then(function (data) {
+      if (badge._folderRulesLoad !== load) return
+      badge.removeAttribute("data-loading")
+      badge.textContent = String(data && typeof data.count === "number" ? data.count : 0)
+    })
+    .catch(function (err) {
+      if (badge._folderRulesLoad !== load) return
+      console.warn(err)
+      badge.hidden = true
+    })
+}
+
+// Opening a folder's menu in the account settings' folders dialog loads
+// how many rules move mail into it. The menu toggles on the same click, so
+// whether it opened is read once that click is done.
+document.addEventListener("click", function (e) {
+  var trigger = e.target && e.target.closest && e.target.closest("[data-folder-actions-trigger]")
+  var root = trigger && trigger.closest("[data-tui-popover-root]")
+  if (!root) return
+  setTimeout(function () {
+    var content = Array.prototype.find.call(root.children, function (child) { return child.matches("[data-tui-popover-content]") })
+    var badge = content && content.matches(":popover-open") && content.querySelector("[data-folder-rules-count]")
+    var item = badge && badge.closest("[data-folder-id]")
+    if (item) loadFolderRulesCount(badge, item.getAttribute("data-folder-id"))
+  }, 0)
+})
+
+// syncFilterPills draws a list's active filters as pills in strip, the mail
+// list's strip under its search (styles and open/close transition
+// included), each a copy of template's pill, the server's own, tooltip and
+// all. pills are { name, text, label }; attrs names the pill's attributes
+// for its filter's name (remove) and its key (key), and its tooltip's text
+// (tooltip). A pill already shown stays still and a new one drops in. With
+// none, the pills stay while the strip closes, then go. The contacts list
+// and the rules list in Settings use it.
+function syncFilterPills(strip, template, pills, attrs) {
+  if (!strip) return
+  if (strip._goferPillsClearing) {
+    clearTimeout(strip._goferPillsClearing)
+    strip._goferPillsClearing = null
+  }
+  if (pills.length === 0) {
+    strip.classList.add("hidden")
+    strip._goferPillsClearing = setTimeout(function () {
+      strip._goferPillsClearing = null
+      if (strip.classList.contains("hidden")) strip.innerHTML = ""
+    }, 190)
+    return
+  }
+  var existing = Object.create(null)
+  strip.querySelectorAll("[" + attrs.key + "]").forEach(function (pill) {
+    existing[pill.getAttribute(attrs.key)] = true
+  })
+  var visible = document.createElement("div")
+  visible.className = "mail-active-filter-visible"
+  pills.forEach(function (pill) {
+    var key = pill.name + ":" + pill.text
+    var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
+    var button = node && node.querySelector("[" + attrs.remove + "]")
+    if (!button) return
+    button.setAttribute(attrs.remove, pill.name)
+    button.setAttribute(attrs.key, key)
+    button.setAttribute("aria-label", pill.label)
+    button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
+    var label = button.querySelector(".mail-active-filter-pill-label")
+    if (label) label.textContent = pill.text
+    var tip = node.querySelector("[" + attrs.tooltip + "]")
+    if (tip) tip.textContent = pill.text
+    visible.appendChild(node)
+  })
+  strip.replaceChildren(visible)
+  strip.classList.remove("hidden")
+}
+window.goferSyncFilterPills = syncFilterPills
+
 // A button in the account settings' folders dialog runs the folder action
 // it names, as the sidebar's menu does.
 function manageFolderAction(button) {
@@ -25568,6 +26354,17 @@ function invalidateMailListItem(emailId) {
   }
 }
 
+// keepMailListItemRead keeps the row of an opened message in an Unread list
+// once it is read, instead of taking it away from under the reader. It is
+// called before the message is marked read, so the list's next request
+// already keeps it.
+function keepMailListItemRead(emailId) {
+  var container = document.getElementById("mail-list-scroll")
+  if (container && container._virtualMailList) {
+    container._virtualMailList.keepRead(emailId)
+  }
+}
+
 // A thread opens with every message listed and only the selected one expanded.
 // Bring that one to the top of the reader instead of leaving the pane at the
 // first message. The messages above it stay collapsed, so their height is settled.
@@ -25866,7 +26663,11 @@ function applyEmailBodyTheme(targetFrame) {
   var fg = palette.fg
   var link = palette.link
   if (original) {
-    iframe.style.backgroundColor = ""
+    // Messages shown as sent assume the browser's white page. A frame's own
+    // page is transparent, so without this a message that sets no background
+    // shows its default black text over a dark Gofer theme. The message's own
+    // backgrounds still paint over this one.
+    iframe.style.backgroundColor = "#ffffff"
   } else if (bg) {
     iframe.style.backgroundColor = bg
   }
@@ -26284,8 +27085,7 @@ function writeComposePane(html, vals, fullWidth, instantFullWidth) {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  var bodyField = paneForm && paneForm.querySelector('[data-compose-editor]')
-  if (bodyField) bodyField.focus()
+  focusComposePrefill(paneForm, "new")
 
   if (fullWidth) {
     if (instantFullWidth) {
@@ -26321,9 +27121,7 @@ function collapseToDialog() {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
 }
 
 function discardComposePane(anchor) {
@@ -26540,6 +27338,17 @@ function collapseComposeFullWidth() {
     return el.querySelector('.thread-details-content')
   }
 
+  // A collapsed message's body waits in a template (see MailViewThreadContent)
+  // and is filled in when the message first opens.
+  function fillThreadBody(el) {
+    var ct = contentOf(el)
+    var template = ct && ct.querySelector(':scope > template[data-thread-body]')
+    if (!template) return
+    template.replaceWith(template.content.cloneNode(true))
+    if (window.htmx) htmx.process(ct)
+    ct.dispatchEvent(new CustomEvent('gofer:thread-body-added', { bubbles: true }))
+  }
+
   function measure(cards) {
     return cards.map(function (card) {
       var rect = card.getBoundingClientRect()
@@ -26559,6 +27368,7 @@ function collapseComposeFullWidth() {
     var waiting = 0
     var finished = false
     var timer = null
+    var loading = false
     function finish() {
       if (finished) return
       finished = true
@@ -26568,6 +27378,7 @@ function collapseComposeFullWidth() {
     cts.forEach(function (ct) {
       var iframe = ct.querySelector('[data-email-body-frame]')
       if (!iframe || iframe._bodyMeasuredWidth === iframe.clientWidth) return
+      if (!iframe._bodyReported) loading = true
       waiting++
       function onMeasured() {
         if (iframe._bodyMeasuredWidth !== iframe.clientWidth) return
@@ -26580,7 +27391,10 @@ function collapseComposeFullWidth() {
       finish()
       return
     }
-    timer = setTimeout(finish, 150)
+    // A body opened for the first time still has to load. It gets longer, so
+    // it usually opens at its real height, but a slow one opens on its loading
+    // lines rather than holding the click up.
+    timer = setTimeout(finish, loading ? 500 : 150)
   }
 
   // clipSlot makes a slot clip its sheet for the animation. The clip reaches
@@ -26618,6 +27432,7 @@ function collapseComposeFullWidth() {
     list._threadBusy = true
     opening.forEach(function (el, i) {
       var ct = openingContent[i]
+      fillThreadBody(el)
       ct.style.height = '1px'
       ct.style.overflow = 'hidden'
       el.open = true
@@ -26964,9 +27779,10 @@ function stepCalendarAutoScroll() {
   var dy = state.x >= box.left && state.x <= box.right ? calendarScrollStep(state.y, top, box.bottom) : 0
   // A picked range stays in its day, so it only scrolls up and down.
   var dx = !pick && state.y >= box.top && state.y <= box.bottom ? calendarScrollStep(state.x, box.left, box.right) : 0
-  var scrollTop = surface.scrollTop, scrollLeft = surface.scrollLeft
-  if (dx || dy) surface.scrollBy(dx, dy)
-  if (surface.scrollTop === scrollTop && surface.scrollLeft === scrollLeft) return
+  var area = calendarScrollArea(surface)
+  var scrollTop = area.scrollTop, scrollLeft = area.scrollLeft
+  if (dx || dy) area.scrollBy(dx, dy)
+  if (area.scrollTop === scrollTop && area.scrollLeft === scrollLeft) return
   // The calendar moved under the pointer, so what it points at changed.
   if (drag) updateCalendarDrag(drag, {clientX: state.x, clientY: state.y})
   else updateCalendarPick(pick, state.y)
@@ -27657,8 +28473,8 @@ document.addEventListener("touchstart", function (event) {
     x: touch.clientX,
     y: touch.clientY,
     time: Date.now(),
-    atStart: surface.scrollLeft <= 0,
-    atEnd: surface.scrollLeft + surface.clientWidth >= surface.scrollWidth - 1,
+    atStart: calendarScrollArea(surface).scrollLeft <= 0,
+    atEnd: calendarScrollArea(surface).scrollLeft + calendarScrollArea(surface).clientWidth >= calendarScrollArea(surface).scrollWidth - 1,
   }
 }, {passive: true})
 

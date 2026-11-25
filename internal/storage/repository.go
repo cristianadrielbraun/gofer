@@ -291,7 +291,22 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Rules imported before these folders were here may be waiting for
+	// them, as rules a profile import brings for an account it adds. A rule
+	// that can't be given its folders doesn't stop the folders syncing.
+	var accounts []string
+	for _, f := range folders {
+		if !slices.Contains(accounts, f.AccountID) {
+			accounts = append(accounts, f.AccountID)
+		}
+	}
+	if err := db.findMissingMailRuleFolders(ctx, accounts); err != nil {
+		log.Printf("upsert folders: %v", err)
+	}
+	return nil
 }
 
 // ListedProviderFolder is a folder the provider lists, with the provider's
@@ -450,10 +465,13 @@ type messageThreadLink struct {
 
 // findMessageThreadTx finds the conversation of message msgID, or of a
 // message not saved yet when msgID is 0: the nearest referenced message's,
-// or for mail without references, when the user groups by subject, one
-// with the same subject as findSubjectThreadTx picks. Otherwise the message
-// starts a new conversation.
+// then that of other mail referring to the same missing message, then, for
+// mail whose references lead to no saved message, when the user groups by
+// subject, one with the same subject as findSubjectThreadTx picks. Otherwise
+// the message starts a new conversation.
 func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, inReplyTo, normalizedSubject, subject string, refs []string, sentAt time.Time, olderOnly bool, participants func() messageParties) messageThreadLink {
+	// referenced is whether any message this one refers to is saved.
+	referenced := false
 	for i := len(refs) - 1; i >= 0; i-- {
 		var candidateID int64
 		var candidateThread sql.NullString
@@ -461,6 +479,9 @@ func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, 
 		err := tx.QueryRowContext(ctx,
 			`SELECT id, thread_id, normalized_subject FROM messages WHERE account_id = ? AND message_id_normalized = ? AND id != ? LIMIT 1`,
 			accountID, refs[i], msgID).Scan(&candidateID, &candidateThread, &candidateSubject)
+		if err == nil {
+			referenced = true
+		}
 		if err == nil && candidateThread.Valid && candidateThread.String != "" {
 			if refs[i] != inReplyTo && candidateSubject != normalizedSubject {
 				continue
@@ -468,12 +489,42 @@ func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, 
 			return messageThreadLink{threadID: candidateThread.String, parentID: sql.NullInt64{Int64: candidateID, Valid: true}}
 		}
 	}
-	if len(refs) == 0 {
+	if threadID := db.findSiblingThreadTx(ctx, tx, msgID, accountID, inReplyTo, normalizedSubject, refs); threadID != "" {
+		return messageThreadLink{threadID: threadID}
+	}
+	// Mail whose reply headers lead to no saved message is grouped by
+	// subject like mail without them, as some senders' headers point only
+	// to messages they never send.
+	if !referenced {
 		if threadID := db.findSubjectThreadTx(ctx, tx, msgID, accountID, normalizedSubject, subject, sentAt, olderOnly, participants); threadID != "" {
 			return messageThreadLink{threadID: threadID}
 		}
 	}
 	return messageThreadLink{threadID: uuid.NewString(), newThread: true}
+}
+
+// findSiblingThreadTx finds the conversation of other mail that refers to a
+// message the mailbox does not have, for a message that refers to it too, or
+// "" when there is none. Some senders, such as Jira, make every notification
+// a reply to one message they never send, so without this each notification
+// would start its own conversation. As with references to saved mail, a
+// message other than the one this message replies to only counts when the
+// subjects match.
+func (db *DB) findSiblingThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, inReplyTo, normalizedSubject string, refs []string) string {
+	for i := len(refs) - 1; i >= 0; i-- {
+		var threadID string
+		err := tx.QueryRowContext(ctx,
+			`SELECT m.thread_id FROM message_references mr JOIN messages m ON m.id = mr.message_id
+			 WHERE mr.referenced_message_id = ? AND m.account_id = ? AND m.id != ? AND COALESCE(m.thread_id, '') != ''
+			 AND (? OR m.normalized_subject = ?)
+			 AND NOT EXISTS (SELECT 1 FROM messages p WHERE p.account_id = ? AND p.message_id_normalized = ?)
+			 ORDER BY m.date_received DESC, m.id DESC LIMIT 1`,
+			refs[i], accountID, msgID, refs[i] == inReplyTo, normalizedSubject, accountID, refs[i]).Scan(&threadID)
+		if err == nil {
+			return threadID
+		}
+	}
+	return ""
 }
 
 // linkMessageThreadTx records the rest of a message's threading once the
@@ -1368,23 +1419,6 @@ func (db *DB) ListProviderMessageIDBackfillCandidates(ctx context.Context, accou
 		out = append(out, c)
 	}
 	return out, rows.Err()
-}
-
-func (db *DB) CountProviderBackedMessages(ctx context.Context, accountID string) (int, error) {
-	accountID = strings.TrimSpace(accountID)
-	if accountID == "" {
-		return 0, nil
-	}
-	var count int
-	err := db.Read().QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM messages m
-		WHERE m.account_id = ?
-		  AND `+anyProviderCopyIDSQL("m")+` != ''`, accountID).Scan(&count)
-	if err != nil {
-		return 0, err
-	}
-	return count, nil
 }
 
 func (db *DB) ListOutlookGraphIDBackfillCandidates(ctx context.Context, accountID string, limit int) ([]OutlookGraphIDBackfillCandidate, error) {
@@ -3250,16 +3284,21 @@ func (db *DB) EnqueueLabelMutation(ctx context.Context, accountID string, messag
 
 	_, err := db.Write().ExecContext(ctx, `
 		INSERT INTO label_mutation_queue (
-			account_id, message_id, folder_id, provider_type, operation, label_name, last_error, next_attempt_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			account_id, message_id, folder_id, provider_type, operation, label_name, last_error, next_attempt_at, updated_at,
+			action_id, action_kind, action_source, action_rule_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?, ?)
 		ON CONFLICT DO UPDATE SET
 			account_id = excluded.account_id,
 			folder_id = excluded.folder_id,
 			label_name = excluded.label_name,
 			last_error = excluded.last_error,
 			next_attempt_at = CURRENT_TIMESTAMP,
-			updated_at = CURRENT_TIMESTAMP`,
-		accountID, messageID, folderID, providerType, operation, labelName, strings.TrimSpace(lastError))
+			updated_at = CURRENT_TIMESTAMP,
+			action_id = excluded.action_id,
+			action_kind = excluded.action_kind,
+			action_source = excluded.action_source,
+			action_rule_id = excluded.action_rule_id`,
+		append([]any{accountID, messageID, folderID, providerType, operation, labelName, strings.TrimSpace(lastError)}, mailActionArgs(ctx)...)...)
 	return err
 }
 
@@ -3285,9 +3324,10 @@ func (db *DB) ReplaceLabelMutation(ctx context.Context, accountID string, messag
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO label_mutation_queue (
-			account_id, message_id, folder_id, provider_type, operation, label_name, next_attempt_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-		accountID, messageID, strings.TrimSpace(folderID), providerType, operation, labelName); err != nil {
+			account_id, message_id, folder_id, provider_type, operation, label_name, next_attempt_at, updated_at,
+			action_id, action_kind, action_source, action_rule_id
+		) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+		append([]any{accountID, messageID, strings.TrimSpace(folderID), providerType, operation, labelName}, mailActionArgs(ctx)...)...); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -5528,7 +5568,7 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	var withArgs []any
 	var args []any
 	if filters.Unread {
-		outerParts = append(outerParts, "thread_is_read = 0")
+		outerParts = append(outerParts, "(thread_is_read = 0"+keptReadSQL(filters, "account_id", "COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id))", "id")+")")
 	} else if filters.Read {
 		outerParts = append(outerParts, "thread_is_read = 1")
 	}
@@ -8704,6 +8744,7 @@ func defaultUISettings() map[string]string {
 		"subject_threading":                 "false",
 		"subject_threading_window_days":     "7",
 		"subject_threading_max_messages":    "100",
+		"subject_threading_late_replies":    "true",
 		"thread_order":                      "newest",
 		"email_body_style":                  "theme",
 		"translation_button_enabled":        "true",
@@ -8719,6 +8760,7 @@ func defaultUISettings() map[string]string {
 		"mail_card_layout":                  "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
 		"mail_card_date_time":               "false",
 		"mail_card_account_marker":          "true",
+		"mail_card_actions_on_hover":        "true",
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
 		"sidebar_account_collapsed":         "{}",

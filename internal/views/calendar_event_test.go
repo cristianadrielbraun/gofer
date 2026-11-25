@@ -173,7 +173,7 @@ func TestCalendarEventsHaveSharedAccessibleDetailsTriggers(t *testing.T) {
 	tomorrow := time.Now().UTC().AddDate(0, 0, 1)
 	start := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 9, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
-	month := NewCalendarMonthData(start)
+	month := NewCalendarMonthData(start, time.Monday)
 	month.Events = []CalendarEvent{{ID: "event-id", Summary: "Planning", StartAt: &start, EndAt: &end}}
 	var output bytes.Buffer
 	if err := CalendarPage(month, nil).Render(t.Context(), &output); err != nil {
@@ -356,7 +356,7 @@ func TestCalendarEventLoadingDialogIsAccessibleAndPassive(t *testing.T) {
 func TestCalendarEventTriggersHaveNoRequestSpinner(t *testing.T) {
 	start := time.Now().UTC().Add(24 * time.Hour)
 	end := start.Add(time.Hour)
-	for _, data := range []CalendarMonthData{NewCalendarMonthData(start), NewCalendarWeekData(start)} {
+	for _, data := range []CalendarMonthData{NewCalendarMonthData(start, time.Monday), NewCalendarWeekData(start, time.Monday)} {
 		data.Events = []CalendarEvent{{ID: "timed", Summary: "Planning", StartAt: &start, EndAt: &end}, {ID: "all-day", Summary: "Holiday", AllDay: true, StartDate: start.Format("2006-01-02"), EndDate: start.AddDate(0, 0, 1).Format("2006-01-02")}}
 		var output bytes.Buffer
 		if err := CalendarPage(data, nil).Render(t.Context(), &output); err != nil {

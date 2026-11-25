@@ -171,9 +171,9 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 			<div class="mail-list-title flex items-center gap-2 min-w-0">
 				<h2 id="mail-folder-name" data-mail-folder-default-name={ folderDisplayName(ctx, activeFolder) } class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ mailListFolderHeading(ctx, activeFolder, filters) }</h2>
 				if totalCount >= 0 {
-					<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+					<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
 				} else {
-					<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span>
+					<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span>
 				}
 			</div>
 		</div>
@@ -611,7 +611,7 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 			@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.filters.title"), "data-mail-filter-button": ""}}) {
 				<span class="mail-list-filter-label">{ i18n.T(ctx, "mail.filters.title") }</span>
 				@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
-				<span data-mail-filter-count class="hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
+				<span data-mail-filter-count class="hidden min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
 			}
 		}
 		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, Exclusive: true, Class: "mobile-sheet mail-filters-sheet z-[70] w-[min(36rem,calc(100vw-1.5rem))] max-w-none overflow-hidden p-0 [&::backdrop]:transition-colors [&::backdrop]:duration-150 data-[tui-popover-open=false]:[&::backdrop]:bg-black/0 data-[tui-popover-open=true]:[&::backdrop]:bg-black/25"}) {
@@ -839,7 +839,7 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 							<button type="button" data-mail-filters-close class="h-8 rounded-md border border-border px-3 text-xs font-medium hover:bg-accent">{ i18n.T(ctx, "common.cancel") }</button>
 							<button type="submit" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
 								<span>{ i18n.T(ctx, "common.apply") }</span>
-								<span data-mail-advanced-filter-count class="hidden min-w-4 rounded-full bg-primary-foreground/15 px-1.5 py-0.5 text-center text-[10px] leading-none">0</span>
+								<span data-mail-advanced-filter-count class="hidden min-w-4 rounded-md bg-primary-foreground/15 px-1.5 py-0.5 text-center text-[10px] leading-none">0</span>
 							</button>
 						</div>
 					</div>
@@ -879,7 +879,7 @@ templ MailFilterCalendarField(name string, id string, placeholder string) {
 			</button>
 		}
 		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Exclusive: false, Class: "z-[80] w-auto p-3"}) {
-			@calendar.Calendar(calendar.Props{ID: id, Name: name, Class: "[--cell-size:1.9rem]", HideHiddenInput: false, MinYear: 1970, MaxYear: time.Now().Year() + 1})
+			@calendar.Calendar(calendar.Props{ID: id, Name: name, Class: "[--cell-size:1.9rem]", HideHiddenInput: false, MinYear: 1970, MaxYear: time.Now().Year() + 1, StartOfWeek: pickerStartOfWeek(ctx)})
 		}
 	}
 }
@@ -1014,13 +1014,31 @@ templ ListLayoutSelector(cardOpenAttribute string, list string, columns []ListCo
 					@icon.Settings(icon.Props{Class: "size-3.5"})
 				}
 			}
-			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "normal-case tracking-normal", Attributes: templ.Attributes{"data-mail-list-display-menu": ""}}) {
+			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "normal-case tracking-normal max-h-none overflow-visible", Attributes: templ.Attributes{"data-mail-list-display-menu": ""}}) {
 				<div data-mail-table-column-menu data-table-columns-list={ list }>
-					@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
-						{ i18n.T(ctx, "mail.columns.title") }
-					}
-					for _, column := range columns {
-						@MailListColumnOption(column.ID, column.Label)
+					// The columns scroll on their own, so the footer below them
+					// always shows.
+					<div class="max-h-[min(24rem,70dvh)] overflow-y-auto overflow-x-hidden">
+						@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
+							{ i18n.T(ctx, "mail.columns.title") }
+						}
+						for _, column := range columns {
+							@MailListColumnOption(column.ID, column.Label)
+						}
+					</div>
+					if list == "mail" {
+						// The footer: the folder or tag on screen can keep columns
+						// of its own. Search results are no folder, so app.js turns
+						// it off there.
+						@dropdown.Separator()
+						@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 transition-opacity duration-200 ease-out aria-disabled:pointer-events-none aria-disabled:opacity-50 motion-reduce:transition-none", PreventClose: true, Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": "false", "aria-disabled": "false", "data-mail-table-place-item": ""}}) {
+							// The item takes the click; app.js keeps the box checked.
+							@checkbox.Checkbox(checkbox.Props{
+								Class:      "pointer-events-none",
+								Attributes: templ.Attributes{"tabindex": "-1", "aria-hidden": "true", "data-mail-table-place-check": ""},
+							})
+							{ i18n.T(ctx, "mail.columns.this_folder_only") }
+						}
 					}
 				</div>
 			}
@@ -1100,7 +1118,23 @@ templ MailCardLayoutDialog() {
 				<span class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.08)]">{ i18n.T(ctx, "mail.card_layout.sample_label") }</span>
 			</span>
 		</div>
-		<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status"></div>
+		<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status">
+			<span data-mail-card-field="readAction" class="mail-card-action-btn">
+				@icon.MailOpen(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="archiveAction" class="mail-card-action-btn">
+				@icon.Archive(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="deleteAction" class="mail-card-action-btn">
+				@icon.Trash2(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="labelsAction" class="mail-card-action-btn">
+				@icon.Tag(icon.Props{Class: "size-3.5"})
+			</span>
+			<span data-mail-card-field="spamAction" class="mail-card-action-btn">
+				@icon.ShieldAlert(icon.Props{Class: "size-3.5"})
+			</span>
+		</div>
 		<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner" data-mail-card-layout-zone-items="corner" data-mail-card-layout-dropzone="corner">
 			<span data-mail-card-field="starred">
 				@icon.Star(icon.Props{Class: "size-3.5 shrink-0 fill-amber-500 text-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
@@ -1351,14 +1385,16 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 					</span>
 				}
 			</div>
-			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>
+			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status">
+				@mailCardActionButtons(email)
+			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner">
 				if email.IsStarred {
 					<button class="star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred" aria-label={ i18n.T(ctx, "mail.actions.unstar") }>
 						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 shrink-0 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
 					</button>
 				} else {
-					<button class="opacity-0 group-hover:opacity-100 transition-opacity star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred">
+					<button class="mail-card-hover-action transition-opacity star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred">
 						@icon.Star(icon.Props{Class: "size-3.5 text-muted-foreground opacity-70"})
 					</button>
 				}
@@ -1366,6 +1402,42 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			<div class="hidden" data-mail-card-zone="hidden"></div>
 		</a>
 	</div>
+}
+
+// mailCardActionButtons are the card fields that act on the card's message;
+// app.js runs them. They start in the status zone, and the card layout moves
+// them, or hides them, as it does the other fields. Labels that depend on the
+// folder (Archive in Archive, Delete in Trash, Spam in Spam) are set by app.js.
+// Like an unstarred star, they show on hover unless the
+// mail_card_actions_on_hover setting is off (mail-card-hover-action).
+templ mailCardActionButtons(email models.Email) {
+	if email.IsRead {
+		@mailCardActionButton("readAction", "read", i18n.T(ctx, "mail.actions.mark_unread")) {
+			@icon.Mail(icon.Props{Class: "size-3.5"})
+		}
+	} else {
+		@mailCardActionButton("readAction", "read", i18n.T(ctx, "mail.actions.mark_read")) {
+			@icon.MailOpen(icon.Props{Class: "size-3.5"})
+		}
+	}
+	@mailCardActionButton("archiveAction", "archive", i18n.T(ctx, "mail.card_action.archive")) {
+		@icon.Archive(icon.Props{Class: "size-3.5"})
+	}
+	@mailCardActionButton("deleteAction", "delete", i18n.T(ctx, "mail.card_action.delete")) {
+		@icon.Trash2(icon.Props{Class: "size-3.5"})
+	}
+	@mailCardActionButton("labelsAction", "labels", i18n.T(ctx, "mail.actions.labels_short")) {
+		@icon.Tag(icon.Props{Class: "size-3.5"})
+	}
+	@mailCardActionButton("spamAction", "spam", i18n.T(ctx, "mail.actions.report_spam")) {
+		@icon.ShieldAlert(icon.Props{Class: "size-3.5"})
+	}
+}
+
+templ mailCardActionButton(field string, action string, label string) {
+	<button type="button" class="mail-card-action-btn mail-card-hover-action shrink-0" data-mail-card-field={ field } data-mail-card-action={ action } aria-label={ label } title={ label }>
+		{ children... }
+	</button>
 }
 
 templ MailListTableItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {

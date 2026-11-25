@@ -33,14 +33,21 @@ func Validate(keyword string) (string, error) {
 // IsStatus reports whether keyword is a system flag or a keyword that marks
 // a message's status rather than labelling it. JMAP spells IMAP's \Seen,
 // \Flagged, \Draft and \Answered flags as $seen, $flagged, $draft and
-// $answered. Fastmail's own undocumented markers, $IsTrusted and the
-// $X-ME-* keywords, count as status too, so they don't show as labels.
+// $answered. Registered keywords that servers or clients set to describe a
+// message, like $HasAttachment and $HasNoAttachment, which some servers add
+// to every new message, count as status too. So do Fastmail's own
+// undocumented markers, $IsTrusted and the $X-ME-* keywords. None of them
+// show as labels.
 func IsStatus(keyword string) bool {
 	switch lower := strings.ToLower(strings.TrimSpace(keyword)); lower {
 	case "\\seen", "\\answered", "\\flagged", "\\deleted", "\\draft", "\\recent",
 		"$seen", "$answered", "$flagged", "$draft",
 		"$junk", "$notjunk", "$nonjunk", "junk", "notjunk", "nonjunk", "non-junk",
-		"$forwarded", "$mdnsent", "$phishing", "$istrusted":
+		"$forwarded", "$mdnsent", "$phishing", "$istrusted",
+		"$hasattachment", "$hasnoattachment",
+		"$submitpending", "$submitted", "$autosent",
+		"$muted", "$followed", "$notify",
+		"$unsubscribed", "$canunsubscribe", "$imported":
 		return true
 	default:
 		return strings.HasPrefix(keyword, "\\") || strings.HasPrefix(lower, "$x-me-")

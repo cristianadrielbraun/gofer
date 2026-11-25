@@ -15,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/progress"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	"github.com/cristianadrielbraun/gofer/components/slider"
 	"github.com/cristianadrielbraun/gofer/components/timepicker"
 	"github.com/cristianadrielbraun/gofer/components/toast"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
@@ -731,37 +732,54 @@ templ CalendarMainContent(month CalendarMonthData) {
 						@icon.ChevronRight(icon.Props{Class: "size-4"})
 					</a>
 				</div>
-				<nav aria-label={ i18n.T(ctx, "calendar.view.label") } class="relative grid h-8 w-36 grid-cols-2 gap-0.5 rounded-lg border border-border bg-background p-0.5" data-calendar-view-nav>
-					<div data-calendar-view-indicator aria-hidden="true" class="absolute top-0.5 bottom-0.5 left-0.5 rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none" style={ calendarViewIndicatorStyle(month.View) }></div>
-					<a href={ calendarViewURL("month", month.DateKey) } hx-get={ calendarViewURL("month", month.DateKey) } hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-sync="#main-content:replace" hx-push-url={ calendarViewURL("month", month.DateKey) } class={ calendarViewSwitchClass(month.View != "week") } aria-current={ calendarViewCurrent(month.View != "week") } data-calendar-view-switch="month">{ i18n.T(ctx, "calendar.view.month") }</a>
-					<a href={ calendarViewURL("week", month.DateKey) } hx-get={ calendarViewURL("week", month.DateKey) } hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-sync="#main-content:replace" hx-push-url={ calendarViewURL("week", month.DateKey) } class={ calendarViewSwitchClass(month.View == "week") } aria-current={ calendarViewCurrent(month.View == "week") } data-calendar-view-switch="week">{ i18n.T(ctx, "calendar.view.week") }</a>
-				</nav>
+				// The view menu looks like the buttons beside it. Picking a view clicks
+				// its link, so moving to it works like any other calendar link.
+				<div class="shrink-0" data-calendar-view-nav>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Class: calendarViewTriggerClass, DisableClear: true, Required: true, Attributes: templ.Attributes{"value": month.View, "aria-label": i18n.T(ctx, "calendar.view.label"), "data-calendar-view-select": ""}}) {
+							@selectbox.Value(selectbox.ValueProps{Class: "text-foreground"}) {
+								{ i18n.T(ctx, "calendar.view."+month.View) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, FitItems: true, Placement: popover.PlacementBottomEnd, Class: "mobile-sheet"}) {
+							for _, view := range calendarViews {
+								@selectbox.Item(selectbox.ItemProps{Value: view, Selected: view == month.View, Attributes: templ.Attributes{"data-calendar-view-phone": strconv.FormatBool(calendarViewOnPhones(view))}}) {
+									{ i18n.T(ctx, "calendar.view."+view) }
+								}
+							}
+						}
+					}
+					for _, view := range calendarViews {
+						<a hidden href={ calendarViewURL(view, month.DateKey) } hx-get={ calendarViewURL(view, month.DateKey) } hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-sync="#main-content:replace" hx-push-url={ calendarViewURL(view, month.DateKey) } aria-current={ calendarViewCurrent(month.View == view) } data-calendar-view-switch={ view }>{ i18n.T(ctx, "calendar.view."+view) }</a>
+					}
+				</div>
 			</div>
 		</header>
-		if month.View == "week" {
+		if calendarTimelineView(month.View) {
 			<div class="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/10 px-4 py-2 sm:px-5" inert?={ month.Loading }>
 				<p data-calendar-week-scale-status class="text-[11px] text-muted-foreground" aria-live="polite">{ i18n.T(ctx, "calendar.week.scale_fit_condensed") }</p>
 				<div class="inline-flex items-center gap-1" role="group" aria-label={ i18n.T(ctx, "calendar.week.zoom") }>
 					<button type="button" data-calendar-week-zoom="fit" aria-pressed="true" class="inline-flex h-7 items-center rounded-md border border-border bg-accent px-2.5 text-xs font-semibold transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{ i18n.T(ctx, "calendar.week.fit") }</button>
-					<div class="inline-flex overflow-hidden rounded-md border border-border bg-background shadow-sm">
-						<button type="button" data-calendar-week-zoom="out" disabled class="inline-flex size-7 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_out") }>
+					<div class="inline-flex items-center gap-1.5">
+						<button type="button" data-calendar-week-zoom="out" class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_out") }>
 							@icon.Minus(icon.Props{Class: "size-3.5"})
 						</button>
-						<button type="button" data-calendar-week-zoom="in" class="inline-flex size-7 items-center justify-center border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_in") }>
+						@slider.Slider(slider.Props{Class: "w-28", Min: 1, Max: calendarWeekZoomLevels, Value: calendarWeekZoomDefaultLevel, Label: i18n.T(ctx, "calendar.week.zoom"), Attributes: templ.Attributes{"data-calendar-week-zoom-slider": true, "data-calendar-week-zoom-fit": true}})
+						<button type="button" data-calendar-week-zoom="in" class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-35" aria-label={ i18n.T(ctx, "calendar.week.zoom_in") }>
 							@icon.Plus(icon.Props{Class: "size-3.5"})
 						</button>
 					</div>
 				</div>
 			</div>
 		}
-		<div class={ "min-h-0 flex-1 overflow-auto", templ.KV("flex flex-col p-3 sm:p-5", month.View != "week") } data-calendar-surface data-calendar-week-scroll?={ month.View == "week" } inert?={ month.Loading }>
-			if month.View == "week" {
+		<div class={ "min-h-0 flex-1", templ.KV("flex flex-col overflow-auto px-3.5 py-1.5", !calendarTimelineView(month.View)), templ.KV("mx-3.5 my-1.5 overflow-hidden border border-border bg-background shadow-[0_1px_2px_rgba(0,0,0,0.04)]", calendarTimelineView(month.View)) } data-calendar-surface data-calendar-week-card?={ calendarTimelineView(month.View) } inert?={ month.Loading }>
+			if calendarTimelineView(month.View) {
 				@CalendarWeekGrid(month)
 			} else {
 				<div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_1px_2px_rgba(0,0,0,0.04)]" data-calendar-month-grid>
 					<div class="grid shrink-0 grid-cols-7 border-b border-border bg-muted/35">
-						for index := 0; index < 7; index++ {
-							<div class="px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]">{ calendarWeekdayLabel(ctx, index) }</div>
+						for _, day := range month.Weeks[0].Days {
+							<div class="px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]">{ i18n.Dates(ctx).WeekdayShortName(day.Date.Weekday()) }</div>
 						}
 					</div>
 					<div class="grid min-h-0 flex-1 grid-cols-7" style={ "grid-template-rows:repeat(" + strconv.Itoa(len(month.Weeks)) + ",minmax(0,1fr));" }>
@@ -773,7 +791,7 @@ visibleEvents := calendarVisibleEventCount(dayEvents) }}
 									<button type="button" disabled?={ month.Loading } data-calendar-select-day={ day.ISODate } aria-label={ i18n.T(ctx, "calendar.show_day_events", "date", i18n.Dates(ctx).LongDate(day.Date)) } aria-pressed="false" aria-controls="calendar-agenda-list" class="absolute inset-0 rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
 										<span class="sr-only">{ i18n.Dates(ctx).LongDate(day.Date) }</span>
 									</button>
-									<div class="pointer-events-none relative flex shrink-0 items-start justify-between gap-1">
+									<div class="pointer-events-none relative flex shrink-0 items-start justify-between gap-1" data-calendar-day-head>
 										<span class={ calendarDayNumberClass(day) }>{ day.DayNumber }</span>
 										if day.IsToday {
 											<span class="hidden rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary sm:inline-flex">{ i18n.T(ctx, "calendar.today") }</span>
@@ -861,7 +879,11 @@ templ CalendarAgendaPane(month CalendarMonthData) {
 					<p data-calendar-agenda-empty-detail class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
 						if month.AllSourcesHidden {
 							{ i18n.T(ctx, "calendar.agenda.all_hidden_detail") }
-						} else if month.View == "week" {
+						} else if month.View == "day" {
+							{ i18n.T(ctx, "calendar.agenda.empty_day") }
+						} else if month.View == "3day" {
+							{ i18n.T(ctx, "calendar.agenda.empty_days") }
+						} else if calendarTimelineView(month.View) {
 							{ i18n.T(ctx, "calendar.agenda.empty_week") }
 						} else {
 							{ i18n.T(ctx, "calendar.agenda.empty_month") }
@@ -925,7 +947,7 @@ templ CalendarMainPartial(month CalendarMonthData) {
 // CalendarDayDots marks a day with one dot per calendar that has events on it. Only
 // small screens show them, in place of the event chips.
 templ CalendarDayDots(events []CalendarEvent) {
-	<span class="calendar-day-dots" aria-hidden="true">
+	<span class="calendar-day-dots" aria-hidden="true" data-calendar-day-dots>
 		for _, event := range calendarDaySourceDots(events) {
 			<span class="calendar-day-dot" hidden?={ event.SourceHidden } data-calendar-day-dot data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } style={ calendarEventColorStyle(event) }></span>
 		}

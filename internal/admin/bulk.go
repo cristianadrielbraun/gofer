@@ -27,10 +27,18 @@ const (
 	BulkClearMFA              BulkAction = "clear-mfa"
 	BulkRequirePasswordChange BulkAction = "require-password-change"
 	BulkSignOut               BulkAction = "sign-out"
+	BulkAddToGroup            BulkAction = "add-to-group"
+	BulkRemoveFromGroup       BulkAction = "remove-from-group"
 )
 
 // BulkActions are the bulk changes, in the order they're offered.
-var BulkActions = []BulkAction{BulkDisable, BulkEnable, BulkRequireMFA, BulkClearMFA, BulkRequirePasswordChange, BulkSignOut}
+var BulkActions = []BulkAction{BulkDisable, BulkEnable, BulkRequireMFA, BulkClearMFA, BulkRequirePasswordChange, BulkSignOut, BulkAddToGroup, BulkRemoveFromGroup}
+
+// ForGroup reports whether action changes who is in a group, which it
+// names (BulkGroup).
+func (action BulkAction) ForGroup() bool {
+	return action == BulkAddToGroup || action == BulkRemoveFromGroup
+}
 
 // Valid reports whether action is one of BulkActions.
 func (action BulkAction) Valid() bool {
@@ -49,6 +57,8 @@ func (action BulkAction) permission() authz.Permission {
 		return authz.UsersMFAPolicy
 	case BulkRequirePasswordChange:
 		return authz.UsersCredentials
+	case BulkAddToGroup, BulkRemoveFromGroup:
+		return authz.GroupsManage
 	default:
 		return authz.UsersAccess
 	}
@@ -130,6 +140,11 @@ func BulkReason(actorUserID string, action BulkAction, user auth.AdministratorUs
 		case !actions.RequirePasswordChange:
 			return unavailable
 		}
+	case BulkAddToGroup, BulkRemoveFromGroup:
+		// Whether they're in the group already is known once it's chosen.
+		if user.UserType != auth.UserTypeWebmail {
+			return ReasonAdministrator
+		}
 	case BulkSignOut:
 		switch {
 		case user.Status == auth.UserStatusPending:
@@ -164,6 +179,8 @@ type BulkOutcome struct {
 // they were asked for.
 type BulkResult struct {
 	Action BulkAction
+	// Group is the group a change to its members was made to.
+	Group string
 	// Correlation ties the change's records in the audit log together.
 	Correlation string
 	Outcomes    []BulkOutcome
@@ -184,6 +201,7 @@ var (
 	errBulkActionInvalid = errors.New("admin: unknown bulk change")
 	errBulkNobody        = errors.New("admin: a bulk change needs someone to change")
 	errBulkTooMany       = fmt.Errorf("admin: a bulk change takes at most %d people", MaxBulkPeople)
+	errBulkNeedsGroup    = errors.New("admin: a change to a group's members names the group")
 )
 
 // Bulk makes action to each of the people userIDs name, at most
@@ -195,34 +213,19 @@ func (s *Service) Bulk(ctx context.Context, actor Actor, action BulkAction, user
 	if !action.Valid() {
 		return nil, errBulkActionInvalid
 	}
-	ids := make([]string, 0, len(userIDs))
-	seen := make(map[string]bool, len(userIDs))
-	for _, id := range userIDs {
-		if id = strings.TrimSpace(id); id != "" && !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
+	if action.ForGroup() {
+		return nil, errBulkNeedsGroup
 	}
-	switch {
-	case len(ids) == 0:
-		return nil, errBulkNobody
-	case len(ids) > MaxBulkPeople:
-		return nil, errBulkTooMany
+	ids, err := bulkIDs(userIDs)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.auth.RequireAdministratorPermission(ctx, actor.UserID, actor.SessionID, action.permission()); err != nil {
 		return nil, err
 	}
-	page, err := s.auth.ListAdministratorUserPage(ctx, actor.UserID, actor.SessionID, auth.AdministratorUserQuery{UserIDs: ids, Limit: MaxBulkPeople})
+	people, policy, err := s.bulkPeople(ctx, actor, ids)
 	if err != nil {
 		return nil, err
-	}
-	people := make(map[string]auth.AdministratorUserSummary, len(page.Users))
-	for _, user := range page.Users {
-		people[user.ID] = user
-	}
-	policy, err := s.auth.InstanceSecurityPolicy(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load the instance's two-factor policy: %w", err)
 	}
 	correlation, err := newCorrelationID()
 	if err != nil {
@@ -243,7 +246,7 @@ func (s *Service) Bulk(ctx context.Context, actor Actor, action BulkAction, user
 		case stopped != "":
 			outcome.Reason = stopped
 		default:
-			if outcome.Reason = BulkReason(actor.UserID, action, user, policy.MFA); outcome.Reason == "" {
+			if outcome.Reason = BulkReason(actor.UserID, action, user, policy); outcome.Reason == "" {
 				outcome = s.bulkChange(ctx, actor, action, outcome)
 				if code := Code(outcome.Reason); code == CodeForbidden || code == CodeVerificationRequired {
 					stopped = outcome.Reason
@@ -253,6 +256,113 @@ func (s *Service) Bulk(ctx context.Context, actor Actor, action BulkAction, user
 		result.Outcomes = append(result.Outcomes, outcome)
 	}
 	return result, nil
+}
+
+// BulkGroup adds the people userIDs name to the group with groupID, or
+// removes them, in one change recorded once for the group. Someone it
+// doesn't apply to is left out with the reason, and someone already in, or
+// already out, is unchanged. It fails as a whole when the change can't be
+// made: the group is gone, or the administrator may not change it.
+func (s *Service) BulkGroup(ctx context.Context, actor Actor, action BulkAction, groupID string, userIDs []string) (*BulkResult, error) {
+	if !action.ForGroup() {
+		return nil, errBulkActionInvalid
+	}
+	if strings.TrimSpace(groupID) == "" {
+		return nil, errBulkNeedsGroup
+	}
+	ids, err := bulkIDs(userIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.auth.RequireAdministratorPermission(ctx, actor.UserID, actor.SessionID, action.permission()); err != nil {
+		return nil, err
+	}
+	people, policy, err := s.bulkPeople(ctx, actor, ids)
+	if err != nil {
+		return nil, err
+	}
+	result := &BulkResult{Action: action, Outcomes: make([]BulkOutcome, 0, len(ids))}
+	var eligible []string
+	for _, id := range ids {
+		user, found := people[id]
+		outcome := BulkOutcome{UserID: id, Username: user.Username}
+		if !found {
+			outcome.Reason = ReasonGone
+		} else if outcome.Reason = BulkReason(actor.UserID, action, user, policy); outcome.Reason == "" {
+			eligible = append(eligible, id)
+		}
+		result.Outcomes = append(result.Outcomes, outcome)
+	}
+	if len(eligible) == 0 {
+		detail, err := s.Group(ctx, actor, groupID)
+		if err != nil {
+			return nil, err
+		}
+		result.Group = detail.Group.Name
+		return result, nil
+	}
+	var change *auth.GroupMembershipChange
+	if action == BulkAddToGroup {
+		change, err = s.AddToGroup(ctx, actor, groupID, eligible)
+	} else {
+		change, err = s.RemoveFromGroup(ctx, actor, groupID, eligible)
+	}
+	if err != nil {
+		return nil, err
+	}
+	result.Group = change.Group.Name
+	changed := make(map[string]bool, len(change.ChangedIDs))
+	for _, id := range change.ChangedIDs {
+		changed[id] = true
+	}
+	for i, outcome := range result.Outcomes {
+		if outcome.Reason != "" {
+			continue
+		}
+		if changed[outcome.UserID] {
+			result.Outcomes[i].Changed = true
+		} else {
+			result.Outcomes[i].Reason = ReasonUnchanged
+		}
+	}
+	return result, nil
+}
+
+// bulkIDs are the people a bulk change names, each once.
+func bulkIDs(userIDs []string) ([]string, error) {
+	ids := make([]string, 0, len(userIDs))
+	seen := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		if id = strings.TrimSpace(id); id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	switch {
+	case len(ids) == 0:
+		return nil, errBulkNobody
+	case len(ids) > MaxBulkPeople:
+		return nil, errBulkTooMany
+	}
+	return ids, nil
+}
+
+// bulkPeople loads the people ids name, by ID, and the instance's
+// two-factor policy their reasons depend on.
+func (s *Service) bulkPeople(ctx context.Context, actor Actor, ids []string) (map[string]auth.AdministratorUserSummary, auth.InstanceMFAPolicy, error) {
+	page, err := s.auth.ListAdministratorUserPage(ctx, actor.UserID, actor.SessionID, auth.AdministratorUserQuery{UserIDs: ids, Limit: MaxBulkPeople})
+	if err != nil {
+		return nil, "", err
+	}
+	people := make(map[string]auth.AdministratorUserSummary, len(page.Users))
+	for _, user := range page.Users {
+		people[user.ID] = user
+	}
+	policy, err := s.auth.InstanceSecurityPolicy(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("load the instance's two-factor policy: %w", err)
+	}
+	return people, policy.MFA, nil
 }
 
 // bulkChange makes action to the person outcome names.

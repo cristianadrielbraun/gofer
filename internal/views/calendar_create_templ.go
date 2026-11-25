@@ -285,7 +285,7 @@ func CalendarCreateDialog(data CalendarCreateData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Value: data.Summary, Placeholder: i18n.T(ctx, "calendar.create.add_title"), Required: true, Class: "h-11 text-base font-medium md:text-base", Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = input.Input(input.Props{ID: "calendar-create-summary", Name: "summary", Value: data.Summary, Placeholder: i18n.T(ctx, "calendar.create.add_title"), Class: "h-11 text-base font-medium md:text-base", Attributes: templ.Attributes{"maxlength": "255", "autocomplete": "off"}}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1827,7 +1827,7 @@ func calendarCreateDateTimeLine(kind, text, date, clock string, allDay bool) tem
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = datepicker.DatePicker(datepicker.Props{ID: "calendar-create-" + kind + "-date", Name: kind + "_date", Value: calendarCreatePickerValue("2006-01-02", date)}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = datepicker.DatePicker(datepicker.Props{ID: "calendar-create-" + kind + "-date", Name: kind + "_date", Value: calendarCreatePickerValue("2006-01-02", date), StartOfWeek: pickerStartOfWeek(ctx)}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

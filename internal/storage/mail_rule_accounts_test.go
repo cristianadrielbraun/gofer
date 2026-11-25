@@ -127,3 +127,74 @@ func TestMailRuleQueuesMoveToAnotherAccount(t *testing.T) {
 		t.Fatalf("owners after = %v, %v", owners, err)
 	}
 }
+
+// The rules list finds the folders a rule moves mail into as the rule finds
+// them when it runs: a folder every account has in each account the rule
+// is for, a folder by its saved name once its ID changed, and another
+// account's folder. Rules turned off count; Local folders and rules that
+// move no mail add nothing.
+func TestMailRuleDestinations(t *testing.T) {
+	db := newMailRulesTestDB(t, "imap")
+	addSecondMailRulesAccount(t, db)
+	ctx := t.Context()
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('local', 'default', 'local', '')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "archive2", AccountID: "acc2", RemoteID: "Archive", Name: "Archive", Role: "archive", Selectable: true},
+		{ID: "local-trash", AccountID: "local", RemoteID: "Trash", Name: "Trash", Role: "trash", Selectable: true},
+		{ID: "local-trips", AccountID: "local", RemoteID: "Trips", Name: "Trips", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	move := func(folderID string) models.MailRuleAction {
+		return models.MailRuleAction{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: folderID}}
+	}
+	archive := saveTestRule(t, db, models.MailRule{Name: "Old newsletters", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "archive"}}})
+	receipts := saveTestRule(t, db, models.MailRule{Name: "Receipts", AccountsChosen: true, AccountIDs: []string{"acc"}, Conditions: fromBakery(),
+		Actions: []models.MailRuleAction{{Kind: "star"}, move("receipts")}})
+	elsewhere := saveTestRule(t, db, models.MailRule{Name: "Keep elsewhere", AccountsChosen: true, AccountIDs: []string{"acc"}, Conditions: fromBakery(), Actions: []models.MailRuleAction{move("keep2")}})
+	trips := saveTestRule(t, db, models.MailRule{Name: "Trips", Conditions: fromBakery(), Actions: []models.MailRuleAction{move("local-trips")}})
+	spam := saveTestRule(t, db, models.MailRule{Name: "Spam on sky", AccountsChosen: true, AccountIDs: []string{"acc2"}, Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "spam"}}})
+	star := saveTestRule(t, db, models.MailRule{Name: "Star", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "star"}}})
+	off := saveTestRule(t, db, models.MailRule{Name: "Lunch on Friday?", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "trash"}}})
+	if err := db.SetMailRuleEnabledGuarded(ctx, "default", off.ID, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Renamed elsewhere and back, an IMAP folder comes back with a new ID.
+	if _, err := db.Write().Exec(`DELETE FROM folders WHERE id = 'receipts'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "receipts-2", AccountID: "acc", RemoteID: "Receipts", Name: "Receipts", Role: "custom", Selectable: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rules, err := db.ListMailRules(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.MailRuleDestinations(ctx, "default", rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		name string
+		id   string
+		want []string
+	}{
+		{"Archive, in each account", archive.ID, []string{"archive", "archive2"}},
+		{"a folder found by its name", receipts.ID, []string{"receipts-2"}},
+		{"another account's folder", elsewhere.ID, []string{"keep2"}},
+		{"a Local folder, from every account", trips.ID, []string{"local-trips"}},
+		{"Spam where there is none", spam.ID, nil},
+		{"no move", star.ID, nil},
+		{"a rule turned off, not in Local folders", off.ID, []string{"trash"}},
+	} {
+		if !slices.Equal(got[check.id], check.want) {
+			t.Errorf("%s: folders = %v, want %v", check.name, got[check.id], check.want)
+		}
+	}
+	if none, err := db.MailRuleDestinations(ctx, "default", nil); err != nil || len(none) != 0 {
+		t.Fatalf("no rules = %v, %v", none, err)
+	}
+}

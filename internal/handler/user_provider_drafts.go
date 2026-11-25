@@ -56,7 +56,9 @@ func (s *userMailDeliveryScope) syncProviderDraft(ctx context.Context, op storag
 		return false, errors.New("provider drafts are unavailable")
 	}
 	if op.Kind == "delete" {
-		found, err := p.FindDrafts(ctx, op.State.DraftKey)
+		// The draft Gofer recorded is deleted below by its ID, so the search only
+		// needs drafts a provider still lists under the key.
+		found, err := p.FindDrafts(ctx, op.State.DraftKey, time.Time{})
 		if err != nil {
 			return false, err
 		}
@@ -85,11 +87,18 @@ func (s *userMailDeliveryScope) syncProviderDraft(ctx context.Context, op storag
 		if err != nil {
 			return false, err
 		}
-		if current.InternetMessageID != candidate.InternetMessageID || current.RevisionToken != candidate.RevisionToken || current.MessageID != candidate.MessageID {
+		if !current.BelongsTo(candidate.InternetMessageID, candidate.RevisionToken) || current.RevisionToken != candidate.RevisionToken || current.MessageID != candidate.MessageID {
 			return false, errors.New("confirmed provider draft revision changed")
 		}
 	} else {
-		found, err := p.FindDrafts(ctx, op.State.DraftKey)
+		// Only a create whose reply was lost can leave a Gmail draft that a
+		// search by its replaced Message-ID misses, so only then is the search
+		// by the save's date worth its requests.
+		var saved time.Time
+		if op.CreateAttempted {
+			saved = op.MessageDate
+		}
+		found, err := p.FindDrafts(ctx, op.State.DraftKey, saved)
 		if err != nil {
 			return false, err
 		}
@@ -116,7 +125,7 @@ func (s *userMailDeliveryScope) syncProviderDraft(ctx context.Context, op storag
 				if err != nil {
 					return false, err
 				}
-				if remote.ID != "" && remote.InternetMessageID != op.State.DraftKey {
+				if remote.ID != "" && !remote.BelongsTo(op.State.DraftKey, op.State.RemoteRevision) {
 					return false, errors.New("provider draft remote message changed")
 				}
 			} else {

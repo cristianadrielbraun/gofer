@@ -13,10 +13,14 @@ import (
 )
 
 // regionalPrefs are the settings that shape every page's text: its
-// language and how dates and times are written.
-type regionalPrefs struct{ language, dateFormat, timeFormat string }
+// language, how dates and times are written, and the day weeks start on.
+type regionalPrefs struct{ language, dateFormat, timeFormat, weekStart string }
 
-var regionalSettingKeys = []string{i18n.SettingKey, i18n.DateFormatSettingKey, i18n.TimeFormatSettingKey}
+var regionalSettingKeys = []string{i18n.SettingKey, i18n.DateFormatSettingKey, i18n.TimeFormatSettingKey, i18n.WeekStartSettingKey}
+
+func regionalPrefsFrom(settings map[string]string) regionalPrefs {
+	return regionalPrefs{settings[i18n.SettingKey], settings[i18n.DateFormatSettingKey], settings[i18n.TimeFormatSettingKey], settings[i18n.WeekStartSettingKey]}
+}
 
 // savedRegional caches each signed-in user's regional settings, so a
 // request doesn't read the settings to pick its language and date format.
@@ -46,6 +50,7 @@ func (h *Handler) LocaleMiddleware(next http.Handler) http.Handler {
 			i18n.RememberUser(user.ID, locale, prefs.dateFormat, prefs.timeFormat)
 		}
 		ctx := i18n.WithDatePrefs(i18n.WithLocale(r.Context(), locale), prefs.dateFormat, prefs.timeFormat)
+		ctx = i18n.WithWeekStart(ctx, prefs.weekStart)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -94,7 +99,7 @@ func (h *Handler) savedRegionalPrefs(ctx context.Context, userID string) regiona
 	var prefs regionalPrefs
 	if err := h.withSettingsDB(ctx, userID, func(db *storage.DB) error {
 		settings := db.GetUISettings(ctx, userID)
-		prefs = regionalPrefs{settings[i18n.SettingKey], settings[i18n.DateFormatSettingKey], settings[i18n.TimeFormatSettingKey]}
+		prefs = regionalPrefsFrom(settings)
 		return nil
 	}); err != nil {
 		// Try again on the next request rather than caching a guess.
@@ -118,7 +123,7 @@ func rememberSavedRegional(userID string, updates map[string]string) {
 	case 0:
 		return
 	case len(regionalSettingKeys):
-		savedRegional.Store(userID, regionalPrefs{updates[i18n.SettingKey], updates[i18n.DateFormatSettingKey], updates[i18n.TimeFormatSettingKey]})
+		savedRegional.Store(userID, regionalPrefsFrom(updates))
 	default:
 		savedRegional.Delete(userID)
 	}

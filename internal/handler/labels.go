@@ -200,6 +200,7 @@ func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) applyLabelToTargets(ctx context.Context, targets []ownedMessageTarget, labelName string) labelMutationResult {
+	ctx = storage.WithUserMailAction(ctx, storage.MailActionLabelAdd)
 	if h.userMutationState != nil {
 		return h.queueUserLabels(ctx, targets, labelName, storage.LabelMutationAdd)
 	}
@@ -237,6 +238,7 @@ func (h *Handler) applyLabelToTargets(ctx context.Context, targets []ownedMessag
 }
 
 func (h *Handler) removeLabelFromTargets(ctx context.Context, targets []ownedMessageTarget, labelName string) labelMutationResult {
+	ctx = storage.WithUserMailAction(ctx, storage.MailActionLabelRemove)
 	if h.userMutationState != nil {
 		return h.queueUserLabels(ctx, targets, labelName, storage.LabelMutationRemove)
 	}

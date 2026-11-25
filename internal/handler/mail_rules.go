@@ -35,7 +35,11 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	if err != nil {
 		return models.MailRulesData{}, fmt.Errorf("folders: %w", err)
 	}
-	data := models.MailRulesData{Rules: rules}
+	tags, err := db.ListMailRuleTags(ctx, userID)
+	if err != nil {
+		return models.MailRulesData{}, fmt.Errorf("tags: %w", err)
+	}
+	data := models.MailRulesData{Rules: rules, Tags: tags}
 	for _, account := range accounts {
 		// Local folders are only somewhere to move mail to; the form
 		// doesn't offer them as an account to watch.
@@ -54,8 +58,8 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	return data, nil
 }
 
-// loadMailRulesData gathers what the Rules settings show, or writes the
-// error response and returns false.
+// loadMailRulesData gathers what the Rules settings show, with the filters
+// the request carries, or writes the error response and returns false.
 func (h *Handler) loadMailRulesData(w http.ResponseWriter, r *http.Request) (models.MailRulesData, bool) {
 	data, err := mailRulesData(r.Context(), h.db, h.userID(r.Context()))
 	if err != nil {
@@ -63,10 +67,98 @@ func (h *Handler) loadMailRulesData(w http.ResponseWriter, r *http.Request) (mod
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_rules"), http.StatusInternalServerError)
 		return models.MailRulesData{}, false
 	}
+	mailRulesFilters(r, &data)
 	return data, true
 }
 
+// mailRulesFilters reads the filters the rules list had when a request was
+// made (settings.js sends them with each), so the list drawn again keeps
+// them: the folder whose rules it shows (filter_folder), the categories,
+// accounts and kinds of action it shows rules of (filter_tag,
+// filter_account, filter_action, each separated by commas, which none of
+// them holds), and whether it shows rules turned on or off (filter_status).
+// A value that names nothing there is any more, such as a category no rule
+// has, is dropped.
+func mailRulesFilters(r *http.Request, data *models.MailRulesData) {
+	data.FolderFilter = strings.TrimSpace(r.FormValue("filter_folder"))
+	data.TagFilter = mailRulesFilterValues(r, "filter_tag", func(tag string) (string, bool) {
+		for _, known := range data.Tags {
+			if strings.EqualFold(tag, known) {
+				return known, true
+			}
+		}
+		return "", false
+	})
+	data.AccountFilter = mailRulesFilterValues(r, "filter_account", func(id string) (string, bool) {
+		for _, account := range data.Accounts {
+			if account.ID == id && account.Provider != providers.ProviderLocal {
+				return id, true
+			}
+		}
+		return "", false
+	})
+	data.ActionFilter = mailRulesFilterValues(r, "filter_action", func(kind string) (string, bool) {
+		return kind, views.MailRuleActionKnown(kind)
+	})
+	switch status := r.FormValue("filter_status"); status {
+	case "on", "off":
+		data.StatusFilter = status
+	default:
+		data.StatusFilter = ""
+	}
+}
+
+// mailRulesFilterValues are the values of a filter separated by commas,
+// each once, as known keeps them; known drops one that names nothing.
+func mailRulesFilterValues(r *http.Request, name string, known func(string) (string, bool)) []string {
+	var values []string
+	for _, value := range r.Form[name] {
+		for _, part := range strings.Split(value, ",") {
+			if kept, ok := known(strings.TrimSpace(part)); ok && !slices.Contains(values, kept) {
+				values = append(values, kept)
+			}
+		}
+	}
+	return values
+}
+
+// mailRulesFiltering reports whether any of the list's filters is on.
+func mailRulesFiltering(data models.MailRulesData) bool {
+	return data.FolderFilter != "" || len(data.TagFilter) > 0 || len(data.AccountFilter) > 0 || data.StatusFilter != "" || len(data.ActionFilter) > 0
+}
+
+// mailRuleFiltered reports whether the list's filters would hide a rule:
+// it moves no mail into the folder, has none of the categories, runs on
+// none of the accounts, is turned on or off the other way, or does none of
+// the kinds of action.
+func mailRuleFiltered(data models.MailRulesData, rule models.MailRule, destinations []string) bool {
+	if data.FolderFilter != "" && !slices.Contains(destinations, data.FolderFilter) {
+		return true
+	}
+	if len(data.TagFilter) > 0 && !slices.ContainsFunc(rule.Tags, func(tag string) bool {
+		return slices.ContainsFunc(data.TagFilter, func(t string) bool { return strings.EqualFold(t, tag) })
+	}) {
+		return true
+	}
+	if len(data.AccountFilter) > 0 && rule.AccountsChosen && !slices.ContainsFunc(rule.AccountIDs, func(id string) bool { return slices.Contains(data.AccountFilter, id) }) {
+		return true
+	}
+	if (data.StatusFilter == "on" && !rule.Enabled) || (data.StatusFilter == "off" && rule.Enabled) {
+		return true
+	}
+	return len(data.ActionFilter) > 0 && !slices.ContainsFunc(rule.Actions, func(action models.MailRuleAction) bool { return slices.Contains(data.ActionFilter, action.Kind) })
+}
+
+// renderMailRulesPanel draws the list of rules, each with the folders it
+// moves mail into, which the list can be filtered by.
 func (h *Handler) renderMailRulesPanel(w http.ResponseWriter, r *http.Request, data models.MailRulesData) {
+	destinations, err := h.db.MailRuleDestinations(r.Context(), h.userID(r.Context()), data.Rules)
+	if err != nil {
+		log.Printf("mail rule folders of %s: %v", h.userID(r.Context()), err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_rules"), http.StatusInternalServerError)
+		return
+	}
+	data.Destinations = destinations
 	w.Header().Set("Content-Type", "text/html")
 	w.Header().Set("Cache-Control", "no-store")
 	views.MailRulesPanel(data).Render(r.Context(), w)
@@ -87,7 +179,36 @@ func (h *Handler) renderMailRuleDialogPanel(w http.ResponseWriter, r *http.Reque
 	views.MailRuleDialogPanel(data).Render(r.Context(), w)
 }
 
-// handleMailRulesPanel renders the list of rules.
+// handleMailRuleFolderCount answers how many rules move mail into a folder
+// (folder): the rules the list shows when opened for it. A folder's menu
+// asks when it opens, to show the number beside its Rules item. A folder
+// that isn't the user's has none.
+func (h *Handler) handleMailRuleFolderCount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := h.userID(ctx)
+	folderID := strings.TrimSpace(r.URL.Query().Get("folder"))
+	rules, err := h.db.ListMailRules(ctx, userID)
+	var destinations map[string][]string
+	if err == nil {
+		destinations, err = h.db.MailRuleDestinations(ctx, userID, rules)
+	}
+	if err != nil {
+		log.Printf("mail rules for folder %s of %s: %v", folderID, userID, err)
+		http.Error(w, i18n.T(ctx, "server.error.failed_to_load_rules"), http.StatusInternalServerError)
+		return
+	}
+	count := 0
+	for _, rule := range rules {
+		if folderID != "" && slices.Contains(destinations[rule.ID], folderID) {
+			count++
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeFolderJSON(w, map[string]int{"count": count})
+}
+
+// handleMailRulesPanel renders the list of rules, with the filters asked
+// for (mailRulesFilters).
 func (h *Handler) handleMailRulesPanel(w http.ResponseWriter, r *http.Request) {
 	data, ok := h.loadMailRulesData(w, r)
 	if !ok {
@@ -259,6 +380,7 @@ func mailRuleFromForm(r *http.Request) (models.MailRule, []bool) {
 		Enabled:        r.FormValue("enabled") != "",
 		MatchAll:       true,
 		StopProcessing: r.FormValue("stop_processing") != "",
+		Tags:           r.PostForm["tags"],
 	}
 	at := func(values []string, i int) string {
 		if i < len(values) {
@@ -310,8 +432,12 @@ func mailRuleFromForm(r *http.Request) (models.MailRule, []bool) {
 }
 
 // mailRuleFolderFromValue reads a folder choice of the form: "role:" and a
-// role, or "id:" and a folder ID.
+// role, "id:" and a folder ID, or a folder an import didn't find, while no
+// other is chosen (mailrules.MissingFolderValue).
 func mailRuleFolderFromValue(value string) *models.MailRuleFolderTarget {
+	if target, ok := mailrules.ParseMissingFolderValue(value); ok {
+		return target
+	}
 	kind, rest, _ := strings.Cut(strings.TrimSpace(value), ":")
 	switch {
 	case rest == "":
@@ -332,7 +458,21 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule, _ := mailRuleFromForm(r)
-	_, saveErr := h.db.SaveMailRuleGuarded(r.Context(), h.userID(r.Context()), rule, h.signatureGuard)
+	if missing := mailRuleMissingFolderName(rule); missing != "" {
+		// A folder an import didn't find is kept until another is chosen;
+		// the rule can't be saved with it.
+		data, ok := h.loadMailRulesData(w, r)
+		if !ok {
+			return
+		}
+		data.Error = i18n.T(r.Context(), "rules.missing.choose_folder", "folder", missing)
+		rule, forGoodChosen := mailRuleFromForm(r)
+		fitMailRuleForm(&rule, data.Accounts, forGoodChosen)
+		data.Editing = &rule
+		h.renderMailRuleDialogPanel(w, r, data)
+		return
+	}
+	saved, saveErr := h.db.SaveMailRuleGuarded(r.Context(), h.userID(r.Context()), rule, h.signatureGuard)
 	if errors.Is(saveErr, sql.ErrNoRows) && rule.ID != "" {
 		http.NotFound(w, r)
 		return
@@ -363,7 +503,34 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		h.renderMailRuleDialogPanel(w, r, data)
 		return
 	}
+	// A rule just added shows even when the list's filters would hide it:
+	// they are cleared, as the search is (settings.js).
+	if rule.ID == "" && mailRulesFiltering(data) {
+		destinations, err := h.db.MailRuleDestinations(r.Context(), h.userID(r.Context()), []models.MailRule{saved})
+		if err != nil {
+			log.Printf("folders of a new mail rule: %v", err)
+		}
+		if err != nil || mailRuleFiltered(data, saved, destinations[saved.ID]) {
+			data.FolderFilter, data.TagFilter, data.AccountFilter, data.StatusFilter, data.ActionFilter = "", nil, nil, "", nil
+		}
+	}
 	h.renderMailRulesDone(w, r, data)
+}
+
+// mailRuleMissingFolderName names the first folder of a rule that an
+// import didn't find, by its path, or is "" when there's none.
+func mailRuleMissingFolderName(rule models.MailRule) string {
+	for _, condition := range rule.Conditions {
+		if condition.Folder != nil && condition.Folder.Missing() {
+			return condition.Folder.Path
+		}
+	}
+	for _, action := range rule.Actions {
+		if action.Folder != nil && action.Folder.Missing() {
+			return action.Folder.Path
+		}
+	}
+	return ""
 }
 
 // sentence starts a message with a capital and ends it with a period.
@@ -419,10 +586,185 @@ func (h *Handler) handleMailRuleEnabled(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	log.Printf("make mail rule %s active or inactive: %v", r.PathValue("id"), err)
-	data.Error = i18n.T(r.Context(), "server.msg.the_rule_could_not_be_made_active")
+	if errors.Is(err, storage.ErrMailRuleMissingFolder) {
+		data.Error = i18n.T(r.Context(), "rules.missing.cant_turn_on")
+	} else {
+		log.Printf("make mail rule %s active or inactive: %v", r.PathValue("id"), err)
+		data.Error = i18n.T(r.Context(), "server.msg.the_rule_could_not_be_made_active")
+	}
 	w.Header().Set("HX-Retarget", "#mail-rules-panel")
 	w.Header().Set("HX-Reswap", "outerHTML")
+	h.renderMailRulesPanel(w, r, data)
+}
+
+// mailRuleSelection reads the rules a change to several of them names: the
+// IDs in rule_ids, separated by commas.
+func mailRuleSelection(r *http.Request) []string {
+	var ids []string
+	for _, id := range strings.Split(r.FormValue("rule_ids"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// handleMailRulesEnabled turns the rules selected in the list on, or off
+// when enabled is empty, and shows the list again saying how many changed.
+func (h *Handler) handleMailRulesEnabled(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	enabled := r.FormValue("enabled") != ""
+	changed, err := h.db.SetMailRulesEnabledGuarded(r.Context(), h.userID(r.Context()), ids, enabled, h.signatureGuard)
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	switch {
+	case err != nil:
+		log.Printf("make %d mail rules active or inactive: %v", len(ids), err)
+		data.Error = i18n.T(r.Context(), "rules.bulk.failed")
+	case enabled:
+		data.Notice = i18n.N(r.Context(), "rules.bulk.turned_on", changed)
+		// Rules that name a folder an import didn't find stay off.
+		missing := 0
+		for _, rule := range data.Rules {
+			if slices.Contains(ids, rule.ID) && !rule.Enabled && rule.MissingFolders() {
+				missing++
+			}
+		}
+		if missing > 0 {
+			data.Notice += " " + i18n.N(r.Context(), "rules.bulk.missing_folders", missing, "count", i18n.Number(r.Context(), missing))
+		}
+	default:
+		data.Notice = i18n.N(r.Context(), "rules.bulk.turned_off", changed)
+	}
+	h.renderMailRulesPanel(w, r, data)
+}
+
+// mailRuleTagChangeData is the dialog that adds tags to the rules selected
+// in the list, or takes them off, with the tags those rules have.
+func mailRuleTagChangeData(data *models.MailRulesData, remove bool, ids []string) {
+	change := &models.MailRuleTagChange{Remove: remove, RuleIDs: ids}
+	counts := map[string]int{}
+	for _, rule := range data.Rules {
+		if slices.Contains(ids, rule.ID) {
+			for _, tag := range rule.Tags {
+				counts[tag]++
+			}
+		}
+	}
+	for _, tag := range data.Tags {
+		if counts[tag] > 0 {
+			change.Present = append(change.Present, models.MailRuleTagCount{Tag: tag, Rules: counts[tag]})
+		}
+	}
+	data.TagChange = change
+}
+
+// handleMailRuleTagDialog shows the dialog that adds categories (tags) to
+// the rules selected in the list, or with remove, takes some off them.
+func (h *Handler) handleMailRuleTagDialog(w http.ResponseWriter, r *http.Request) {
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	mailRuleTagChangeData(&data, r.FormValue("remove") != "", ids)
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Cache-Control", "no-store")
+	views.MailRuleDialog(data).Render(r.Context(), w)
+}
+
+// handleMailRulesTags adds the tags given to the rules selected in the list,
+// or with remove, takes them off, and shows the list again saying how many
+// rules changed. A tag that can't be one shows the dialog again, saying why.
+func (h *Handler) handleMailRulesTags(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	remove := r.FormValue("remove") != ""
+	tags := r.PostForm["tags"]
+	userID := h.userID(r.Context())
+	var changed int
+	var err error
+	switch {
+	case remove && len(tags) == 0:
+		err = mailrules.TagError("choose the categories to remove")
+	case remove:
+		changed, err = h.db.RemoveMailRulesTagsGuarded(r.Context(), userID, ids, tags, h.signatureGuard)
+	default:
+		changed, err = h.db.AddMailRulesTagsGuarded(r.Context(), userID, ids, tags, h.signatureGuard)
+	}
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	if err != nil {
+		// The dialog stays open with what was typed or chosen, saying why.
+		mailRuleTagChangeData(&data, remove, ids)
+		data.TagChange.Tags = tags
+		var refused mailrules.TagError
+		if errors.As(err, &refused) {
+			data.Error = serverText(r.Context(), sentence(refused.Error()))
+		} else {
+			log.Printf("change the tags of %d mail rules: %v", len(ids), err)
+			data.Error = i18n.T(r.Context(), "rules.bulk.failed")
+		}
+		h.renderMailRuleDialogPanel(w, r, data)
+		return
+	}
+	switch {
+	case remove:
+		data.Notice = i18n.N(r.Context(), "rules.categories.removed", changed)
+	case changed == 0:
+		data.Notice = i18n.T(r.Context(), "rules.categories.added_none")
+	default:
+		data.Notice = i18n.N(r.Context(), "rules.categories.added", changed)
+	}
+	h.renderMailRulesDone(w, r, data)
+}
+
+// handleDeleteMailRules removes the rules selected in the list, and shows
+// the list again saying how many went.
+func (h *Handler) handleDeleteMailRules(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ids := mailRuleSelection(r)
+	if len(ids) == 0 {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	deleted, err := h.db.DeleteMailRulesGuarded(r.Context(), h.userID(r.Context()), ids, h.signatureGuard)
+	data, ok := h.loadMailRulesData(w, r)
+	if !ok {
+		return
+	}
+	if err != nil {
+		log.Printf("delete %d mail rules: %v", len(ids), err)
+		data.Error = i18n.T(r.Context(), "rules.bulk.failed")
+	} else {
+		data.Notice = i18n.N(r.Context(), "rules.bulk.deleted", deleted)
+	}
 	h.renderMailRulesPanel(w, r, data)
 }
 
@@ -468,10 +810,19 @@ type mailRuleRoute struct {
 // mailRuleLocalRoutes change only the rules themselves.
 var mailRuleLocalRoutes = []mailRuleRoute{
 	{"GET /api/settings/rules/panel", func(h *Handler) http.HandlerFunc { return h.handleMailRulesPanel }},
+	{"GET /api/settings/rules/folder-count", func(h *Handler) http.HandlerFunc { return h.handleMailRuleFolderCount }},
 	{"GET /api/settings/rules/dialog", func(h *Handler) http.HandlerFunc { return h.handleMailRuleDialog }},
 	{"POST /api/settings/rules/form", func(h *Handler) http.HandlerFunc { return h.handleMailRuleForm }},
 	{"POST /api/settings/rules", func(h *Handler) http.HandlerFunc { return h.handleSaveMailRule }},
 	{"POST /api/settings/rules/order", func(h *Handler) http.HandlerFunc { return h.handleMailRuleOrder }},
+	{"POST /api/settings/rules/selected/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRulesEnabled }},
+	{"POST /api/settings/rules/selected/delete", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRules }},
+	{"GET /api/settings/rules/selected/tags", func(h *Handler) http.HandlerFunc { return h.handleMailRuleTagDialog }},
+	{"GET /api/settings/rules/export", func(h *Handler) http.HandlerFunc { return h.handleExportMailRules }},
+	{"GET /api/settings/rules/import", func(h *Handler) http.HandlerFunc { return h.handleMailRulesImportDialog }},
+	{"POST /api/settings/rules/import/preview", func(h *Handler) http.HandlerFunc { return h.handlePreviewMailRulesImport }},
+	{"POST /api/settings/rules/import", func(h *Handler) http.HandlerFunc { return h.handleImportMailRules }},
+	{"POST /api/settings/rules/selected/tags", func(h *Handler) http.HandlerFunc { return h.handleMailRulesTags }},
 	{"DELETE /api/settings/rules/{id}", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRule }},
 	{"POST /api/settings/rules/{id}/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRuleEnabled }},
 	{"GET /api/settings/rules/activity", func(h *Handler) http.HandlerFunc { return h.handleMailRuleActivity }},

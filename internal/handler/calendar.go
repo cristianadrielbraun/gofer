@@ -83,7 +83,7 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if value := strings.TrimSpace(r.FormValue("view")); value != "" {
-		if value != "month" && value != "week" {
+		if !views.CalendarViewKnown(value) {
 			http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_view"), http.StatusBadRequest)
 			return
 		}
@@ -296,10 +296,7 @@ func calendarMonthFromRequest(r *http.Request, uiSettings map[string]string) tim
 
 func calendarDataFromRequest(r *http.Request, uiSettings map[string]string) views.CalendarMonthData {
 	at := calendarMonthFromRequest(r, uiSettings)
-	if calendarViewFromRequest(r, uiSettings) == "week" {
-		return views.NewCalendarWeekData(at)
-	}
-	return views.NewCalendarMonthData(at)
+	return views.NewCalendarData(calendarViewFromRequest(r, uiSettings), at, i18n.ParseWeekStart(uiSettings[i18n.WeekStartSettingKey]))
 }
 
 // A link to a month or date names its view. Plain /calendar opens the view

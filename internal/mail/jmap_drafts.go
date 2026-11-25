@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -16,7 +17,9 @@ import (
 // and Outlook through UserProviderMail, JMAP through JMAPDrafts.
 type ProviderDrafts interface {
 	GetDraft(ctx context.Context, id string) (UserProviderDraft, error)
-	FindDrafts(ctx context.Context, internetID string) ([]UserProviderDraft, error)
+	// FindDrafts returns the drafts kept under internetID. saved is when the
+	// version being looked for was saved, or zero; only Gmail needs it.
+	FindDrafts(ctx context.Context, internetID string, saved time.Time) ([]UserProviderDraft, error)
 	SaveDraft(ctx context.Context, id string, mime []byte) (UserProviderDraft, error)
 	DeleteDraft(ctx context.Context, draft UserProviderDraft) error
 }
@@ -96,7 +99,9 @@ func (d *JMAPDrafts) GetDraft(ctx context.Context, id string) (UserProviderDraft
 	return draft, nil
 }
 
-func (d *JMAPDrafts) FindDrafts(ctx context.Context, internetID string) ([]UserProviderDraft, error) {
+// FindDrafts returns the drafts in the Drafts mailbox whose Message-ID is
+// internetID. JMAP servers keep the Message-ID, so saved is not needed.
+func (d *JMAPDrafts) FindDrafts(ctx context.Context, internetID string, _ time.Time) ([]UserProviderDraft, error) {
 	if strings.TrimSpace(internetID) == "" || strings.ContainsAny(internetID, "\r\n") {
 		return nil, errors.New("draft Internet identity is required")
 	}

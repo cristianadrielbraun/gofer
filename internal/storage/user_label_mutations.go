@@ -27,7 +27,8 @@ func queueUserLabelTx(ctx context.Context, tx *sql.Tx, account string, message i
 	if _, err := tx.ExecContext(ctx, `DELETE FROM label_mutation_queue WHERE account_id=? AND message_id=? AND provider_type=? AND label_name=? COLLATE NOCASE`, account, message, provider, name); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO label_mutation_queue(account_id,message_id,folder_id,provider_type,operation,label_name) VALUES(?,?,?,?,?,?)`, account, message, folder, provider, operation, name)
+	_, err := tx.ExecContext(ctx, `INSERT INTO label_mutation_queue(account_id,message_id,folder_id,provider_type,operation,label_name,action_id,action_kind,action_source,action_rule_id) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		append([]any{account, message, folder, provider, operation, name}, mailActionArgs(ctx)...)...)
 	return err
 }
 

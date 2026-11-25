@@ -16,7 +16,7 @@ function element(event = false) {
 const row = element(), event = element(true), timeline = element(), grid = element()
 grid.querySelectorAll = () => [timeline, row, event]
 const scroller = {clientHeight: 500, scrollTop: 0, isConnected: true, querySelector() { return grid }}
-const calendar = {querySelector() { return scroller }}
+const calendar = {querySelector(selector) { return selector === '[data-calendar-week-grid]' ? grid : scroller }}
 const callbacks = new Map()
 let frameID = 0, reducedMotion = false
 const axis = height => ({height, heights: Array(24).fill(height / 24), offsets: Array.from({length: 25}, (_, index) => index * height / 24), expanded: Array(24).fill(true), zoom: 0})

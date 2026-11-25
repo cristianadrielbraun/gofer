@@ -55,6 +55,9 @@
   var order = format.order || window.goferT("date.default_order")
   var clock = (script && script.dataset.timeFormat) || "auto"
   if (clock !== "12h" && clock !== "24h") clock = window.goferT("date.default_clock")
+  // The day weeks start on, 0 (Sunday) to 6: the user's week_start setting.
+  var weekStart = Number((script && script.dataset.weekStart) || 1)
+  if (!(weekStart >= 0 && weekStart <= 6)) weekStart = 1
 
   var weekdayIndex = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
 
@@ -132,6 +135,8 @@
   // time zone.
   window.goferDates = {
     uses12HourClock: function () { return clock === "12h" },
+    // The weekday (0 Sunday … 6 Saturday) calendars start each week on.
+    weekStart: weekStart,
     // A wall-clock time from its hour (0–24) and minute: "3:04 PM", "15:04".
     clockTime: clockTime,
     // A whole hour for a time axis: "3 PM", "15:00".

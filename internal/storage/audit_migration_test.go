@@ -32,7 +32,7 @@ func TestMigrateV148ToV149AddsTheAuditLog(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	var version, retention, tables int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 149 {
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 	if err := db.Read().QueryRow(`SELECT admin_audit_retention_days FROM auth_system_state WHERE id = 1`).Scan(&retention); err != nil || retention != 730 {
@@ -80,7 +80,7 @@ func TestMigrateV148ToV149KeepsAnAuditLogAlreadyThere(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	var version, retention, events int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 149 {
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 	if err := db.Read().QueryRow(`SELECT admin_audit_retention_days FROM auth_system_state WHERE id = 1`).Scan(&retention); err != nil || retention != 400 {

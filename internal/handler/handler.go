@@ -245,6 +245,12 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		}
 		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactsChanged, UserID: userID})
 	})
+	db.SetMailOperationsChangeHook(func(userID string) {
+		if h.syncer == nil {
+			return
+		}
+		h.syncer.Events().Publish(mail.Event{Type: mail.EventMailOperationsChanged, UserID: userID})
+	})
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
 			return
@@ -623,6 +629,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.HandleFunc(pattern, handler)
 	})
 	mux.HandleFunc("GET /settings/operations/content", h.handleSettingsMailOperationsContent)
+	mux.HandleFunc("GET /settings/operations/actions/{id}", h.handleSettingsMailActionChanges)
 	mux.HandleFunc("POST /api/settings/sync", h.handleSaveSyncSettings)
 	mux.HandleFunc("POST /api/settings/accounts/{id}/outlook-push", h.handleOutlookPushSetting)
 	mux.HandleFunc("POST /api/settings/accounts/{id}/outlook-push/check", h.handleOutlookPushCheck)
@@ -674,7 +681,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/outgoing-sends/{id}/retry-now", h.handleOutgoingSendRetryNow)
 	mux.HandleFunc("POST /api/outgoing-sends/{id}/cancel", h.handleOutgoingSendCancel)
 	mux.HandleFunc("GET /api/mail-operations", h.handleMailOperations)
+	mux.HandleFunc("GET /api/mail-operations/attention", h.handleMailOperationsAttention)
 	mux.HandleFunc("POST /api/mail-operations/{id}/retry", h.handleRetryMailOperation)
+	mux.HandleFunc("POST /api/mail-operations/{id}/undo", h.handleUndoMailOperation)
+	mux.HandleFunc("POST /api/mail-operations/retry-failed", h.handleRetryFailedMailOperations)
+	mux.HandleFunc("POST /api/mail-operations/actions/{id}/retry", h.handleRetryMailAction)
+	mux.HandleFunc("POST /api/mail-operations/actions/{id}/undo", h.handleUndoMailAction)
 	mux.HandleFunc("GET /api/sidebar/mail", h.handleMailSidebar)
 	mux.HandleFunc("GET /api/sidebar/accounts/{id}", h.handleSidebarAccount)
 	mux.HandleFunc("POST /api/mail/sync", h.handleSyncMail)
@@ -1778,8 +1790,20 @@ func (h *Handler) handleContactSearch(w http.ResponseWriter, r *http.Request) {
 // collapsed thread message opens and its body is laid out for the first time.
 // It sends its width too, so the page knows the width the height is for
 // without measuring the frame, which laid the page out for every report.
+//
+// Some emails size themselves to the frame, with height:100% on a table or
+// min-height:100vh, so a taller frame makes their content taller too, and
+// every report asked for 16px more without end. When the frame grows and the
+// content's end keeps the same distance from the frame's bottom, the content
+// is following the frame: the script goes back to the height before that step
+// and asks for no more while the distance holds. Content that moves on its
+// own, such as an image that loads, changes the distance and is measured as
+// usual again. The hold lasts across width changes, so dragging the reader
+// wider or narrower doesn't add a step for each width, and a reload starts
+// with the frame's last height and settles on it, so switching the message's
+// colors doesn't add one either.
 func emailResizeScript(emailID string) []byte {
-	return []byte(fmt.Sprintf(`<script>(function(){var id=%q,last=-1;function r(){var b=document.body;if(!b)return;var rg=document.createRange();rg.selectNodeContents(b);var cs=getComputedStyle(b);var h=Math.ceil(rg.getBoundingClientRect().bottom+(window.scrollY||0)+(parseFloat(cs.paddingBottom)||0)+(parseFloat(cs.borderBottomWidth)||0)+(parseFloat(cs.marginBottom)||0))+16;var w=window.innerWidth,k=h+'x'+w;if(k===last)return;last=k;parent.postMessage({type:'emailBodyResize',emailId:id,height:h,width:w},'*')}requestAnimationFrame(function(){requestAnimationFrame(r)});window.addEventListener('load',r);document.querySelectorAll('img').forEach(function(i){i.onload=r});if(document.fonts&&document.fonts.ready)document.fonts.ready.then(r);if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(r,0)}).observe(document.body,{childList:true,subtree:true,attributes:true})}if(typeof ResizeObserver!=='undefined'){var ro=new ResizeObserver(function(){r()});ro.observe(document.documentElement);ro.observe(document.body)}setTimeout(r,300)})();</script>`, emailID))
+	return []byte(fmt.Sprintf(`<script>(function(){var id=%q,last=-1,sent=-1,pf=-1,pg=0,hold=null;function r(){var b=document.body;if(!b)return;var rg=document.createRange();rg.selectNodeContents(b);var cs=getComputedStyle(b);var end=Math.ceil(rg.getBoundingClientRect().bottom+(window.scrollY||0)+(parseFloat(cs.paddingBottom)||0)+(parseFloat(cs.borderBottomWidth)||0)+(parseFloat(cs.marginBottom)||0));var w=window.innerWidth,f=window.innerHeight,g=f-end,h=end+16;if(pf>0&&f-pf>1&&Math.abs(g-pg)<=1){hold=g;h=pf}else if(hold!==null&&Math.abs(g-hold)>1)hold=null;else if(hold!==null&&h>sent)h=sent;pf=f;pg=g;var k=h+'x'+w;if(k===last)return;last=k;sent=h;parent.postMessage({type:'emailBodyResize',emailId:id,height:h,width:w},'*')}requestAnimationFrame(function(){requestAnimationFrame(r)});window.addEventListener('load',r);document.querySelectorAll('img').forEach(function(i){i.onload=r});if(document.fonts&&document.fonts.ready)document.fonts.ready.then(r);if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(r,0)}).observe(document.body,{childList:true,subtree:true,attributes:true})}if(typeof ResizeObserver!=='undefined'){var ro=new ResizeObserver(function(){r()});ro.observe(document.documentElement);ro.observe(document.body)}setTimeout(r,300)})();</script>`, emailID))
 }
 
 func remoteImagesDetectScript(emailID string) []byte {
@@ -2053,6 +2077,13 @@ func emailBodyTextSize(r *http.Request) int {
 	return 14
 }
 
+// emailBodyAlmostStandardsDoctype puts a full email without a doctype in
+// almost standards mode rather than full standards mode. Both drop the quirks
+// mode percentage heights, but full standards mode also leaves a gap under
+// images in table cells, which splits the image slices of older newsletters,
+// the kind of mail most likely to have no doctype.
+const emailBodyAlmostStandardsDoctype = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">`
+
 func buildBodyDocument(ctx context.Context, body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool, textSize int, nonce string) []byte {
 	nonced := func(script []byte) string { return string(scriptWithNonce(script, nonce)) }
 	s := string(body)
@@ -2061,6 +2092,14 @@ func buildBodyDocument(ctx context.Context, body []byte, resizeScript []byte, th
 		s = strings.Replace(s, ">"+i18n.CalendarOnlyBody+"<", ">"+template.HTMLEscapeString(i18n.T(ctx, "mail.calendar_only_body"))+"<", 1)
 	}
 	lower := strings.ToLower(s)
+	if strings.Contains(lower, "<html") && !hasLeadingHTMLDoctype(s) {
+		// Full email documents often omit a doctype. Without one, browsers use
+		// quirks mode, where percentage heights on nested elements can resolve
+		// against the viewport and make the iframe resize itself repeatedly.
+		// Fragments already receive a standards doctype in the wrapper below.
+		s = emailBodyAlmostStandardsDoctype + s
+		lower = strings.ToLower(s)
+	}
 	isDark := theme == "dark"
 	injection := nonced(emailExternalLinksScript()) + nonced(emailQuoteScript(ctx)) + nonced(resizeScript)
 
@@ -2839,7 +2878,31 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 	}
 	filters.SortBy = normalizeEmailSortBy(filters.SortBy)
 	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
+	if filters.Unread {
+		filters.KeepRead = parseKeepRead(q.Get("keep"))
+	}
 	return filters
+}
+
+// maxKeepRead bounds the messages one list keeps once read; the page sends
+// the latest ones.
+const maxKeepRead = 200
+
+// parseKeepRead reads the comma-separated message IDs of keep, leaving out
+// anything that is not one.
+func parseKeepRead(value string) []int64 {
+	var ids []int64
+	for _, part := range strings.Split(value, ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		ids = append(ids, id)
+		if len(ids) == maxKeepRead {
+			break
+		}
+	}
+	return ids
 }
 
 func normalizeRecipientType(value string) string {
@@ -3426,7 +3489,9 @@ func (h *Handler) handleManageSignaturesSettings(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
 	w.Header().Set("Content-Type", "text/html")
-	views.ComposeSignaturesManager(h.buildAccountSignatureData(ctx, accounts)).Render(ctx, w)
+	// The dialog refreshes itself after a signature is added or renamed; it
+	// names the account it was showing so the Accounts tab stays on it.
+	views.ComposeSignaturesManager(h.buildAccountSignatureData(ctx, accounts), r.URL.Query().Get("account")).Render(ctx, w)
 }
 
 func (h *Handler) handleSaveSignature(w http.ResponseWriter, r *http.Request) {
@@ -3495,14 +3560,16 @@ func (h *Handler) handleSaveAccountSignatureSettings(w http.ResponseWriter, r *h
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid form data"})
 		return
 	}
+	// Picking a signature turns it on and "No signature" turns it off, so
+	// whether one is used follows the choice.
 	settings := models.AccountSignatureSettings{
 		AccountID:          r.PathValue("id"),
 		NewSignatureID:     r.FormValue("new_signature_id"),
 		ReplySignatureID:   r.FormValue("reply_signature_id"),
 		ForwardSignatureID: r.FormValue("forward_signature_id"),
-		NewEnabled:         formBool(r, "new_enabled"),
-		ReplyEnabled:       formBool(r, "reply_enabled"),
-		ForwardEnabled:     formBool(r, "forward_enabled"),
+		NewEnabled:         strings.TrimSpace(r.FormValue("new_signature_id")) != "",
+		ReplyEnabled:       strings.TrimSpace(r.FormValue("reply_signature_id")) != "",
+		ForwardEnabled:     strings.TrimSpace(r.FormValue("forward_signature_id")) != "",
 		ReplyPlacement:     r.FormValue("reply_placement"),
 		ForwardPlacement:   r.FormValue("forward_placement"),
 	}
@@ -3518,11 +3585,6 @@ func (h *Handler) handleSaveAccountSignatureSettings(w http.ResponseWriter, r *h
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
-}
-
-func formBool(r *http.Request, name string) bool {
-	v := strings.ToLower(strings.TrimSpace(r.FormValue(name)))
-	return v == "1" || v == "true" || v == "on" || v == "yes"
 }
 
 func plainTextToSignatureHTML(text string) string {
@@ -4968,11 +5030,16 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 			download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.readerDefaultProxy)
 		}
 		data, err := download(ctx, remoteURL)
-		if err != nil || len(data) == 0 {
+		if err == nil && len(data) == 0 {
+			err = errEmptyRemoteResource
+		}
+		if err != nil {
+			logUnsavedRemoteImage(msgID, remoteURL, err)
 			continue
 		}
 		localPath, err := h.blobStore.StoreRemoteAsset(accountID, msgID, remoteURL, data)
 		if err != nil {
+			logUnsavedRemoteImage(msgID, remoteURL, err)
 			continue
 		}
 		urlToLocal[remoteURL] = "/api/remote-assets/" + emailID + "/" + filepath.Base(localPath)
@@ -5066,6 +5133,26 @@ func newRemoteResourceDownloader(allowPrivate netguard.PrivatePolicy, pick ...fu
 		}
 		return data, err
 	}
+}
+
+// errEmptyRemoteResource is a remote resource that came back empty.
+var errEmptyRemoteResource = errors.New("remote resource is empty")
+
+// logUnsavedRemoteImage says why a remote image of a message was not saved
+// with its remote content. The image stays marked as remote, and the reader
+// loads it through Gofer instead. Only the image's server is named: the full
+// address often identifies the reader to the sender.
+func logUnsavedRemoteImage(messageID int64, remoteURL string, err error) {
+	server := "an unnamed server"
+	if parsed, parseErr := url.Parse(remoteURL); parseErr == nil && parsed.Host != "" {
+		server = parsed.Host
+	}
+	// A failed request names the whole address, so only its cause is kept.
+	var requestErr *url.Error
+	if errors.As(err, &requestErr) {
+		err = requestErr.Err
+	}
+	log.Printf("remote content: message %d: image from %s not saved: %v", messageID, server, err)
 }
 
 // privateTargetAllowed reads the administrator's private-target exceptions.
@@ -6771,6 +6858,7 @@ func (h *Handler) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		targetRead = false
 	}
 
+	ctx = storage.WithUserMailAction(ctx, readMailAction(targetRead))
 	if err := h.db.SetMessageReadAndQueueForUser(ctx, msgID, targetRead, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -6804,6 +6892,7 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 		for _, info := range target.Infos {
 			messageIDs = append(messageIDs, info.MessageID)
 		}
+		ctx = storage.WithUserMailAction(ctx, readMailAction(targetRead))
 		if err := h.db.SetMessagesReadAndQueueForUser(ctx, messageIDs, targetRead, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -6846,6 +6935,7 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 		for _, info := range target.Infos {
 			messageIDs = append(messageIDs, info.MessageID)
 		}
+		ctx = storage.WithUserMailAction(ctx, starMailAction(targetStarred))
 		if err := h.db.SetMessagesStarredAndQueueForUser(ctx, messageIDs, targetStarred, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -6897,6 +6987,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		if err != nil || archiveFolderID == currentInfo.FolderID {
 			continue
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionArchive)
 		if err := h.queueMessageMoves(ctx, target.Infos, archiveFolderID); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -6942,6 +7033,7 @@ func (h *Handler) handleUnarchiveMessages(w http.ResponseWriter, r *http.Request
 		if err != nil || inboxFolderID == "" {
 			continue
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionUnarchive)
 		if err := h.queueMessageMoves(ctx, archived, inboxFolderID); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -6978,6 +7070,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 	for _, target := range targets {
 		currentInfo := target.Infos[0].MessageMutationInfo
 		if payload.ForGood && currentInfo.FolderRole != "trash" {
+			ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
 				http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 				return
@@ -6987,6 +7080,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				keptTrash = append(keptTrash, target.Target)
 				continue
 			}
+			ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
 				http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 				return
@@ -7000,6 +7094,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 				noTrash++
 				continue
 			}
+			ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 			if err := h.queueMessageMoves(ctx, target.Infos, trashFolderID); err != nil {
 				http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 				return
@@ -7097,6 +7192,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 		if len(moving) == 0 {
 			continue
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionMove)
 		if err := h.queueMessageMoves(ctx, moving, destinations[i]); err != nil {
 			moveRefused(w, r, err.Error(), http.StatusInternalServerError)
 			return
@@ -7140,6 +7236,7 @@ func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetStarred := !info.IsStarred
+	ctx = storage.WithUserMailAction(ctx, starMailAction(targetStarred))
 	if err := h.db.SetMessageStarredAndQueueForUser(ctx, msgID, targetStarred, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7183,6 +7280,7 @@ func (h *Handler) handleToggleThreadRead(w http.ResponseWriter, r *http.Request)
 	for _, info := range infos {
 		messageIDs = append(messageIDs, info.MessageID)
 	}
+	ctx = storage.WithUserMailAction(ctx, readMailAction(targetRead))
 	if err := h.db.SetMessagesReadAndQueueForUser(ctx, messageIDs, targetRead, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7221,6 +7319,7 @@ func (h *Handler) handleToggleThreadStar(w http.ResponseWriter, r *http.Request)
 	for _, info := range infos {
 		messageIDs = append(messageIDs, info.MessageID)
 	}
+	ctx = storage.WithUserMailAction(ctx, starMailAction(targetStarred))
 	if err := h.db.SetMessagesStarredAndQueueForUser(ctx, messageIDs, targetStarred, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7264,6 +7363,7 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx = storage.WithUserMailAction(ctx, storage.MailActionArchive)
 	if err := h.queueMessageMoves(ctx, infos, archiveFolderID); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return
@@ -7290,6 +7390,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	// permanent=1 deletes for good without a Trash folder, as the page offers
 	// when the account has none.
 	if currentInfo.FolderRole == "trash" || r.URL.Query().Get("permanent") == "1" {
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.queuePermanentDeletes(ctx, infos); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7303,6 +7404,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, i18n.T(r.Context(), "server.error.this_account_has_no_trash_folder"), http.StatusBadRequest)
 			return
 		}
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7329,6 +7431,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	// permanent=1 deletes for good without a Trash folder, as the page offers
 	// when the account has none.
 	if info.FolderRole == "trash" || r.URL.Query().Get("permanent") == "1" {
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.db.PermanentlyDeleteMessageAndQueueForUser(ctx, msgID, info.FolderID, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7344,6 +7447,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		ctx = storage.WithUserMailAction(ctx, storage.MailActionDelete)
 		if err := h.db.MoveMessageAndQueueForUser(ctx, msgID, info.FolderID, trashFolderID, h.userID(ctx)); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 			return
@@ -7392,6 +7496,7 @@ func (h *Handler) handleMoveMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx = storage.WithUserMailAction(ctx, storage.MailActionMove)
 	if err := h.db.MoveMessageAndQueueForUser(ctx, msgID, info.FolderID, destFolderID, h.userID(ctx)); err != nil {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusInternalServerError)
 		return

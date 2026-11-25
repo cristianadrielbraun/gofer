@@ -25,7 +25,7 @@ func (c readerConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 // size bytes at a time.
 func filtered(t *testing.T, server io.Reader, size int) string {
 	t.Helper()
-	conn := newStatusFixConn(readerConn{r: server})
+	conn := newQuirksConn(readerConn{r: server})
 	var out bytes.Buffer
 	buf := make([]byte, size)
 	for {
@@ -152,7 +152,7 @@ func TestStatusFixPassesRandomLiteralsThrough(t *testing.T) {
 // A read error comes after the bytes read before it.
 func TestStatusFixReturnsErrorsAfterData(t *testing.T) {
 	failure := errors.New("connection reset")
-	conn := newStatusFixConn(readerConn{r: io.MultiReader(strings.NewReader("* STATUS x (y 1 )\r\n* OK no end"), iotest.ErrReader(failure))})
+	conn := newQuirksConn(readerConn{r: io.MultiReader(strings.NewReader("* STATUS x (y 1 )\r\n* OK no end"), iotest.ErrReader(failure))})
 	got, err := io.ReadAll(conn)
 	if !errors.Is(err, failure) {
 		t.Fatalf("error = %v, want %v", err, failure)

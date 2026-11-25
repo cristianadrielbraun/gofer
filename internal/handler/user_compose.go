@@ -243,7 +243,11 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 			if err != nil {
 				return c, err
 			}
-			snapshot, err := json.Marshal(snapshotOutgoingMessage(&delivery))
+			waiting := snapshotOutgoingMessage(&delivery)
+			if c.ProviderSync != nil {
+				waiting.DraftRevision = revision
+			}
+			snapshot, err := json.Marshal(waiting)
 			if err != nil {
 				return c, err
 			}

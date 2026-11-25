@@ -121,7 +121,8 @@
     if (!content) return;
 
     const width = trigger.getBoundingClientRect().width;
-    content.style.width = `${width}px`;
+    // A menu that fits its items is never narrower than its trigger.
+    content.style.width = content.getAttribute('data-tui-selectbox-fit-items') === 'true' ? 'max-content' : `${width}px`;
     content.style.minWidth = `${width}px`;
   }
 
@@ -357,8 +358,9 @@
       hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
     }
     
-    // Close on single selection
-    if (!isMultiple) {
+    // Close on single selection, unless the list stays open as a
+    // multiple-select's does (data-tui-selectbox-keep-open).
+    if (!isMultiple && trigger.getAttribute('data-tui-selectbox-keep-open') !== 'true') {
       closePopover(trigger);
       setTimeout(() => trigger.focus(), 50);
     }

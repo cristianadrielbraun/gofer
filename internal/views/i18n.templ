@@ -3,6 +3,7 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"strconv"
 )
 
 // I18nScripts loads the page language's messages for scripts and the
@@ -11,5 +12,5 @@ import (
 templ I18nScripts() {
 	<script src={ i18n.ScriptURL(ctx) }></script>
 	{{ dateFormat, timeFormat := i18n.DatePrefs(ctx) }}
-	<script src={ assetver.URL("/assets/js/i18n.js") } data-date-format={ dateFormat } data-time-format={ timeFormat }></script>
+	<script src={ assetver.URL("/assets/js/i18n.js") } data-date-format={ dateFormat } data-time-format={ timeFormat } data-week-start={ strconv.Itoa(int(i18n.WeekStart(ctx))) }></script>
 }

@@ -77,6 +77,38 @@ func ReadMessageFile(path string) ([]byte, error) {
 	return decodeMessageFile(stored)
 }
 
+// RewriteMessageFile replaces the content of a saved raw message or body
+// file with what change makes of it, compressed the way new files are. When
+// change reports false, the file is left as it is. The new content is
+// written beside the file and renamed over it, so a reader never sees part
+// of it, and a file that changes meanwhile is refused. It reports whether
+// the file was rewritten.
+func RewriteMessageFile(path string, change func([]byte) ([]byte, bool)) (bool, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return false, err
+	}
+	if !before.Mode().IsRegular() {
+		return false, fmt.Errorf("%s is not a regular file", path)
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	data, err := decodeMessageFile(stored)
+	if err != nil {
+		return false, err
+	}
+	changed, ok := change(data)
+	if !ok {
+		return false, nil
+	}
+	if err := replaceIfUnchanged(path, before, encodeMessageFile(changed)); err != nil {
+		return false, fmt.Errorf("rewrite %s: %w", path, err)
+	}
+	return true, nil
+}
+
 // OpenMessageFile is ReadMessageFile for callers that want a reader.
 func OpenMessageFile(path string) (io.ReadCloser, error) {
 	data, err := ReadMessageFile(path)

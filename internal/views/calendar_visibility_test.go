@@ -14,7 +14,7 @@ func TestCalendarVisibilityRendersAllCandidatesWithoutHiddenSourceFlash(t *testi
 	start := time.Now().UTC().AddDate(0, 0, 1)
 	// Keep the fixture on one day even when this test runs just before midnight.
 	start = time.Date(start.Year(), start.Month(), start.Day(), 9, 0, 0, 0, time.UTC)
-	month := NewCalendarMonthData(start)
+	month := NewCalendarMonthData(start, time.Monday)
 	for index := range 7 {
 		end := start.Add(time.Hour)
 		month.Events = append(month.Events, CalendarEvent{ID: string(rune('a' + index)), SourceID: "work", SourceHidden: index < 3, Summary: "Meeting", StartAt: &start, EndAt: &end})
@@ -25,7 +25,7 @@ func TestCalendarVisibilityRendersAllCandidatesWithoutHiddenSourceFlash(t *testi
 	if got := len(calendarAgendaEvents(month)); got != 4 {
 		t.Fatalf("agenda count = %d, want 4", got)
 	}
-	for _, data := range []CalendarMonthData{month, NewCalendarWeekData(start)} {
+	for _, data := range []CalendarMonthData{month, NewCalendarWeekData(start, time.Monday)} {
 		data.Events = month.Events
 		var output bytes.Buffer
 		if err := CalendarPage(data, nil).Render(t.Context(), &output); err != nil {

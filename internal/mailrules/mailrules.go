@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -20,7 +21,75 @@ const (
 	MaxConditions    = 20
 	MaxActions       = 10
 	MaxRulesPerOwner = 500
+	MaxTagLength     = 40
+	MaxTagsPerRule   = 10
 )
+
+// CleanTag is a tag as rules keep it: without the spaces at its ends or the
+// # it may be written with, with each run of spaces made one, and without
+// invisible control characters. It is "" when nothing is left.
+func CleanTag(tag string) string {
+	tag = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, tag)
+	tag = strings.Join(strings.Fields(tag), " ")
+	return strings.TrimSpace(strings.TrimLeft(tag, "#"))
+}
+
+// TagError is a tag refused, or too many tags, saying why for the person who
+// wrote them to change them.
+type TagError string
+
+func (e TagError) Error() string { return string(e) }
+
+// ErrTooManyTags is a rule given more tags than one may have.
+var ErrTooManyTags = TagError(fmt.Sprintf("a rule can have at most %d tags", MaxTagsPerRule))
+
+// CheckTag cleans a tag and says why it can't be one, as a TagError: there's
+// nothing left of it, it is too long, or it has a comma, which the tags
+// field separates tags with.
+func CheckTag(tag string) (string, error) {
+	tag = CleanTag(tag)
+	switch {
+	case tag == "":
+		return "", TagError("enter the tag to add")
+	case strings.Contains(tag, ","):
+		return "", TagError("a tag can't contain a comma")
+	case utf8.RuneCountInString(tag) > MaxTagLength:
+		return "", TagError(fmt.Sprintf("a tag can be at most %d characters", MaxTagLength))
+	}
+	return tag, nil
+}
+
+// checkTags cleans a rule's tags: empty ones go, and so does a tag that
+// repeats another but for its capitals, the first spelling staying.
+func checkTags(tags []string) ([]string, error) {
+	kept := tags[:0]
+	seen := map[string]bool{}
+	for _, tag := range tags {
+		if CleanTag(tag) == "" {
+			continue
+		}
+		tag, err := CheckTag(tag)
+		if err != nil {
+			return nil, err
+		}
+		if key := strings.ToLower(tag); !seen[key] {
+			seen[key] = true
+			kept = append(kept, tag)
+		}
+	}
+	if len(kept) > MaxTagsPerRule {
+		return nil, ErrTooManyTags
+	}
+	if len(kept) == 0 {
+		return nil, nil
+	}
+	return kept, nil
+}
 
 // TargetRoles are the folder roles a rule may name for any account.
 var TargetRoles = []string{"inbox", "archive", "trash", "junk", "sent", "drafts"}
@@ -118,6 +187,18 @@ func GroupConditions(rule *models.MailRule) {
 // grouped, with lower-case values where case doesn't matter. Its error is
 // shown to the person who wrote the rule.
 func Validate(rule *models.MailRule) error {
+	return validate(rule, false)
+}
+
+// ValidateImported checks a rule read from a rules file, as Validate does,
+// but also takes what the import couldn't find here: folders with no ID
+// (MailRuleFolderTarget.Missing), and no account left of the accounts it
+// was for. Such a rule is kept to be fixed, and doesn't run until it is.
+func ValidateImported(rule *models.MailRule) error {
+	return validate(rule, true)
+}
+
+func validate(rule *models.MailRule, imported bool) error {
 	GroupConditions(rule)
 	rule.Name = strings.TrimSpace(rule.Name)
 	accounts := rule.AccountIDs[:0]
@@ -129,12 +210,17 @@ func Validate(rule *models.MailRule) error {
 	rule.AccountIDs = accounts
 	if !rule.AccountsChosen {
 		rule.AccountIDs = nil
-	} else if len(rule.AccountIDs) == 0 {
+	} else if len(rule.AccountIDs) == 0 && !imported {
 		return errors.New("choose the accounts the rule is for")
 	}
 	if rule.Name == "" {
 		return errors.New("give the rule a name")
 	}
+	tags, err := checkTags(rule.Tags)
+	if err != nil {
+		return err
+	}
+	rule.Tags = tags
 	if utf8.RuneCountInString(rule.Name) > MaxNameLength {
 		return fmt.Errorf("the name can be at most %d characters", MaxNameLength)
 	}
@@ -145,7 +231,7 @@ func Validate(rule *models.MailRule) error {
 		return fmt.Errorf("a rule can have at most %d conditions", MaxConditions)
 	}
 	for i := range rule.Conditions {
-		if err := validateCondition(&rule.Conditions[i]); err != nil {
+		if err := validateCondition(&rule.Conditions[i], imported); err != nil {
 			return err
 		}
 	}
@@ -159,7 +245,7 @@ func Validate(rule *models.MailRule) error {
 	location := ""
 	for i := range rule.Actions {
 		action := &rule.Actions[i]
-		if err := validateAction(action); err != nil {
+		if err := validateAction(action, imported); err != nil {
 			return err
 		}
 		if MovesMessage(action.Kind) {
@@ -187,7 +273,7 @@ func MovesMessage(kind string) bool {
 	return false
 }
 
-func validateCondition(condition *models.MailRuleCondition) error {
+func validateCondition(condition *models.MailRuleCondition, imported bool) error {
 	condition.Field = strings.TrimSpace(condition.Field)
 	condition.Operator = strings.TrimSpace(condition.Operator)
 	if condition.Field == models.MailRuleFieldFolder {
@@ -195,7 +281,7 @@ func validateCondition(condition *models.MailRuleCondition) error {
 			return errors.New("a folder condition can only be \"is\" or \"is not\"")
 		}
 		condition.Value = ""
-		return validateFolderTarget(condition.Folder)
+		return validateFolderTarget(condition.Folder, imported)
 	}
 	condition.Folder = nil
 	switch condition.Field {
@@ -224,7 +310,7 @@ func validateCondition(condition *models.MailRuleCondition) error {
 	return nil
 }
 
-func validateAction(action *models.MailRuleAction) error {
+func validateAction(action *models.MailRuleAction, imported bool) error {
 	action.Kind = strings.TrimSpace(action.Kind)
 	if action.Kind != models.MailRuleActionMove {
 		action.ForGood = false
@@ -238,7 +324,7 @@ func validateAction(action *models.MailRuleAction) error {
 		if action.Folder.Role == "sent" || action.Folder.Role == "drafts" {
 			return errors.New("mail can't be moved to Sent or Drafts")
 		}
-		if err := validateFolderTarget(action.Folder); err != nil {
+		if err := validateFolderTarget(action.Folder, imported); err != nil {
 			return err
 		}
 		// A folder named by role is in the message's own account, where a
@@ -265,13 +351,14 @@ func validateAction(action *models.MailRuleAction) error {
 	return nil
 }
 
-func validateFolderTarget(target *models.MailRuleFolderTarget) error {
+func validateFolderTarget(target *models.MailRuleFolderTarget, imported bool) error {
 	if target == nil {
 		return errors.New("choose a folder")
 	}
 	target.Role = strings.TrimSpace(target.Role)
 	target.FolderID = strings.TrimSpace(target.FolderID)
 	target.Path = strings.TrimSpace(target.Path)
+	target.AccountName = strings.TrimSpace(target.AccountName)
 	if target.Role != "" {
 		if target.Role == "spam" {
 			target.Role = "junk"
@@ -283,13 +370,21 @@ func validateFolderTarget(target *models.MailRuleFolderTarget) error {
 		if !valid {
 			return fmt.Errorf("unknown folder %q", target.Role)
 		}
-		target.FolderID, target.Path, target.AccountID = "", "", ""
+		target.FolderID, target.Path, target.AccountID, target.AccountName = "", "", "", ""
+		target.TurnOnWhenFound = false
 		return nil
 	}
-	if target.FolderID == "" {
+	target.AccountID = strings.TrimSpace(target.AccountID)
+	if target.FolderID != "" {
+		target.AccountName, target.TurnOnWhenFound = "", false
+		return nil
+	}
+	// A folder an import didn't find is kept by its name, to show it.
+	if !imported || target.Path == "" {
 		return errors.New("choose a folder")
 	}
-	target.AccountID = strings.TrimSpace(target.AccountID)
+	// Only a folder of an account that is here can be found later.
+	target.TurnOnWhenFound = target.TurnOnWhenFound && target.AccountID != ""
 	return nil
 }
 

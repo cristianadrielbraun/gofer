@@ -208,7 +208,7 @@ func TestCalendarEditReusesFormWithServerPrefill(t *testing.T) {
 
 func TestCalendarCreatePickerAssetsLoadOnDirectEntry(t *testing.T) {
 	var page, settings bytes.Buffer
-	month := NewCalendarMonthData(time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC))
+	month := NewCalendarMonthData(time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC), time.Monday)
 	if err := CalendarLayout(nil, month, nil).Render(t.Context(), &page); err != nil {
 		t.Fatal(err)
 	}

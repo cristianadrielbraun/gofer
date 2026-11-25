@@ -1,11 +1,14 @@
 package storage
 
 import (
+	"github.com/google/uuid"
+
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
@@ -136,6 +139,35 @@ type mailRuleRunner struct {
 	// records one summary instead.
 	quiet  bool
 	failed int
+	// actions are the actions this run queued changes under, one per rule
+	// and kind of action, so a rule's changes in one run stay together.
+	actions map[string]MailAction
+}
+
+// mailRuleActionKinds are the mail actions that rule actions queue changes
+// as.
+var mailRuleActionKinds = map[string]string{
+	models.MailRuleActionMove:     MailActionMove,
+	models.MailRuleActionArchive:  MailActionArchive,
+	models.MailRuleActionTrash:    MailActionDelete,
+	models.MailRuleActionSpam:     MailActionSpam,
+	models.MailRuleActionMarkRead: MailActionMarkRead,
+	models.MailRuleActionStar:     MailActionStar,
+	models.MailRuleActionLabel:    MailActionLabelAdd,
+}
+
+// ruleAction is the action a rule's action queues changes under in this run.
+func (r *mailRuleRunner) ruleAction(ruleID, kind string) MailAction {
+	key := ruleID + "\x00" + kind
+	if action, ok := r.actions[key]; ok {
+		return action
+	}
+	if r.actions == nil {
+		r.actions = map[string]MailAction{}
+	}
+	action := MailAction{ID: uuid.NewString(), Kind: mailRuleActionKinds[kind], Source: MailActionSourceRule, RuleID: ruleID}
+	r.actions[key] = action
+	return action
 }
 
 type mailRuleFolder struct {
@@ -172,6 +204,11 @@ func (db *DB) newMailRuleRunner(ctx context.Context, accountID string, only []mo
 		return nil, err
 	}
 	for _, rule := range rules {
+		// An imported rule that names a folder the import didn't find waits
+		// for another to be chosen; it is turned off, and the list says why.
+		if rule.MissingFolders() {
+			continue
+		}
 		// A folder named by ID may have a new ID since, after being renamed
 		// outside Gofer; its name finds it.
 		for i := range rule.Conditions {
@@ -238,7 +275,10 @@ func (r *mailRuleRunner) findFolder(target models.MailRuleFolderTarget) (mailRul
 	if folder, ok := r.folders[target.FolderID]; ok {
 		return folder, true
 	}
-	if target.Path != "" {
+	// The name only finds again a folder whose ID changed. A folder an
+	// import didn't find has no ID, and its name is only shown: a folder of
+	// the same name in this account is not the one the rule was written for.
+	if target.FolderID != "" && target.Path != "" {
 		for _, folder := range r.folders {
 			if folder.remoteID == target.Path {
 				return folder, true
@@ -380,7 +420,7 @@ func (r *mailRuleRunner) run(ctx context.Context, messageID int64, arrival, trig
 				skipped = append(skipped, mailrules.NewNote("already_moved_by", "rule", moved))
 				continue
 			}
-			note, err := r.apply(ctx, m, arrival, action, outcome)
+			note, err := r.apply(withMailAction(ctx, r.ruleAction(rule.ID, action.Kind)), m, arrival, action, outcome)
 			if ctx.Err() != nil {
 				return outcome, ctx.Err()
 			}
@@ -537,6 +577,87 @@ func moveTarget(action models.MailRuleAction) models.MailRuleFolderTarget {
 		return models.MailRuleFolderTarget{Role: "junk"}
 	}
 	return models.MailRuleFolderTarget{}
+}
+
+// MailRuleDestinations returns the folders each of a user's rules moves mail
+// into, by rule ID, so the rules list can show those of one folder. They are
+// the folders a rule finds when it runs on each account it is for: Archive,
+// Trash, Spam and a move to a folder every account has are that folder of
+// each of those accounts, and a move to one folder is that folder, found by
+// its saved name if its ID changed, in another account too. Rules turned
+// off count as well. A rule that moves no mail, or whose folders are gone,
+// has none.
+func (db *DB) MailRuleDestinations(ctx context.Context, userID string, rules []models.MailRule) (map[string][]string, error) {
+	destinations := map[string][]string{}
+	var moving []models.MailRule
+	for _, rule := range rules {
+		if slices.ContainsFunc(rule.Actions, func(action models.MailRuleAction) bool { return mailrules.MovesMessage(action.Kind) }) {
+			moving = append(moving, rule)
+		}
+	}
+	if len(moving) == 0 {
+		return destinations, nil
+	}
+	// Rules run on the accounts mail arrives in: not Local folders, nor
+	// accounts with only contacts and calendars.
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id, provider FROM accounts
+		WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 AND provider NOT IN (?, ?)
+		ORDER BY id`, userID, providers.ProviderLocal, providers.ProviderDAV)
+	if err != nil {
+		return nil, fmt.Errorf("accounts: %w", err)
+	}
+	var runners []*mailRuleRunner
+	for rows.Next() {
+		runner := &mailRuleRunner{db: db, owner: userID}
+		if err := rows.Scan(&runner.accountID, &runner.provider); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("accounts: %w", err)
+		}
+		runners = append(runners, runner)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("accounts: %w", err)
+	}
+	// Another account's folder is the same whichever account the mail
+	// comes from, so each is looked up once.
+	others := map[models.MailRuleFolderTarget]string{}
+	for _, runner := range runners {
+		if err := runner.loadFolders(ctx); err != nil {
+			return nil, fmt.Errorf("folders of %s: %w", runner.accountID, err)
+		}
+		for _, rule := range moving {
+			if !rule.WatchesAccount(runner.accountID) {
+				continue
+			}
+			for _, action := range rule.Actions {
+				if !mailrules.MovesMessage(action.Kind) {
+					continue
+				}
+				target := moveTarget(action)
+				id := ""
+				if runner.otherAccount(target) {
+					found, seen := others[target]
+					if !seen {
+						folder, _, err := runner.otherFolder(ctx, target)
+						if err != nil && !errors.Is(err, sql.ErrNoRows) {
+							return nil, fmt.Errorf("folder of rule %s: %w", rule.ID, err)
+						}
+						found = folder.id
+						others[target] = found
+					}
+					id = found
+				} else if folder, ok := runner.findFolder(target); ok {
+					id = folder.id
+				}
+				if id != "" && !slices.Contains(destinations[rule.ID], id) {
+					destinations[rule.ID] = append(destinations[rule.ID], id)
+				}
+			}
+		}
+	}
+	return destinations, nil
 }
 
 // needless reports whether an action would leave the message as it is, and

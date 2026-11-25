@@ -1,0 +1,547 @@
+package views
+
+import (
+	"net/url"
+	"strconv"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/textarea"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// AdminGroupsPath lists the groups of people.
+const AdminGroupsPath = "/admin/groups"
+
+// A group's page has a tab for its members and one for its settings.
+const (
+	AdminGroupTabMembers  = ""
+	AdminGroupTabSettings = "settings"
+)
+
+// The dialogs of the Groups pages.
+const (
+	adminGroupCreateDialogID = "admin-group-create"
+	adminGroupAddDialogID    = "admin-group-add"
+	adminGroupDeleteDialogID = "admin-group-delete"
+)
+
+// AdminGroupPath is tab of the group with groupID's page.
+func AdminGroupPath(groupID, tab string) string {
+	path := AdminGroupsPath + "/" + url.PathEscape(groupID)
+	if tab != AdminGroupTabMembers {
+		path += "/" + tab
+	}
+	return path
+}
+
+// AdminGroupAddPath opens the Add people dialog, searching for search.
+func AdminGroupAddPath(groupID, search string) string {
+	path := AdminGroupPath(groupID, "add")
+	if search != "" {
+		path += "?q=" + url.QueryEscape(search)
+	}
+	return path
+}
+
+// AdminGroupForm is a group's name and description as they were typed,
+// with what's wrong with each.
+type AdminGroupForm struct {
+	Name             string
+	Description      string
+	NameError        string
+	DescriptionError string
+}
+
+// AdminGroupsData is the Groups page.
+type AdminGroupsData struct {
+	Groups []AdminGroupRow
+	// Search narrows the list to names and descriptions that hold it;
+	// Total counts every group.
+	Search string
+	Total  int
+	// Form is the New group dialog, open again after a refusal.
+	Form           AdminGroupForm
+	CreateOpen     bool
+	CSRFToken      string
+	StepUpRequired bool
+}
+
+// AdminGroupRow is one group on the list.
+type AdminGroupRow struct {
+	ID          string
+	Name        string
+	Description string
+	Members     int
+	UpdatedAt   time.Time
+}
+
+// AdminGroupPageData is one group's page.
+type AdminGroupPageData struct {
+	ID          string
+	Name        string
+	Description string
+	// Version is the group as it was loaded; a change names it, so one
+	// made from an outdated page is refused.
+	Version   int64
+	Members   []AdminGroupMember
+	CreatedAt time.Time
+	CreatedBy string
+	UpdatedAt time.Time
+	UpdatedBy string
+	Tab       string
+	// Settings is the settings form, as typed when it was refused.
+	Settings AdminGroupForm
+	// The Add people dialog: open, what was searched, and who can be added.
+	AddOpen        bool
+	AddSearch      string
+	Candidates     []AdminGroupCandidate
+	CandidatesMore bool
+	DeleteOpen     bool
+	CSRF           AdminGroupCSRF
+	StepUpRequired bool
+}
+
+// AdminGroupCSRF are the page's forms' tokens.
+type AdminGroupCSRF struct {
+	Add, Remove, Settings, Delete string
+}
+
+// AdminGroupMember is someone in the group.
+type AdminGroupMember struct {
+	UserID   string
+	Username string
+	Status   string
+	AddedAt  time.Time
+	AddedBy  string
+}
+
+// AdminGroupCandidate is someone the Add people dialog offers.
+type AdminGroupCandidate struct {
+	ID       string
+	Username string
+	Status   string
+}
+
+func adminGroupMembersAction(groupID string) string {
+	return AdminGroupPath(groupID, "members")
+}
+
+func adminGroupRemoveAction(groupID string) string {
+	return AdminGroupPath(groupID, "members/remove")
+}
+
+func adminGroupDeletePath(groupID string) string {
+	return AdminGroupPath(groupID, "delete")
+}
+
+templ AdminGroupsPage(data AdminGroupsData, verification ...AdminSecurityVerificationData) {
+	<div
+		class="flex-1 flex flex-col min-w-0 overflow-hidden"
+		data-admin-groups
+		if adminSecurityVerificationValue(verification).Required {
+			hx-headers={ adminVerificationOnPageHeaders }
+		}
+	>
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				@adminPageHeader(adminPageHeaderProps{Title: i18n.T(ctx, "admin.nav.groups"), Description: i18n.T(ctx, "admin.groups.description"), Actions: adminGroupsHeaderActions()})
+				@adminGroupCreateDialog(data)
+				@adminSection(adminSectionProps{ID: "admin-groups-heading", Title: i18n.T(ctx, "admin.groups.heading"), Aside: adminSectionNote(i18n.N(ctx, "admin.groups.count", data.Total, "count", i18n.Number(ctx, data.Total)))}) {
+					if data.Total > 0 {
+						<form
+							method="get"
+							action={ templ.SafeURL(AdminGroupsPath) }
+							class="border-b border-border px-4 py-3"
+							role="search"
+							hx-get={ AdminGroupsPath }
+							hx-target="#admin-groups-results"
+							hx-select="#admin-groups-results"
+							hx-swap="outerHTML"
+							hx-push-url="true"
+							hx-trigger="submit, input changed delay:300ms from:find input[name='q']"
+						>
+							<div class="relative">
+								@icon.Search(icon.Props{Class: "pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"})
+								@input.Input(input.Props{
+									Type: input.TypeSearch, Name: "q", Value: data.Search, Placeholder: i18n.T(ctx, "admin.groups.search"), Class: "pl-9",
+									Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.groups.search"), "autocomplete": "off"},
+								})
+							</div>
+						</form>
+					}
+					<div id="admin-groups-results">
+						if data.Total == 0 {
+							@adminEmptyState(i18n.T(ctx, "admin.groups.empty"))
+						} else if len(data.Groups) == 0 {
+							@adminEmptyState(i18n.T(ctx, "admin.groups.no_match"))
+						} else {
+							<div class="overflow-x-auto">
+								<table class="w-full min-w-[40rem] text-left text-sm">
+									<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+										<tr>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.groups.col.group") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.groups.col.members") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.groups.col.changed") }</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-border">
+										for _, group := range data.Groups {
+											<tr class="bg-background/35 align-top hover:bg-accent/35" data-admin-group-row>
+												<td class="px-4 py-3">
+													<a href={ templ.SafeURL(AdminGroupPath(group.ID, AdminGroupTabMembers)) } class="font-semibold text-foreground hover:underline">{ group.Name }</a>
+													if group.Description != "" {
+														<p class="mt-1 line-clamp-2 max-w-xl text-xs text-muted-foreground">{ group.Description }</p>
+													}
+												</td>
+												<td class="whitespace-nowrap px-4 py-3 text-muted-foreground">
+													{ i18n.N(ctx, "admin.groups.member_count", group.Members, "count", i18n.Number(ctx, group.Members)) }
+												</td>
+												<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ adminTime(ctx, group.UpdatedAt) }</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+						}
+					</div>
+				}
+				<p class="mt-4 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.groups.note") }</p>
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+templ adminGroupsHeaderActions() {
+	@dialog.Trigger(dialog.TriggerProps{For: adminGroupCreateDialogID}) {
+		@button.Button(button.Props{Attributes: templ.Attributes{"data-admin-group-create": ""}}) {
+			@icon.Plus(icon.Props{Class: "size-4"})
+			{ i18n.T(ctx, "admin.groups.create") }
+		}
+	}
+}
+
+templ adminGroupCreateDialog(data AdminGroupsData) {
+	@dialog.Dialog(dialog.Props{ID: adminGroupCreateDialogID, Open: data.CreateOpen && !data.StepUpRequired}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.groups.create_title") }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.groups.create_detail") }
+				}
+			}
+			<form method="post" action={ templ.SafeURL(AdminGroupsPath) } class="space-y-4" data-step-up>
+				<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+				@adminGroupFields("admin-group-create", data.Form)
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: adminGroupCreateDialogID}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit}) {
+						{ i18n.T(ctx, "admin.groups.create_submit") }
+					}
+				}
+			</form>
+		}
+	}
+}
+
+// adminGroupFields are a group's name and description, for a new group and
+// for its settings.
+templ adminGroupFields(prefix string, form AdminGroupForm) {
+	<div class="space-y-1.5">
+		<label for={ prefix + "-name" } class="block text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.groups.name") }</label>
+		{{ nameAttributes := templ.Attributes{"maxlength": "100", "required": true, "autocomplete": "off"} }}
+		if form.NameError != "" {
+			{{ nameAttributes["aria-describedby"] = prefix + "-name-error" }}
+		}
+		@input.Input(input.Props{ID: prefix + "-name", Name: "name", Value: form.Name, HasError: form.NameError != "", Attributes: nameAttributes})
+		if form.NameError != "" {
+			<p id={ prefix + "-name-error" } class="text-xs font-medium text-destructive">{ form.NameError }</p>
+		}
+	</div>
+	<div class="space-y-1.5">
+		<label for={ prefix + "-description" } class="block text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.groups.description_label") }</label>
+		{{ descriptionAttributes := templ.Attributes{"maxlength": "500"} }}
+		if form.DescriptionError != "" {
+			{{ descriptionAttributes["aria-describedby"] = prefix + "-description-error" }}
+		}
+		@textarea.Textarea(textarea.Props{ID: prefix + "-description", Name: "description", Value: form.Description, Rows: 3, HasError: form.DescriptionError != "", Attributes: descriptionAttributes})
+		if form.DescriptionError != "" {
+			<p id={ prefix + "-description-error" } class="text-xs font-medium text-destructive">{ form.DescriptionError }</p>
+		} else {
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.groups.description_help") }</p>
+		}
+	</div>
+}
+
+templ AdminGroupPage(data AdminGroupPageData, verification ...AdminSecurityVerificationData) {
+	<div
+		class="flex-1 flex flex-col min-w-0 overflow-hidden"
+		data-admin-group-page
+		if adminSecurityVerificationValue(verification).Required {
+			hx-headers={ adminVerificationOnPageHeaders }
+		}
+	>
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				<a href={ templ.SafeURL(AdminGroupsPath) } class="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground" data-admin-group-back>
+					@icon.ArrowLeft(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "admin.nav.groups") }
+				</a>
+				@adminPageHeader(adminPageHeaderProps{Title: data.Name, Description: data.Description})
+				@linkTabs(i18n.T(ctx, "admin.group.tabs")) {
+					@linkTab(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabMembers)), i18n.T(ctx, "admin.group.tab.members"), data.Tab == AdminGroupTabMembers, nil)
+					@linkTab(templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabSettings)), i18n.T(ctx, "admin.group.tab.settings"), data.Tab == AdminGroupTabSettings, nil)
+				}
+				if data.Tab == AdminGroupTabSettings {
+					@adminGroupSettingsTab(data)
+				} else {
+					@adminGroupMembersTab(data)
+				}
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+templ adminGroupMembersTab(data AdminGroupPageData) {
+	@adminGroupAddDialog(data)
+	@adminSection(adminSectionProps{ID: "admin-group-members-heading", Title: i18n.T(ctx, "admin.group.members"), Aside: adminGroupMembersActions(data)}) {
+		if len(data.Members) == 0 {
+			@adminEmptyState(i18n.T(ctx, "admin.group.no_members"))
+		} else {
+			<form id="admin-group-remove" method="post" action={ templ.SafeURL(adminGroupRemoveAction(data.ID)) } data-step-up>
+				<input type="hidden" name="_csrf" value={ data.CSRF.Remove }/>
+				<div class="overflow-x-auto">
+					<table class="w-full min-w-[40rem] text-left text-sm">
+						<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+							<tr>
+								<th scope="col" class="w-10 px-4 py-3">
+									@checkbox.Checkbox(checkbox.Props{ID: "admin-group-members-all", Group: "admin-group-members", GroupParent: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.group.select_all")}})
+								</th>
+								<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.groups.col.person") }</th>
+								<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
+								<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.group.added") }</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-border">
+							for _, member := range data.Members {
+								<tr class="bg-background/35 align-top hover:bg-accent/35" data-admin-group-member>
+									<td class="px-4 py-3">
+										@checkbox.Checkbox(checkbox.Props{
+											ID: "admin-group-member-" + member.UserID, Name: "user_id", Value: member.UserID, Group: "admin-group-members",
+											Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.group.select_person", "user", member.Username)},
+										})
+									</td>
+									<td class="px-4 py-3">
+										<a href={ templ.SafeURL(AdminUserPagePath(url.PathEscape(member.UserID), AdminUserTabOverview, "")) } class="font-semibold text-foreground hover:underline">{ member.Username }</a>
+									</td>
+									<td class="px-4 py-3">
+										@adminBadge(adminUserStatusTone(member.Status)) {
+											{ adminValueLabel(ctx, member.Status) }
+										}
+									</td>
+									<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+										if member.AddedBy != "" {
+											{ i18n.T(ctx, "admin.group.added_by", "when", adminTime(ctx, member.AddedAt), "user", member.AddedBy) }
+										} else {
+											{ adminTime(ctx, member.AddedAt) }
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			</form>
+		}
+	}
+}
+
+templ adminGroupMembersActions(data AdminGroupPageData) {
+	<div class="flex flex-wrap items-center gap-2">
+		<span class="text-xs text-muted-foreground">{ i18n.N(ctx, "admin.groups.member_count", len(data.Members), "count", i18n.Number(ctx, len(data.Members))) }</span>
+		if len(data.Members) > 0 {
+			@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Size: button.SizeSm, Form: "admin-group-remove", Attributes: templ.Attributes{"data-admin-group-remove": ""}}) {
+				@icon.UserMinus(icon.Props{Class: "size-4"})
+				{ i18n.T(ctx, "admin.group.remove_selected") }
+			}
+		}
+		@button.Button(button.Props{Size: button.SizeSm, Href: AdminGroupAddPath(data.ID, ""), Attributes: templ.Attributes{"data-admin-group-add": ""}}) {
+			@icon.UserPlus(icon.Props{Class: "size-4"})
+			{ i18n.T(ctx, "admin.group.add") }
+		}
+	</div>
+}
+
+// adminGroupAddDialog finds people by username and adds the ones chosen.
+// The search reloads the dialog's list in place.
+templ adminGroupAddDialog(data AdminGroupPageData) {
+	@dialog.Dialog(dialog.Props{ID: adminGroupAddDialogID, Open: data.AddOpen && !data.StepUpRequired}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.group.add_title", "group", data.Name) }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.group.add_detail") }
+				}
+			}
+			<form
+				method="get"
+				action={ templ.SafeURL(AdminGroupAddPath(data.ID, "")) }
+				role="search"
+				hx-get={ AdminGroupAddPath(data.ID, "") }
+				hx-target="#admin-group-candidates"
+				hx-select="#admin-group-candidates"
+				hx-swap="outerHTML"
+				hx-trigger="submit, input changed delay:300ms from:find input[name='q']"
+			>
+				<div class="relative">
+					@icon.Search(icon.Props{Class: "pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"})
+					@input.Input(input.Props{
+						Type: input.TypeSearch, Name: "q", Value: data.AddSearch, Placeholder: i18n.T(ctx, "admin.users.search"), Class: "pl-9",
+						Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.users.search"), "autocomplete": "off", "autofocus": true},
+					})
+				</div>
+			</form>
+			<form method="post" action={ templ.SafeURL(adminGroupMembersAction(data.ID)) } data-step-up class="mt-3">
+				<input type="hidden" name="_csrf" value={ data.CSRF.Add }/>
+				<div id="admin-group-candidates" class="max-h-72 overflow-y-auto rounded-md border border-border">
+					if len(data.Candidates) == 0 {
+						<p class="px-3 py-6 text-center text-sm text-muted-foreground" data-admin-group-no-candidates>
+							if data.AddSearch == "" {
+								{ i18n.T(ctx, "admin.group.no_candidates") }
+							} else {
+								{ i18n.T(ctx, "admin.group.no_candidates_match") }
+							}
+						</p>
+					} else {
+						<ul class="divide-y divide-border">
+							for _, person := range data.Candidates {
+								<li>
+									<label for={ "admin-group-candidate-" + person.ID } class="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-accent/35" data-admin-group-candidate>
+										@checkbox.Checkbox(checkbox.Props{ID: "admin-group-candidate-" + person.ID, Name: "user_id", Value: person.ID})
+										<span class="min-w-0 flex-1 truncate font-medium text-foreground">{ person.Username }</span>
+										if person.Status != "active" {
+											@adminBadge(adminUserStatusTone(person.Status)) {
+												{ adminValueLabel(ctx, person.Status) }
+											}
+										}
+									</label>
+								</li>
+							}
+						</ul>
+						if data.CandidatesMore {
+							<p class="border-t border-border px-3 py-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.group.candidates_more") }</p>
+						}
+					}
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: adminGroupAddDialogID}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit}) {
+						{ i18n.T(ctx, "admin.group.add_submit") }
+					}
+				}
+			</form>
+		}
+	}
+}
+
+templ adminGroupSettingsTab(data AdminGroupPageData) {
+	@adminSection(adminSectionProps{ID: "admin-group-settings-heading", Title: i18n.T(ctx, "admin.group.settings")}) {
+		<form method="post" action={ templ.SafeURL(AdminGroupPath(data.ID, AdminGroupTabSettings)) } class="space-y-4 px-4 py-4" data-step-up data-admin-group-settings>
+			<input type="hidden" name="_csrf" value={ data.CSRF.Settings }/>
+			<input type="hidden" name="version" value={ strconv.FormatInt(data.Version, 10) }/>
+			<div class="max-w-xl space-y-4">
+				@adminGroupFields("admin-group-settings", data.Settings)
+			</div>
+			<div class="flex justify-end">
+				@button.Button(button.Props{Type: button.TypeSubmit}) {
+					{ i18n.T(ctx, "common.save") }
+				}
+			</div>
+		</form>
+	}
+	@adminSection(adminSectionProps{ID: "admin-group-details-heading", Title: i18n.T(ctx, "admin.group.details")}) {
+		@adminFacts() {
+			@adminFact(i18n.T(ctx, "admin.group.created")) {
+				@adminGroupWhen(data.CreatedAt, data.CreatedBy)
+			}
+			@adminFact(i18n.T(ctx, "admin.group.changed")) {
+				@adminGroupWhen(data.UpdatedAt, data.UpdatedBy)
+			}
+		}
+	}
+	@adminSection(adminSectionProps{ID: "admin-group-delete-heading", Title: i18n.T(ctx, "admin.group.delete_heading"), Class: "border-destructive/30"}) {
+		<div class="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+			<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "admin.group.delete_detail") }</p>
+			@button.Button(button.Props{Variant: button.VariantDestructive, Href: adminGroupDeletePath(data.ID), Attributes: templ.Attributes{"data-admin-group-delete": ""}}) {
+				@icon.Trash2(icon.Props{Class: "size-4"})
+				{ i18n.T(ctx, "admin.group.delete") }
+			}
+		</div>
+	}
+	@adminGroupDeleteDialog(data)
+}
+
+templ adminGroupWhen(at time.Time, by string) {
+	if by != "" {
+		{ i18n.T(ctx, "admin.group.when_by", "when", adminTime(ctx, at), "user", by) }
+	} else {
+		{ adminTime(ctx, at) }
+	}
+}
+
+// adminGroupDeleteDialog says who deleting the group takes out of it
+// before it does.
+templ adminGroupDeleteDialog(data AdminGroupPageData) {
+	@dialog.Dialog(dialog.Props{ID: adminGroupDeleteDialogID, Open: data.DeleteOpen && !data.StepUpRequired}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.group.delete_title", "group", data.Name) }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.group.delete_description") }
+				}
+			}
+			<div class="rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm" data-admin-group-delete-preview>
+				if len(data.Members) == 0 {
+					<p class="text-foreground">{ i18n.T(ctx, "admin.group.delete_empty") }</p>
+				} else {
+					<p class="text-foreground">{ i18n.N(ctx, "admin.group.delete_members", len(data.Members), "count", i18n.Number(ctx, len(data.Members))) }</p>
+				}
+				<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.group.delete_note") }</p>
+			</div>
+			<form method="post" action={ templ.SafeURL(adminGroupDeletePath(data.ID)) } data-step-up class="mt-5">
+				<input type="hidden" name="_csrf" value={ data.CSRF.Delete }/>
+				<input type="hidden" name="version" value={ strconv.FormatInt(data.Version, 10) }/>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: adminGroupDeleteDialogID}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+						{ i18n.T(ctx, "admin.group.delete_submit") }
+					}
+				}
+			</form>
+		}
+	}
+}

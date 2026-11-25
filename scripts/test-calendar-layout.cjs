@@ -8,6 +8,8 @@ const end = source.indexOf('function layoutCalendarMonth(', start)
 assert(start >= 0 && end > start)
 const context = vm.createContext({})
 vm.runInContext(source.slice(start, end), context)
+const labelStart = source.indexOf('function calendarHourRangeLabel(')
+vm.runInContext(source.slice(labelStart, source.indexOf('\n}', labelStart) + 2), context)
 function near(actual, expected) { assert.ok(Math.abs(actual - expected) < 0.001, `${actual} != ${expected}`) }
 
 for (const height of [150, 420, 694, 1100]) {
@@ -21,12 +23,19 @@ for (const height of [150, 420, 694, 1100]) {
   for (const minute of [0, 30, 539, 540, 570, 600, 1439, 1440]) {
     near(context._calendarWeekMinuteAtPosition(context._calendarWeekMinutePosition(minute, axis), axis), minute)
   }
-  for (const zoom of [1, 2, 3]) {
+  const whole = context._calendarWeekAxis(height, periods, 1)
+  near(whole.height, height)
+  whole.heights.forEach(value => near(value, height / 24))
+  for (const zoom of [2, 3, 4, 5, 6]) {
     const expanded = context._calendarWeekAxis(height, periods, zoom)
-    assert.ok(expanded.height > height, 'Vertical scrolling must be an explicit zoom choice')
+    assert.ok(expanded.height > height, 'Zooming in past the whole day must scroll')
     expanded.heights.forEach(value => near(value, expanded.height / 24))
   }
 }
+// A condensed range may break after its dash and nowhere else.
+assert.equal(context.calendarHourRangeLabel('3 PM–12 AM'), '3\u00A0PM–\u200B12\u00A0AM')
+assert.equal(context.calendarHourRangeLabel('9 AM – 1 PM'), '9\u00A0AM\u00A0– 1\u00A0PM')
+assert.equal(context.calendarHourRangeLabel('03–07'), '03–\u200B07')
 const empty = context._calendarWeekAxis(694, [], 0)
 assert.ok(empty.heights[9] > empty.heights[2], 'An empty week should favor ordinary daytime hours')
 const full = context._calendarWeekAxis(694, [{start: 0, end: 1440}], 0)

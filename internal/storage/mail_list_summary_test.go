@@ -41,6 +41,10 @@ func TestSummaryListsMatchGeneralQuery(t *testing.T) {
 			{Query: "invoice"}, {Query: "inv"}, {Query: "subject 7"}, {Body: "budget"},
 			{Query: "invoice", Body: "budget"}, {Query: "invoice", Unread: true, AccountID: "second"},
 			{Query: "nothing-matches-this"}, {Query: "!!"}, {Query: "collision"},
+			// Read messages opened in the Unread list stay in it, 401
+			// sharing a conversation key with the first account.
+			{Unread: true, KeepRead: keptReadFixtureIDs}, {Unread: true, Starred: true, KeepRead: keptReadFixtureIDs},
+			{Query: "invoice", Unread: true, KeepRead: keptReadFixtureIDs},
 		} {
 			f.SortBy, f.SortOrder = sort[0], sort[1]
 			cases = append(cases, f)
@@ -92,6 +96,75 @@ func TestSummaryListsMatchGeneralQuery(t *testing.T) {
 	}
 	if compared < len(cases)*2 {
 		t.Fatalf("only %d of %d comparisons had matching mail; the fixture is too sparse", compared, len(cases)*4)
+	}
+}
+
+// keptReadFixtureIDs are messages of newSummaryListFixture kept in its
+// Unread lists: every tenth one, and 401.
+var keptReadFixtureIDs = []int64{1, 11, 21, 31, 41, 51, 61, 71, 81, 91, 101, 401}
+
+// An Unread list keeps the rows of the messages read in it: the row of each
+// kept message's conversation in that account, or the message itself in a
+// list of single messages, and nothing else. Both the summary and the
+// general query keep the same rows (TestSummaryListsMatchGeneralQuery).
+func TestUnreadListKeepsReadMessages(t *testing.T) {
+	db := newSummaryListFixture(t)
+	ctx := context.Background()
+	for _, byMessage := range []bool{false, true} {
+		for _, folder := range []string{"box-inbox", "inbox"} {
+			name := fmt.Sprintf("%s by message %t", folder, byMessage)
+			list := func(keep []int64) map[string]models.Email {
+				filters := models.EmailFilters{Unread: true, ByMessage: byMessage, KeepRead: keep}
+				var page *models.EmailPage
+				var err error
+				if isUnifiedFolderID(folder) {
+					page, err = db.GetEmailsRangeFilteredForUser(ctx, "reader", folder, 0, 1000, filters)
+				} else {
+					page, err = db.GetEmailsRangeFiltered(ctx, folder, 0, 1000, filters)
+				}
+				if err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+				rows := map[string]models.Email{}
+				for _, e := range page.Emails {
+					rows[e.ID] = e
+				}
+				if len(rows) != len(page.Emails) || page.TotalCount != len(page.Emails) {
+					t.Fatalf("%s: %d rows, %d distinct, total %d", name, len(page.Emails), len(rows), page.TotalCount)
+				}
+				return rows
+			}
+			unread, kept := list(nil), list(keptReadFixtureIDs)
+			for id := range unread {
+				if _, ok := kept[id]; !ok {
+					t.Fatalf("%s: keeping read mail lost unread row %s", name, id)
+				}
+			}
+			added := 0
+			for id, e := range kept {
+				if _, ok := unread[id]; ok {
+					continue
+				}
+				added++
+				if !e.IsRead {
+					t.Fatalf("%s: row %s was added but is unread", name, id)
+				}
+				// The added row lists one of the kept messages, or a newer
+				// message of a kept message's conversation in its account.
+				var keptHere int
+				query := `SELECT COUNT(*) FROM messages k, messages r WHERE r.id = ? AND k.id IN (1, 11, 21, 31, 41, 51, 61, 71, 81, 91, 101, 401)
+					AND (k.id = r.id OR (? = 0 AND k.account_id = r.account_id AND k.thread_id = r.thread_id))`
+				if err := db.Read().QueryRow(query, id, byMessage).Scan(&keptHere); err != nil {
+					t.Fatal(err)
+				}
+				if keptHere == 0 {
+					t.Fatalf("%s: row %s is not a kept message's", name, id)
+				}
+			}
+			if added == 0 {
+				t.Fatalf("%s: no read row was kept; the fixture has none", name)
+			}
+		}
 	}
 }
 
@@ -183,10 +256,11 @@ func TestSummaryPositionMatchesListOrder(t *testing.T) {
 		for _, filters := range []models.EmailFilters{
 			{},
 			// Summaries, in date order and in others.
-			{Unread: true}, {SortBy: "date", SortOrder: "asc"}, {SortBy: "sender", SortOrder: "asc"},
+			{Unread: true}, {Unread: true, KeepRead: keptReadFixtureIDs}, {SortBy: "date", SortOrder: "asc"}, {SortBy: "sender", SortOrder: "asc"},
 			{Starred: true, SortBy: "subject", SortOrder: "desc"},
 			// The general query.
 			{From: "ana"}, {SortBy: "size"}, {SortBy: "unread"}, {From: "ana", SortBy: "subject", SortOrder: "asc"},
+			{Unread: true, SortBy: "size", KeepRead: keptReadFixtureIDs},
 		} {
 			cases = append(cases, positionCase{folder, filters})
 			filters.ByMessage = true
