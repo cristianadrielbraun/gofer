@@ -68,26 +68,43 @@ const profilePrimaryButtonClass = "inline-flex h-8 shrink-0 items-center justify
 
 templ ProfileImportUploadForm(message string) {
 	@dataDialogScroll("pb-6") {
-		<form
-			hx-post="/api/profile/import/preview"
-			hx-encoding="multipart/form-data"
-			hx-target="#profile-import-panel"
-			hx-swap="innerHTML"
-			class="space-y-1.5"
-		>
-			<label for="profile-import-file" class="block text-sm font-medium text-foreground">{ i18n.T(ctx, "transfer.profile.file") }</label>
-			<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-				<input id="profile-import-file" type="file" name="profile" accept=".json,application/json" required class="profile-file-input block h-8 w-full min-w-0 flex-1 rounded-md border border-input bg-background p-[3px] text-xs text-foreground file:mr-3 file:h-full file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:text-xs file:font-medium file:text-primary-foreground hover:file:bg-primary/90"/>
-				<button type="submit" class={ profileButtonClass }>
-					@icon.Upload(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "transfer.profile.review") }
-				</button>
-			</div>
-			if message != "" {
-				<p class="text-xs text-destructive" role="alert" data-profile-import-error>{ message }</p>
-			}
-		</form>
+		@dataFileUploadForm(dataFileUpload{
+			Post: "/api/profile/import/preview", Target: "#profile-import-panel", Swap: "innerHTML",
+			InputID: "profile-import-file", Name: "profile", Label: i18n.T(ctx, "transfer.profile.file"), Message: message,
+		})
 	}
+}
+
+// dataFileUpload is a form that sends one JSON file to be looked at before
+// anything in it is imported, as the profile and rules imports do: Post
+// gets the file as Name, and its answer replaces Target as Swap says.
+// Message says why the last file sent can't be imported.
+type dataFileUpload struct {
+	Post, Target, Swap string
+	InputID, Name      string
+	Label, Message     string
+}
+
+templ dataFileUploadForm(upload dataFileUpload) {
+	<form
+		hx-post={ upload.Post }
+		hx-encoding="multipart/form-data"
+		hx-target={ upload.Target }
+		hx-swap={ upload.Swap }
+		class="space-y-1.5"
+	>
+		<label for={ upload.InputID } class="block text-sm font-medium text-foreground">{ upload.Label }</label>
+		<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+			<input id={ upload.InputID } type="file" name={ upload.Name } accept=".json,application/json" required class="profile-file-input block h-8 w-full min-w-0 flex-1 rounded-md border border-input bg-background p-[3px] text-xs text-foreground file:mr-3 file:h-full file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:text-xs file:font-medium file:text-primary-foreground hover:file:bg-primary/90"/>
+			<button type="submit" class={ profileButtonClass }>
+				@icon.Upload(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "transfer.profile.review") }
+			</button>
+		</div>
+		if upload.Message != "" {
+			<p class="text-xs text-destructive" role="alert" data-profile-import-error>{ upload.Message }</p>
+		}
+	</form>
 }
 
 func profileImportStatusLabel(ctx context.Context, status string) string {
@@ -191,12 +208,20 @@ func profileContactsDescription(ctx context.Context, data ProfileImportPreviewDa
 // profileConflictChoices lets the person skip something that is already in
 // Gofer, replace it, or keep both when that is possible.
 templ profileConflictChoices(name string, selected string, keepBoth bool, replaceLabel string) {
-	<span class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground sm:ml-auto" role="radiogroup" data-profile-conflict-choices>
+	@profileConflictChoiceGroup() {
 		@profileConflictChoice(name, "skip", i18n.T(ctx, "transfer.profile.skip"), selected)
 		@profileConflictChoice(name, "replace", replaceLabel, selected)
 		if keepBoth {
 			@profileConflictChoice(name, "add", i18n.T(ctx, "transfer.profile.keep_both"), selected)
 		}
+	}
+}
+
+// profileConflictChoiceGroup holds the choices for one thing already in
+// Gofer, at the right of its row on wider screens.
+templ profileConflictChoiceGroup() {
+	<span class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground sm:ml-auto" role="radiogroup" data-profile-conflict-choices>
+		{ children... }
 	</span>
 }
 

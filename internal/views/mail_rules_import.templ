@@ -1,0 +1,143 @@
+package views
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+// mailRulesImportUpload asks for the rules file to import, as the profile
+// import asks for its file, saying why the last one sent can't be
+// imported.
+templ mailRulesImportUpload(message string) {
+	@dataDialogScroll("space-y-3 pb-6") {
+		@dataFileUploadForm(dataFileUpload{
+			Post: mailRulePath("/import/preview"), Target: "#mail-rule-dialog-panel", Swap: "outerHTML",
+			InputID: "mail-rules-import-file", Name: "file", Label: i18n.T(ctx, "rules.import.file"), Message: message,
+		})
+		<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "rules.import.file_note") }</p>
+	}
+}
+
+// mailRulesImportPreview shows what importing a file adds, rule by rule,
+// before anything is: what each one does here, what it names that isn't
+// here, and for a rule whose name is taken, whether to skip it or keep
+// both. The file goes back with the choices.
+templ mailRulesImportPreview(data models.MailRulesData) {
+	{{ view := data.Import }}
+	<form
+		class={ dataDialogFormClass }
+		hx-post={ mailRulePath("/import") }
+		hx-target="#mail-rule-dialog-panel"
+		hx-swap="outerHTML"
+		data-mail-rules-import-preview
+	>
+		<textarea name="file" hidden>{ view.File }</textarea>
+		@dataDialogScroll("space-y-4 pb-5") {
+			<p class="text-xs text-muted-foreground">
+				{ i18n.N(ctx, "rules.import.count", len(view.Rules), "count", i18n.Number(ctx, len(view.Rules))) }
+				if view.ExportedAt != "" {
+					{ " " + i18n.T(ctx, "rules.import.exported", "date", view.ExportedAt) }
+				}
+			</p>
+			if len(view.Rules) == 0 {
+				<div class="rounded-lg border border-dashed border-border p-6 text-center">
+					<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "rules.import.empty") }</p>
+				</div>
+			} else {
+				<ul class="space-y-2">
+					for _, item := range view.Rules {
+						@mailRulesImportRow(data, item)
+					}
+				</ul>
+			}
+		}
+		@dataDialogFooter() {
+			if data.Error != "" {
+				<p class="text-xs text-destructive sm:mr-auto sm:self-center" role="alert" data-mail-rule-error>{ data.Error }</p>
+			}
+			@mailRuleFooterButtons() {
+				@dialog.Close() {
+					<button type="button" class={ mailRuleCancelButton }>{ i18n.T(ctx, "common.cancel") }</button>
+				}
+				<button type="submit" class={ mailRulePrimaryButton } disabled?={ !mailRulesImportable(view) } data-mail-rules-import-submit>
+					@icon.Upload(icon.Props{Class: "size-3.5"})
+					{ i18n.T(ctx, "rules.import.submit") }
+				</button>
+			}
+		}
+	</form>
+}
+
+templ mailRulesImportRow(data models.MailRulesData, item models.MailRuleImportRule) {
+	<li class={ "rounded-lg border border-border/60 bg-background/40 p-3", templ.KV("opacity-60", item.Problem != "") } data-mail-rules-import-rule={ strconv.Itoa(item.Index) }>
+		<div class="flex flex-wrap items-start gap-3">
+			<div class="min-w-0 flex-1 space-y-1">
+				<p class="truncate text-sm font-medium text-foreground">{ item.Rule.Name }</p>
+				if item.Problem != "" {
+					<p class="flex items-start gap-1.5 text-xs text-destructive" data-mail-rules-import-problem>
+						@icon.Ban(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+						<span>{ i18n.T(ctx, "rules.import.cant", "reason", item.Problem) }</span>
+					</p>
+				} else {
+					<p class="truncate text-xs text-muted-foreground">{ mailRuleListSummary(ctx, item.Rule, data.Accounts) }</p>
+					if missing := mailRulesImportMissing(ctx, item); missing != "" {
+						<p class="flex items-start gap-1.5 text-xs text-foreground" data-mail-rules-import-missing>
+							@icon.TriangleAlert(icon.Props{Class: "mt-0.5 size-3.5 shrink-0 text-destructive"})
+							<span>{ missing }</span>
+						</p>
+					} else if !item.Rule.Enabled {
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "rules.import.off") }</p>
+					}
+					if item.Same {
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "rules.import.same") }</p>
+					} else if item.SameName {
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "rules.import.same_name") }</p>
+					}
+				}
+			</div>
+			if item.SameName && item.Problem == "" {
+				{{ name := "rule_action:" + strconv.Itoa(item.Index) }}
+				@profileConflictChoiceGroup() {
+					@profileConflictChoice(name, models.MailRuleImportSkip, i18n.T(ctx, "transfer.profile.skip"), item.Choice)
+					@profileConflictChoice(name, models.MailRuleImportAdd, i18n.T(ctx, "transfer.profile.keep_both"), item.Choice)
+				}
+			}
+		</div>
+	</li>
+}
+
+// mailRulesImportable reports whether importing would add any rule: one
+// can be imported, whatever is chosen for rules whose name is taken.
+func mailRulesImportable(view *models.MailRuleImport) bool {
+	for _, item := range view.Rules {
+		if item.Problem == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// mailRulesImportMissing says what a rule names that isn't here, and that it
+// comes in turned off for it, or is "" when everything was found.
+func mailRulesImportMissing(ctx context.Context, item models.MailRuleImportRule) string {
+	var missing []string
+	for _, account := range item.MissingAccounts {
+		missing = append(missing, i18n.T(ctx, "rules.import.missing_account", "account", account))
+	}
+	for _, folder := range item.MissingFolders {
+		if folder.Account != "" {
+			missing = append(missing, i18n.T(ctx, "rules.import.missing_folder_in", "folder", folder.Path, "account", folder.Account))
+		} else {
+			missing = append(missing, i18n.T(ctx, "rules.import.missing_folder", "folder", folder.Path))
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return i18n.T(ctx, "rules.import.missing", "missing", settingsJoinAnd(ctx, missing))
+}

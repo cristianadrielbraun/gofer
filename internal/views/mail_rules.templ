@@ -37,7 +37,29 @@ templ SettingsRulesTab() {
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "rules.title") }</h3>
 					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "rules.intro") }</p>
 				</div>
-				<div class="flex shrink-0 items-center gap-2 self-start">
+				// Wraps on phones rather than pushing past the card.
+				<div class="flex shrink-0 flex-wrap items-center gap-2 self-start">
+					// Every rule, as a file; the selection menu exports some.
+					<a
+						href={ templ.SafeURL(mailRulePath("/export")) }
+						download
+						class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-accent"
+						data-mail-rules-export
+					>
+						@icon.Download(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.export") }
+					</a>
+					<button
+						type="button"
+						class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-accent"
+						hx-get={ mailRulePath("/import") }
+						hx-target="#mail-rule-dialog-container"
+						hx-swap="innerHTML"
+						data-mail-rules-import
+					>
+						@icon.Upload(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.import") }
+					</button>
 					<button
 						type="button"
 						class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-accent"
@@ -117,6 +139,8 @@ templ MailRuleDialog(data models.MailRulesData) {
 				@dialog.Title() {
 					if data.Run != nil {
 						{ i18n.T(ctx, "rules.run.title", "name", data.Run.Rule.Name) }
+					} else if data.Import != nil {
+						{ i18n.T(ctx, "rules.import.title") }
 					} else if data.TagChange != nil && data.TagChange.Remove {
 						{ i18n.T(ctx, "rules.categories.remove_title") }
 					} else if data.TagChange != nil {
@@ -130,6 +154,8 @@ templ MailRuleDialog(data models.MailRulesData) {
 				@dialog.Description() {
 					if data.Run != nil {
 						<span data-mail-rule-run-summary>{ mailRuleRunSummary(ctx, data.Run.Rule, data.Accounts) }</span>
+					} else if data.Import != nil {
+						{ i18n.T(ctx, "rules.import.description") }
 					} else if data.TagChange != nil && data.TagChange.Remove {
 						{ i18n.N(ctx, "rules.categories.remove_description", len(data.TagChange.RuleIDs), "count", i18n.Number(ctx, len(data.TagChange.RuleIDs))) }
 					} else if data.TagChange != nil {
@@ -150,6 +176,10 @@ templ MailRuleDialogPanel(data models.MailRulesData) {
 	<div id="mail-rule-dialog-panel" class="flex min-h-0 min-w-0 flex-1 flex-col" data-mail-rule-dialog-panel>
 		if data.Run != nil {
 			@mailRuleRunView(data)
+		} else if data.Import != nil && data.Import.File == "" {
+			@mailRulesImportUpload(data.Error)
+		} else if data.Import != nil {
+			@mailRulesImportPreview(data)
 		} else if data.TagChange != nil {
 			@mailRuleTagChangeForm(data)
 		} else if data.Editing != nil {
@@ -414,6 +444,11 @@ templ mailRulesSelection() {
 						{ i18n.T(ctx, "rules.bulk.tags_remove") }
 					}
 					@dropdown.Separator()
+					@mailRulesSelectionItem("export", false) {
+						@icon.Download(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "rules.bulk.export") }
+					}
+					@dropdown.Separator()
 					@mailRulesSelectionItem("delete", true) {
 						@icon.Trash2(icon.Props{Class: "size-3.5"})
 						{ i18n.T(ctx, "rules.bulk.delete") }
@@ -456,6 +491,13 @@ templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
 					if rule.StopProcessing {
 						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 text-[10px]"}) {
 							{ i18n.T(ctx, "rules.stops_later") }
+						}
+					}
+					// An imported rule whose folder wasn't found waits for another.
+					if rule.MissingFolders() {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 gap-1 border-destructive/40 text-[10px] text-destructive [&>svg]:size-2.5", Attributes: templ.Attributes{"data-mail-rule-missing": ""}}) {
+							@icon.TriangleAlert(icon.Props{Class: "shrink-0"})
+							{ i18n.T(ctx, "rules.missing.badge") }
 						}
 					}
 				</div>
@@ -503,7 +545,8 @@ templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
 					type="button"
 					class={ mailRuleIconButton }
 					aria-label={ i18n.T(ctx, "rules.run_named", "name", rule.Name) }
-					title={ i18n.T(ctx, "rules.run_now") }
+					title={ mailRuleRunTitle(ctx, rule) }
+					disabled?={ rule.MissingFolders() }
 					hx-get={ mailRulePath("/" + rule.ID + "/run") }
 					hx-target="#mail-rule-dialog-container"
 					hx-swap="innerHTML"

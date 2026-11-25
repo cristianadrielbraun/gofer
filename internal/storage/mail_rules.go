@@ -21,6 +21,23 @@ var ErrMailRuleOrderChanged = errors.New("the rules changed; reload to see them"
 // ErrMailRuleFolder means a rule names a folder its account doesn't have.
 var ErrMailRuleFolder = errors.New("a folder condition can only name a folder of an account the rule is for")
 
+// ErrMailRuleMissingFolder means a rule can't be turned on: it names a
+// folder an import didn't find, and another has to be chosen first.
+var ErrMailRuleMissingFolder = errors.New("choose the folders the rule is missing before turning it on")
+
+// mailRuleMissingSQL holds for a rule in the table named rule that names a
+// folder an import didn't find: one with neither a role nor an ID
+// (models.MailRuleFolderTarget.Missing).
+func mailRuleMissingSQL(rule string) string {
+	missing := func(column string) string {
+		return `EXISTS (SELECT 1 FROM json_each(` + rule + `.` + column + `) item
+			WHERE json_type(item.value, '$.folder') = 'object'
+			  AND COALESCE(json_extract(item.value, '$.folder.role'), '') = ''
+			  AND COALESCE(json_extract(item.value, '$.folder.folder_id'), '') = '')`
+	}
+	return `(` + missing("conditions_json") + ` OR ` + missing("actions_json") + `)`
+}
+
 // ErrTooManyMailRules means the owner has as many rules as one may.
 var ErrTooManyMailRules = fmt.Errorf("you can have at most %d rules", mailrules.MaxRulesPerOwner)
 
@@ -347,9 +364,20 @@ func saveMailRuleTx(ctx context.Context, tx *sql.Tx, userID string, rule models.
 	return scanMailRule(tx.QueryRowContext(ctx, `SELECT `+mailRuleColumns+` FROM mail_rules WHERE id = ?`, rule.ID).Scan)
 }
 
-// SetMailRuleEnabledGuarded turns one of the owner's rules on or off.
+// SetMailRuleEnabledGuarded turns one of the owner's rules on or off. A
+// rule that names a folder an import didn't find can't be turned on until
+// another is chosen: that is ErrMailRuleMissingFolder.
 func (db *DB) SetMailRuleEnabledGuarded(ctx context.Context, userID, ruleID string, enabled bool, guard func(*sql.Tx) error) error {
 	return db.mailRuleWrite(ctx, guard, func(tx *sql.Tx) error {
+		if enabled {
+			var missing bool
+			if err := tx.QueryRowContext(ctx, `SELECT `+mailRuleMissingSQL("mail_rules")+` FROM mail_rules WHERE id = ? AND user_id = ?`, ruleID, userID).Scan(&missing); err != nil {
+				return err
+			}
+			if missing {
+				return ErrMailRuleMissingFolder
+			}
+		}
 		result, err := tx.ExecContext(ctx, `UPDATE mail_rules SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`, enabled, ruleID, userID)
 		return requireOneRow(result, err)
 	})
@@ -367,10 +395,12 @@ func (db *DB) DeleteMailRuleGuarded(ctx context.Context, userID, ruleID string, 
 // SetMailRulesEnabledGuarded turns the owner's rules named by ids on or off,
 // all in one change, and reports how many it turned on or off. An ID that
 // names none of the owner's rules, such as one deleted meanwhile, is
-// skipped.
+// skipped, and so is a rule to turn on that names a folder an import didn't
+// find.
 func (db *DB) SetMailRulesEnabledGuarded(ctx context.Context, userID string, ids []string, enabled bool, guard func(*sql.Tx) error) (int, error) {
 	return db.mailRulesWrite(ctx, guard, ids, func(tx *sql.Tx, id string) (sql.Result, error) {
-		return tx.ExecContext(ctx, `UPDATE mail_rules SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`, enabled, id, userID)
+		return tx.ExecContext(ctx, `UPDATE mail_rules SET enabled = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND user_id = ? AND (? = 0 OR NOT `+mailRuleMissingSQL("mail_rules")+`)`, enabled, id, userID, enabled)
 	})
 }
 

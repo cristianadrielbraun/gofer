@@ -1537,8 +1537,22 @@ document.addEventListener("click", function (e) {
     deleteSelectedMailRules(rows)
   } else if (action === "tags-add" || action === "tags-remove") {
     openMailRuleTagChange(rows, action === "tags-remove")
+  } else if (action === "export") {
+    exportSelectedMailRules(rows)
   }
 })
+
+// exportSelectedMailRules downloads the selected rules as a rules file,
+// leaving the page where it is.
+function exportSelectedMailRules(rows) {
+  var link = document.createElement("a")
+  link.href = "/api/settings/rules/export?rule_ids=" + encodeURIComponent(rows.map(mailRuleOrder.id).join(","))
+  link.download = ""
+  link.hidden = true
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
 
 // openMailRuleTagChange opens the dialog that adds categories to the
 // selected rules, or with remove, takes some off them.

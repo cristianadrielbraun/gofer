@@ -7,7 +7,9 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -79,6 +81,17 @@ func mailRuleOwnValue(account models.MailRuleAccount, value string) string {
 // folders, and shows such a choice as the account's own folder. One the
 // account has no folder for keeps them, so it still shows.
 func mailRuleChooseFolder(ctx context.Context, f folderField, rule models.MailRule, accounts []models.MailRuleAccount, value string, shared []folderFieldExtra) folderField {
+	if target, missing := mailrules.ParseMissingFolderValue(value); missing {
+		// A folder an import didn't find shows until another is chosen,
+		// rather than the field quietly naming some other folder.
+		if _, single := mailRuleSingleAccount(rule, accounts); !single {
+			f.Extras = shared
+		}
+		f = f.choose(ctx, "")
+		f.Value = value
+		f.Chosen = folderFieldChosen{Icon: icon.TriangleAlert(icon.Props{Class: "size-4 text-destructive"}), Name: target.Path, Note: mailRuleMissingNote(ctx, *target)}
+		return f
+	}
 	if account, single := mailRuleSingleAccount(rule, accounts); single {
 		if value = mailRuleOwnValue(account, value); !strings.HasPrefix(value, "role:") {
 			return f.choose(ctx, value)
@@ -115,8 +128,19 @@ func mailRuleTargetValue(target *models.MailRuleFolderTarget) string {
 		return "role:" + target.Role
 	case target.FolderID != "":
 		return "id:" + target.FolderID
+	case target.Path != "":
+		return mailrules.MissingFolderValue(*target)
 	}
 	return ""
+}
+
+// mailRuleMissingNote says, beside a folder an import didn't find, that it
+// wasn't found, and in which account when that's known.
+func mailRuleMissingNote(ctx context.Context, target models.MailRuleFolderTarget) string {
+	if target.AccountName != "" {
+		return i18n.T(ctx, "rules.missing.not_found_in", "account", target.AccountName)
+	}
+	return i18n.T(ctx, "rules.missing.not_found")
 }
 
 func mailRuleFolderField(ctx context.Context, id, name string, accounts []models.MailRuleAccount) folderField {

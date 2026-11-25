@@ -116,9 +116,17 @@ func TestImportedRuleWithMissingFolderDoesNotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rule := range imported {
-		if err := db.SetMailRuleEnabledGuarded(ctx, "default", rule.ID, true, nil); err != nil {
-			t.Fatal(err)
+		if err := db.SetMailRuleEnabledGuarded(ctx, "default", rule.ID, true, nil); !errors.Is(err, ErrMailRuleMissingFolder) {
+			t.Fatalf("turned on a rule with a missing folder: %v", err)
 		}
+	}
+	if changed, err := db.SetMailRulesEnabledGuarded(ctx, "default", []string{imported[0].ID, imported[1].ID}, true, nil); err != nil || changed != 0 {
+		t.Fatalf("turned on %d selected rules with missing folders: %v", changed, err)
+	}
+	// Turned on some other way, as by an older Gofer, they still do
+	// nothing.
+	if _, err := db.Write().Exec(`UPDATE mail_rules SET enabled = 1`); err != nil {
+		t.Fatal(err)
 	}
 	rules, err := db.ListMailRules(ctx, "default")
 	if err != nil {

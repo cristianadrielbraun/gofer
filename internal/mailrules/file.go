@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -273,11 +274,36 @@ type ImportRule struct {
 	Same     bool
 }
 
-// MissingFolder is a folder an imported rule names that wasn't found: its
-// path, and the address or name of its account, when known.
-type MissingFolder struct {
-	Path    string
-	Account string
+// MissingFolder is a folder an imported rule names that wasn't found.
+type MissingFolder = models.MailRuleMissingFolder
+
+// MissingFolderValue is how a rule's form sends a folder an import didn't
+// find, while no other is chosen: "missing:" and its account's ID, its
+// account's name and its path, each escaped, separated by colons.
+func MissingFolderValue(target models.MailRuleFolderTarget) string {
+	return "missing:" + url.QueryEscape(target.AccountID) + ":" + url.QueryEscape(target.AccountName) + ":" + url.QueryEscape(target.Path)
+}
+
+// ParseMissingFolderValue reads a MissingFolderValue; ok is false for any
+// other value.
+func ParseMissingFolderValue(value string) (target *models.MailRuleFolderTarget, ok bool) {
+	rest, found := strings.CutPrefix(strings.TrimSpace(value), "missing:")
+	parts := strings.Split(rest, ":")
+	if !found || len(parts) != 3 {
+		return nil, false
+	}
+	var fields [3]string
+	for i, part := range parts {
+		unescaped, err := url.QueryUnescape(part)
+		if err != nil {
+			return nil, false
+		}
+		fields[i] = unescaped
+	}
+	if fields[2] == "" {
+		return nil, false
+	}
+	return &models.MailRuleFolderTarget{AccountID: fields[0], AccountName: fields[1], Path: fields[2]}, true
 }
 
 // Missing reports whether something the rule names wasn't found.

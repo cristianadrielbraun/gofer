@@ -224,6 +224,51 @@ type MailRulesData struct {
 	// TagChange is the dialog that adds tags to the rules selected in the
 	// list, or takes some off them.
 	TagChange *MailRuleTagChange
+	// Import is the dialog that imports rules from a file.
+	Import *MailRuleImport
+}
+
+// MailRuleImport is the dialog that imports rules from a rules file: first
+// the file to choose, then, once File holds it, what importing it adds.
+type MailRuleImport struct {
+	// File is the file chosen, sent back with what to do with each rule.
+	File       string
+	ExportedAt string
+	Rules      []MailRuleImportRule
+}
+
+// MailRuleImportRule is one rule of a file being imported.
+type MailRuleImportRule struct {
+	// Index is the rule's place in the file.
+	Index int
+	// Rule is the rule as it would be added, turned off when something it
+	// names wasn't found.
+	Rule MailRule
+	// MissingAccounts and MissingFolders are what it names that wasn't
+	// found, accounts by address or name.
+	MissingAccounts []string
+	MissingFolders  []MailRuleMissingFolder
+	// Problem says why the rule can't be imported, when it can't.
+	Problem string
+	// SameName is set when a rule here has the same name, and Same when it
+	// also does the same. Choice is then what to do: skip the rule from the
+	// file, or add it beside the other, under a name of its own.
+	SameName bool
+	Same     bool
+	Choice   string
+}
+
+// What to do with a rule from a file when one here has its name.
+const (
+	MailRuleImportSkip = "skip"
+	MailRuleImportAdd  = "add"
+)
+
+// MailRuleMissingFolder is a folder an imported rule names that wasn't
+// found: its path, and the address or name of its account, when known.
+type MailRuleMissingFolder struct {
+	Path    string
+	Account string
 }
 
 // MailRuleTagChange is the dialog that adds tags to the rules selected in
