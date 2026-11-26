@@ -37,7 +37,7 @@ func TestMailCalendarSidebarContentDoesNotLoadAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := out.String()
-	if strings.Contains(html, "hx-trigger") || !strings.Contains(html, `aria-busy="false"`) {
+	if strings.Contains(html, `hx-trigger="intersect once"`) || !strings.Contains(html, `aria-busy="false"`) {
 		t.Fatal("a loaded calendar shouldn't load again")
 	}
 }
@@ -83,5 +83,37 @@ func TestMailCalendarSidebarIsDrawnOpenOrClosedAsLeft(t *testing.T) {
 		if !strings.Contains(html, `data-open="`+tc.open+`"`) || !strings.Contains(html, `aria-expanded="`+tc.open+`"`) {
 			t.Errorf("saved open state %q should be drawn as open=%s", tc.saved, tc.open)
 		}
+	}
+}
+
+func TestMailCalendarSidebarContentStaysCurrent(t *testing.T) {
+	render := func(month CalendarMonthData) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := MailCalendarSidebarContent(month).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	month := NewCalendarData("month", time.Date(2026, 3, 12, 9, 0, 0, 0, time.UTC), time.Monday)
+	html := render(month)
+	if !strings.Contains(html, `data-mail-calendar-refresh`) || !strings.Contains(html, `hx-get="/calendar?view=month&amp;date=2026-03-12"`) {
+		t.Fatal("the sidebar should be able to ask for the day it shows again when calendars change")
+	}
+	if strings.Contains(html, "cache=1") {
+		t.Fatal("the sidebar should hear from the server when its month is due for a sync")
+	}
+	if strings.Contains(html, "data-mail-calendar-auto-sync") {
+		t.Fatal("a month that's up to date shouldn't be synced")
+	}
+
+	month.AutoSync = true
+	html = render(month)
+	if !strings.Contains(html, `data-mail-calendar-auto-sync`) || !strings.Contains(html, `hx-post="/api/calendar/sync"`) {
+		t.Fatal("a month due for a sync should be synced as it's shown")
+	}
+
+	if html := render(calendarLoadingData("month", nil)); strings.Contains(html, "data-mail-calendar-refresh") || strings.Contains(html, "data-mail-calendar-auto-sync") {
+		t.Fatal("the loading calendar has nothing to refresh or sync yet")
 	}
 }

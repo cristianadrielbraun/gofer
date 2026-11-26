@@ -101,3 +101,48 @@ func TestHandleCalendarRefreshPreservesWeekView(t *testing.T) {
 		}
 	}
 }
+
+// The calendar sidebar in Mail syncs the month it shows through the same
+// refresh as the Calendar page, and takes its own view of the result.
+func TestHandleCalendarRefreshAnswersTheMailCalendarSidebar(t *testing.T) {
+	db, err := storage.New(filepath.Join(t.TempDir(), "sidebar.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().Exec(`INSERT INTO users (id, username, username_normalized) VALUES ('sidebar-user', 'sidebar-user', 'sidebar-user')`); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{db: db}
+	refresh := func(target string) string {
+		t.Helper()
+		form := url.Values{"view": {"month"}, "date": {"2026-10-14"}, "month": {"2026-10"}}
+		r := httptest.NewRequest(http.MethodPost, "/api/calendar/sync", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("HX-Request", "true")
+		if target != "" {
+			r.Header.Set("HX-Target", target)
+		}
+		r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "sidebar-user"}))
+		w := httptest.NewRecorder()
+		h.handleCalendarSync(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("refresh for %q: status %d, body %s", target, w.Code, w.Body.String())
+		}
+		return w.Body.String()
+	}
+
+	sidebar := refresh("mail-calendar-sidebar-content")
+	if !strings.Contains(sidebar, `id="mail-calendar-sidebar-content"`) || !strings.Contains(sidebar, `data-mail-calendar-month="2026-10"`) {
+		t.Fatal("the sidebar should get its own view of the synced month")
+	}
+	if strings.Contains(sidebar, `id="calendar-main"`) {
+		t.Fatal("the sidebar shouldn't get the Calendar page")
+	}
+	if strings.Contains(sidebar, "data-mail-calendar-auto-sync") {
+		t.Fatal("a month just synced shouldn't ask to be synced again")
+	}
+	if page := refresh("main-content"); !strings.Contains(page, `id="calendar-main"`) {
+		t.Fatal("the Calendar page should still get its own view")
+	}
+}

@@ -18955,6 +18955,9 @@ function scheduleCalendarCacheRefresh() {
   if (_calendarCacheRefreshTimer) return
   _calendarCacheRefreshTimer = setTimeout(function () {
     _calendarCacheRefreshTimer = null
+    // The calendar sidebar in Mail takes the same changes
+    // (mail-calendar-sidebar.js).
+    document.dispatchEvent(new CustomEvent("gofer:calendar-cache-changed"))
     var calendar = document.getElementById("calendar-main")
     if (!calendar) { _calendarCacheRefreshPending = false; return }
     if (calendar.hasAttribute("data-calendar-loading") || _calendarContentRequest || _calendarSyncRequest || _calendarCacheRequest) return

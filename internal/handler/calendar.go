@@ -122,7 +122,13 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 	if month.SyncError {
 		w.Header().Set("X-Gofer-Status", "error")
 	}
-	if err := views.CalendarPage(month, uiSettings).Render(ctx, w); err != nil {
+	// The calendar sidebar in Mail syncs the month it shows and takes its own
+	// view of the result.
+	page := views.CalendarPage(month, uiSettings)
+	if r.Header.Get("HX-Target") == "mail-calendar-sidebar-content" {
+		page = views.MailCalendarSidebarContent(month)
+	}
+	if err := page.Render(ctx, w); err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_calendar_refresh"), http.StatusInternalServerError)
 	}
 }

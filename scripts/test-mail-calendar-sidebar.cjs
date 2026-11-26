@@ -17,6 +17,8 @@ function load(slide, screen = 'wide', reducedMotion = false, saved = {}, {fits =
   const bodyListeners = {}
   let resized = null
   const fannedIn = []
+  const triggered = []
+  const refresher = {name: 'refresh'}
   const fannedOut = []
   const fadedDays = []
   const swapped = []
@@ -46,6 +48,7 @@ function load(slide, screen = 'wide', reducedMotion = false, saved = {}, {fits =
       if (selector === '[data-mail-calendar-grip]') return grip
       if (selector === '[data-mail-calendar-sidebar]') return aside
       if (selector === '#mail-calendar-sidebar-content') return content
+      if (selector.endsWith('[data-mail-calendar-refresh]')) return content && content.getAttribute('aria-busy') === 'false' ? refresher : null
       return null
     },
     getBoundingClientRect() { return {width: this.dataset.open === 'true' ? 300 : 0} },
@@ -82,7 +85,7 @@ function load(slide, screen = 'wide', reducedMotion = false, saved = {}, {fits =
       return animation
     },
     fadeInCalendarDays(nodes, direction) { fadedDays.push({nodes: [...nodes], direction}) },
-    htmx: {swap(target, response) {
+    htmx: {trigger(element, name) { triggered.push({element, name}) }, swap(target, response) {
       swapped.push({target, response})
       content = response
       observers.forEach(callback => callback())
@@ -113,7 +116,9 @@ function load(slide, screen = 'wide', reducedMotion = false, saved = {}, {fits =
     resize: () => resized && resized(),
     changeSetting: key => (bodyListeners['gofer:settings-changed'] || []).forEach(listener => listener({detail: {key}})),
     content: () => content,
-    request(xhr) { dispatch('htmx:beforeRequest', {detail: {xhr, target: content}}) },
+    request(xhr, quiet = false) { dispatch('htmx:beforeRequest', {detail: {xhr, target: content, elt: {hasAttribute: name => quiet && name === 'data-mail-calendar-quiet'}}}) },
+    triggered, refresher,
+    calendarChanged: () => dispatch('gofer:calendar-cache-changed', {}),
     respond(xhr, response, ok = true) {
       const detail = {xhr, target: content, shouldSwap: ok, serverResponse: response}
       dispatch('htmx:beforeSwap', {detail})
@@ -297,6 +302,25 @@ page.changeSetting('mail_list_width')
 assert.equal(page.root.hasAttribute('data-mail-calendar-over'), false, 'A narrower list gives it room beside the panes again')
 assert.equal(page.shell.dataset.open, 'true')
 
+// When calendars change, the sidebar asks for what it shows again, and that
+// refresh, like the sidebar's own syncs, swaps in without animating.
+page = load(() => null)
+page.calendarChanged()
+assert.equal(page.triggered.length, 0, 'Nothing to refresh before the calendar has loaded')
+page.swapIn([card('lunch')])
+page.calendarChanged()
+assert.deepEqual(page.triggered.map(t => [t.element.name, t.name]), [['refresh', 'mail-calendar-refresh']], 'A change refreshes the day on screen')
+const fannedInBefore = page.fannedIn.length
+const quietRequest = {}
+page.request(quietRequest, true)
+assert.equal(page.fannedOut.length, 0, 'A refresh doesn\'t fan the events out')
+detail = page.respond(quietRequest, calendarContent([card('lunch'), card('dentist')]))
+assert.equal(detail.shouldSwap, true, 'htmx swaps a refresh in itself')
+page.swapIn([card('lunch'), card('dentist')])
+assert.equal(page.fannedIn.length, fannedInBefore, 'A refresh doesn\'t fan the events in')
+page.swapIn([card('standup')])
+assert.equal(page.fannedIn.length, fannedInBefore + 1, 'The next day picked fans in again')
+
 // Small screens: the top bar's button opens the calendar as a drawer. It
 // starts closed, whatever wider screens left the calendar at.
 page = load(() => null, 'small')
@@ -329,7 +353,7 @@ page.leaveMail()
 assert.equal(page.root.hasAttribute('data-mail-calendar-in-page'), false, 'Other sections hide the top bar button')
 assert.equal(page.root.hasAttribute('data-mail-calendar-drawer-open'), false, 'Leaving Mail closes the drawer with the calendar')
 
-console.log('Mail calendar sidebar: hide and show slide the shell, the panel stays drawn while sliding, a second click replaces the slide, no motion just switches, small screens open and close it as a drawer, and moving to another day or month fans the events out and in and fades the days of a new month in.')
+console.log('Mail calendar sidebar: hide and show slide the shell, the panel stays drawn while sliding, a second click replaces the slide, no motion just switches, small screens open and close it as a drawer, and moving to another day or month fans the events out and in fades the days of a new month in, and refreshes quietly when calendars change.')
 })().catch(error => {
   console.error(error)
   process.exit(1)

@@ -99,6 +99,10 @@
     if (!content || content.getAttribute("aria-busy") === "true" || content.dataset.fannedIn) return;
 
     content.dataset.fannedIn = "true";
+    if (quietArrival) {
+      quietArrival = false;
+      return;
+    }
     if (typeof fanInElements !== "function" || reducedMotion()) return;
 
     fanInElements(Array.from(content.querySelectorAll(AGENDA_ITEMS)), 0);
@@ -111,10 +115,20 @@
   // page (fadeInCalendarDays in app.js).
   let leaving = null;
 
+  // The sidebar's own refreshes and syncs (data-mail-calendar-quiet) bring
+  // the same day back up to date, so they swap in without animating.
+  const quietRequests = new WeakSet();
+  let quietArrival = false;
+
   document.addEventListener("htmx:beforeRequest", function (event) {
     const detail = event.detail || {};
     const content = detail.target;
     if (!content || content.id !== "mail-calendar-sidebar-content" || content.getAttribute("aria-busy") === "true") return;
+
+    if (detail.elt && detail.elt.hasAttribute && detail.elt.hasAttribute("data-mail-calendar-quiet")) {
+      if (detail.xhr) quietRequests.add(detail.xhr);
+      return;
+    }
 
     // A newer pick takes over the fan-out already running.
     if (leaving) {
@@ -149,6 +163,10 @@
 
   document.addEventListener("htmx:beforeSwap", function (event) {
     const detail = event.detail || {};
+    if (detail.xhr && quietRequests.has(detail.xhr)) {
+      if (detail.shouldSwap) quietArrival = true;
+      return;
+    }
     if (!leaving || detail.xhr !== leaving.xhr) return;
 
     if (!detail.shouldSwap) {
@@ -243,6 +261,15 @@
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape" && drawerOpen()) setDrawer(false);
+  });
+
+  // When calendars change (an edit, an invitation, a sync that found
+  // changes), the sidebar asks for what it shows again from the cache, as
+  // the Calendar page does (scheduleCalendarCacheRefresh in app.js).
+  document.addEventListener("gofer:calendar-cache-changed", function () {
+    const shell = currentShell();
+    const refresh = shell && shell.querySelector("#mail-calendar-sidebar-content[aria-busy=\"false\"] [data-mail-calendar-refresh]");
+    if (refresh && typeof htmx !== "undefined") htmx.trigger(refresh, "mail-calendar-refresh");
   });
 
   // The calendar keeps itself (hx-preserve) when Mail is drawn again, so it

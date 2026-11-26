@@ -75,12 +75,24 @@ templ MailCalendarSidebarContent(month CalendarMonthData) {
 		aria-busy={ strconv.FormatBool(month.Loading) }
 		data-mail-calendar-month={ month.MonthKey }
 		if month.Loading {
-			hx-get="/calendar?view=month&cache=1"
+			hx-get="/calendar?view=month"
 			hx-trigger="intersect once"
 			hx-target="this"
 			hx-swap="outerHTML"
 		}
 	>
+		if !month.Loading {
+			// It stays current the way the Calendar page does. A month due for
+			// a sync, or outside the span synced in the background, is synced
+			// as it's shown, and when calendars change (an edit, an invitation,
+			// a sync that found changes) mail-calendar-sidebar.js asks for the
+			// month again from the cache. Neither animates, and a day or month
+			// picked meanwhile wins over them.
+			<div hidden data-mail-calendar-refresh data-mail-calendar-quiet hx-get={ mailSidebarURL(selected.ISODate) } hx-trigger="mail-calendar-refresh" hx-target="#mail-calendar-sidebar-content" hx-swap="outerHTML" hx-sync="#mail-calendar-sidebar-content:drop"></div>
+			if month.AutoSync {
+				<div hidden data-mail-calendar-auto-sync data-mail-calendar-quiet hx-post="/api/calendar/sync" hx-vals={ calendarViewSyncValues(month) } hx-trigger="load" hx-target="#mail-calendar-sidebar-content" hx-swap="outerHTML" hx-sync="#mail-calendar-sidebar-content:drop"></div>
+			}
+		}
 		<header class="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3" inert?={ month.Loading }>
 			<h2 class="min-w-0 truncate text-base font-bold tracking-tight" style="font-family: var(--font-serif)">{ calendarPeriodLabel(ctx, month) }</h2>
 			<div class="flex shrink-0 items-center gap-1.5">

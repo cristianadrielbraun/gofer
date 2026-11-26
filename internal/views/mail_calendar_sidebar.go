@@ -10,10 +10,11 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
-// mailSidebarURL is the calendar cache's month around date, drawn for the
-// calendar sidebar in Mail.
+// mailSidebarURL is the month around date from the calendar cache, drawn
+// for the calendar sidebar in Mail. Like the Calendar page's, the answer says
+// when that month is due to be synced (AutoSync).
 func mailSidebarURL(date string) string {
-	return "/calendar?view=month&date=" + date + "&cache=1"
+	return "/calendar?view=month&date=" + date
 }
 
 func mailSidebarSelectedDay(month CalendarMonthData) CalendarDay {

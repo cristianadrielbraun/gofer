@@ -34,9 +34,12 @@ let calendar = {
   hasAttribute(name) { return name === 'data-calendar-loading' && this.loading },
   querySelector(selector) { return selector === '[data-calendar-cache-refresh]' ? trigger : week },
 }
+const announced = []
 const context = vm.createContext({
+  CustomEvent: class { constructor(type) { this.type = type } },
   document: {
     readyState: 'loading', addEventListener() {},
+    dispatchEvent(event) { announced.push(event.type) },
     getElementById(id) { return id === 'calendar-main' ? calendar : id === 'calendar-agenda-list' ? agenda : null },
     querySelectorAll(selector) { return selectors[selector] || [] },
     body: {addEventListener(name, callback) { if (!callbacks.has(name)) callbacks.set(name, []); callbacks.get(name).push(callback) }},
@@ -74,6 +77,7 @@ event('ok', 1, {changed: true})
 flush()
 assert.equal(requests.length, 1, 'Concurrent source completion events must coalesce cache reads')
 assert.equal(requests[0].name, 'calendar-cache-refresh')
+assert.deepEqual(announced, ['gofer:calendar-cache-changed'], 'The calendar sidebar in Mail hears of the change once too')
 
 event('failed', 2, {error: 'Provider unavailable', next_attempt_at: '2026-10-02T10:05:00Z'})
 assert.equal(label.textContent, 'Calendar sync needs attention')
