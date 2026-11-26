@@ -24,14 +24,14 @@ import (
 // calDAVExpandingReport sends a REPORT whose body asks the server to expand
 // recurring events between start and end, and reports whether the answer
 // came expanded. When the server fails at expanding, or answers with series
-// it left unexpanded, the same REPORT is sent asking for the events as
-// stored instead, and the calendar is remembered so later reads skip the
-// expanding request. body gets the calendar-data element to ask for.
+// it left unexpanded or instances with conflicting end fields, the same
+// REPORT is sent asking for the events as stored. The calendar is remembered
+// so later reads skip expansion. body gets the calendar-data element to ask for.
 func calDAVExpandingReport(ctx context.Context, collection, username, password string, body func(calendarData string) string, start, end time.Time) (davMultiStatus, bool, error) {
 	if !calDAVExpandRefusedFor(collection) {
 		expand := fmt.Sprintf(`<c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data>`, start.UTC().Format("20060102T150405Z"), end.UTC().Format("20060102T150405Z"))
 		multi, err := calDAVRequest(ctx, "REPORT", collection, username, password, "1", body(expand), 30*time.Second)
-		if err == nil && !calDAVResponseNotExpanded(multi) {
+		if err == nil && !calDAVResponseNeedsLocalExpansion(multi) {
 			return multi, true, nil
 		}
 		if err != nil && !calDAVServerCannotExpand(err) {
@@ -46,11 +46,10 @@ func calDAVExpandingReport(ctx context.Context, collection, username, password s
 	return multi, false, nil
 }
 
-// calDAVResponseNotExpanded reports whether an answer to an expanding
-// request still holds an event with recurrence rules or dates, which an
-// expanded answer never does (RFC 4791, section 9.6.5). Data that can't be
-// read is left to the caller, which rejects it.
-func calDAVResponseNotExpanded(multi davMultiStatus) bool {
+// calDAVResponseNeedsLocalExpansion reports whether the server left
+// recurrence rules or dates in its answer, or returned an instance with
+// both DTEND and DURATION. Other parse errors are left to the caller.
+func calDAVResponseNeedsLocalExpansion(multi davMultiStatus) bool {
 	for _, response := range multi.Responses {
 		for _, propStat := range response.PropStats {
 			if !strings.Contains(propStat.Status, " 200 ") || strings.TrimSpace(propStat.Prop.CalendarData) == "" {
@@ -61,6 +60,9 @@ func calDAVResponseNotExpanded(multi davMultiStatus) bool {
 				continue
 			}
 			for _, event := range cal.Events() {
+				if event.Props.Get("DTEND") != nil && event.Props.Get("DURATION") != nil {
+					return true
+				}
 				for _, name := range []string{ical.PropRecurrenceRule, "EXRULE", ical.PropRecurrenceDates, ical.PropExceptionDates} {
 					if event.Props.Get(name) != nil {
 						return true
