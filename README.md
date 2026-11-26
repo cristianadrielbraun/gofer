@@ -34,6 +34,31 @@ Gofer does mail, contacts and calendar. All your accounts land in one inbox. Con
 
 Rules, signatures, identities, a one-time From, scheduled send, translation, labels, threads (or no threads), cards or a table, multiple layouts (side by side, stacked, no reading pane at all), single-click open, drag and drop, right-click menus, a selection mode, search in one folder or one account or everywhere, search commands, Local folders, creating and renaming folders, folder roles, folder icons and colors, mbox import and export, moving mail between accounts, profile export, push notifications, the unread count in the tab title, printing, empty Trash in one click, sender pictures, blocked remote images, passkeys, authenticator apps (TOTP), three themes, a theme builder, a card layout editor, account ordering, English, Spanish, Brazilian Portuguese and Simplified Chinese (简体中文, with more languages to come), date and time formats, an installable Android app, a contacts Trash, creating calendars and address books, `.ics` import and export, calendar subscriptions, RSVP from the email, Meet and Teams links, dragging events around, month and week views, an update check on the About page, and probably a few more I'm forgetting.
 
+### Keyboard navigation
+
+Shortcuts for moving through mail.
+Press `?` to toggle keyboard help (`Shift+/` on US keyboards or `Shift+ß` on German keyboards, including macOS).
+
+| Action | Shortcut |
+| --- | --- |
+| Toggle keyboard help | `?` |
+| Next email | `j` / `Down` |
+| Previous email | `k` / `Up` |
+| Open email | `Enter` / `o` |
+| Search | `/` |
+| Compose | `c` |
+| Reply | `r` |
+| Reply all | `a` |
+| Forward | `f` |
+| Archive | `e` |
+| Delete | `Del` / `#` |
+| Star | `s` |
+| Toggle read | `u` |
+| Select all loaded | `Ctrl+A` / `Cmd+A` |
+| Clear selection | `Esc` |
+
+Shortcuts are inactive while typing in a text field or while a dialog is open.
+
 ### supported accounts
 
 | | Mail | Contacts | Calendar | New mail | Signing in |
