@@ -248,9 +248,12 @@
       window.removeEventListener("blur", end);
 
       write(WIDTH_KEY, clamp(last));
+      grip.removeAttribute("data-dragging");
       document.body.style.userSelect = "";
     }
 
+    // Keeps the grip highlighted while the pointer drifts off it.
+    grip.setAttribute("data-dragging", "");
     document.body.style.userSelect = "none";
 
     document.addEventListener("pointermove", move);

@@ -4663,6 +4663,12 @@ body.mail-list-column-resizing {
   outline-offset: 0;
 }
 
+/* The tab covers the grip's resting line, but while the grip is highlighted
+   its line runs over the tab too. */
+.mail-calendar-grip:is(:hover, :focus-visible, [data-dragging]) {
+  z-index: 42;
+}
+
 /* Days with events show one dot per calendar, as the Calendar page does on
    phones. */
 [data-mail-calendar-day] .calendar-day-dots {
@@ -4774,7 +4780,7 @@ body.mail-list-column-resizing {
 
 .resize-handle:hover::after,
 .resize-handle.active::after,
-.mail-calendar-grip:is(:hover, :focus-visible)::after {
+.mail-calendar-grip:is(:hover, :focus-visible, [data-dragging])::after {
   width: 3px;
   background: var(--primary);
   border-radius: 2px;

@@ -36,9 +36,11 @@ function load(slide, screen = 'wide') {
     getBoundingClientRect() { return {width: this.dataset.open === 'true' ? 300 : 0} },
   }
   toggle.closest = selector => selector === '[data-mail-calendar-shell]' ? shell : null
+  grip.closest = toggle.closest
+  grip.removeAttribute = name => { delete grip.attributes[name] }
   const storage = {}
   const context = vm.createContext({
-    window: {addEventListener(type, listener) { windowListeners[type] = listener }},
+    window: {addEventListener(type, listener) { windowListeners[type] = listener }, removeEventListener() {}},
     localStorage: {getItem: key => storage[key] ?? null, setItem: (key, value) => { storage[key] = value }},
     matchMedia: query => ({
       matches: query.includes('min-width: 1536px') ? screen === 'wide' : query.includes('max-width: 1023.98px') ? screen === 'small' : false,
@@ -46,9 +48,10 @@ function load(slide, screen = 'wide') {
     }),
     MutationObserver: class { constructor(callback) { observers.push(callback) } observe() {} },
     document: {
-      body: {},
+      body: {style: {}},
       documentElement: root,
       addEventListener(type, listener) { (listeners[type] ||= []).push(listener) },
+      removeEventListener(type, listener) { listeners[type] = (listeners[type] || []).filter(other => other !== listener) },
       querySelector: selector => selector === '#main-content [data-mail-calendar-shell]' && shellOnPage ? shell : null,
       querySelectorAll: selector => selector === '[data-mobile-mail-calendar]' ? [topbarButton] : [],
     },
@@ -66,6 +69,10 @@ function load(slide, screen = 'wide') {
     tapTopbarButton: () => clickOn('data-mobile-mail-calendar'),
     tapBackdrop: () => clickOn('data-mobile-nav-close'),
     pressEscape: () => dispatch('keydown', {key: 'Escape', target: {}}),
+    grip,
+    pressGrip: () => dispatch('pointerdown', {button: 0, clientX: 900, preventDefault() {}, target: {closest: selector => selector === '[data-mail-calendar-grip]' ? grip : null}}),
+    moveTo: clientX => dispatch('pointermove', {clientX}),
+    releaseGrip: () => dispatch('pointerup', {}),
     goBack: () => windowListeners.popstate(),
     leaveMail() { shellOnPage = false; observers.forEach(callback => callback()) },
   }
@@ -121,6 +128,16 @@ page.click()
 assert.equal(page.shell.dataset.open, 'false')
 assert.equal(page.shell.dataset.mailCalendarSliding, undefined, 'Nothing waits for a slide that never ran')
 assert.equal(page.storage['gofer.mailCalendar.open.wide.v2'], 'false')
+
+// Dragging the grip keeps it marked, so its line stays highlighted over the
+// tab even when the pointer drifts off it, and letting go clears the mark.
+page = load(() => null)
+page.pressGrip()
+assert('data-dragging' in page.grip.attributes, 'The grip is marked while it is dragged')
+page.moveTo(860)
+page.releaseGrip()
+assert(!('data-dragging' in page.grip.attributes), 'Letting go clears the mark')
+assert.equal(page.storage['gofer.mailCalendar.width.v2'], '340', 'The dragged width is kept')
 
 // Small screens: the top bar's button opens the calendar as a drawer. It
 // starts closed, whatever wider screens left the calendar at.
