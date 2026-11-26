@@ -6776,7 +6776,7 @@
   "settings.panes.list": "无阅读窗格",
   "settings.panes.mail": "邮件",
   "settings.panes.mail_calendar_sidebar_description": "在邮件旁显示月历和当天的日程。",
-  "settings.panes.mail_calendar_sidebar_title": "显示邮件日历侧栏",
+  "settings.panes.mail_calendar_sidebar_title": "在邮件中显示日历侧边栏",
   "settings.panes.mail_description": "邮件列表和阅读窗格。",
   "settings.panes.side": "并排",
   "settings.panes.single_click_description": "单击即可打开，无需双击。Ctrl、Shift 和长按仍用于选择。",

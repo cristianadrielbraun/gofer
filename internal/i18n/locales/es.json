@@ -6776,7 +6776,7 @@
   "settings.panes.list": "Sin panel de lectura",
   "settings.panes.mail": "Correo",
   "settings.panes.mail_calendar_sidebar_description": "Muestra un calendario mensual y la agenda del día junto a tus correos.",
-  "settings.panes.mail_calendar_sidebar_title": "Mostrar el calendario en el panel lateral del correo",
+  "settings.panes.mail_calendar_sidebar_title": "Mostrar una barra lateral de calendario en Correo",
   "settings.panes.mail_description": "La lista de mensajes y el panel de lectura.",
   "settings.panes.side": "Lado a lado",
   "settings.panes.single_click_description": "Un solo clic en vez de doble. Ctrl, Mayús y mantener pulsado siguen seleccionando.",

@@ -6776,7 +6776,7 @@
   "settings.panes.list": "No reading pane",
   "settings.panes.mail": "Email",
   "settings.panes.mail_calendar_sidebar_description": "Show a monthly calendar and daily agenda alongside your email.",
-  "settings.panes.mail_calendar_sidebar_title": "Show Mail Calendar Sidebar",
+  "settings.panes.mail_calendar_sidebar_title": "Show calendar sidebar in Mail",
   "settings.panes.mail_description": "The message list and the reading pane.",
   "settings.panes.side": "Side by side",
   "settings.panes.single_click_description": "Single click instead of double. Ctrl, Shift and long press still select.",
