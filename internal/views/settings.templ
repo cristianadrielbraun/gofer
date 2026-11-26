@@ -771,17 +771,29 @@ templ textWeightSettingRow(role textweight.Role, step int, disabled bool) {
 }
 
 templ mailSingleClickOpenSetting(uiSettings map[string]string) {
-	<div class="mt-4 flex items-start justify-between gap-6 data-[disabled]:opacity-50" data-mail-single-click-open-row data-disabled?={ PaneLayout(uiSettings, "mail") != "list" }>
+	@settingsSubSwitch("mail-single-click-open", "mail_single_click_open", i18n.T(ctx, "settings.panes.single_click_title"), uiSettingGet(uiSettings, "mail_single_click_open", "false") == "true", PaneLayout(uiSettings, "mail") != "list", templ.Attributes{"data-mail-single-click-open-row": ""}) {
+		{ i18n.T(ctx, "settings.panes.single_click_description") }<br/>{ i18n.T(ctx, "settings.panes.single_click_only_list") }
+	}
+}
+
+// settingsSubSwitch is an on/off option that belongs to the row above it,
+// such as single-click opening under Email. It's dimmed and can't be changed
+// while that row's choice leaves it without effect. The children are its
+// description.
+templ settingsSubSwitch(id, setting, title string, checked, disabled bool, rowAttributes templ.Attributes) {
+	<div class="mt-4 flex items-start justify-between gap-6 data-[disabled]:opacity-50" data-disabled?={ disabled } { rowAttributes... }>
 		<div class="min-w-0">
-			<span id="mail-single-click-open-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.panes.single_click_title") }</span>
-			<p class="text-xs text-muted-foreground mt-1 leading-relaxed">{ i18n.T(ctx, "settings.panes.single_click_description") }<br/>{ i18n.T(ctx, "settings.panes.single_click_only_list") }</p>
+			<span id={ id + "-label" } class="text-sm font-medium text-foreground">{ title }</span>
+			<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+				{ children... }
+			</p>
 		</div>
 		@switchcomp.Switch(switchcomp.Props{
-			ID:         "mail-single-click-open",
-			Name:       "mail_single_click_open",
-			Checked:    uiSettingGet(uiSettings, "mail_single_click_open", "false") == "true",
-			Disabled:   PaneLayout(uiSettings, "mail") != "list",
-			Attributes: templ.Attributes{"aria-labelledby": "mail-single-click-open-label", "data-ui-setting-switch": "mail_single_click_open"},
+			ID:         id,
+			Name:       setting,
+			Checked:    checked,
+			Disabled:   disabled,
+			Attributes: templ.Attributes{"aria-labelledby": id + "-label", "data-ui-setting-switch": setting},
 		})
 	</div>
 }
@@ -7338,20 +7350,26 @@ templ mailOperationRow(operation models.MailOperationSummary) {
 }
 
 templ mailCalendarSidebarSetting(uiSettings map[string]string) {
-	<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-		<div class="min-w-0">
-			<span id="mail-calendar-sidebar-enabled-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.panes.mail_calendar_sidebar_title") }</span>
-			<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.panes.mail_calendar_sidebar_description") }</p>
+	{{ enabled := uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true" }}
+	<div class="settings-row border-t border-border/60 pt-5">
+		<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0">
+				<span id="mail-calendar-sidebar-enabled-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.panes.mail_calendar_sidebar_title") }</span>
+				<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.panes.mail_calendar_sidebar_description") }</p>
+			</div>
+			<div class="w-full sm:w-44 shrink-0">
+				@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
+					@switchcomp.Switch(switchcomp.Props{
+						ID:         "mail-calendar-sidebar-enabled",
+						Name:       "mail_calendar_sidebar_enabled",
+						Checked:    enabled,
+						Attributes: templ.Attributes{"aria-labelledby": "mail-calendar-sidebar-enabled-label", "data-ui-setting-switch": "mail_calendar_sidebar_enabled"},
+					})
+				}
+			</div>
 		</div>
-		<div class="w-full sm:w-44 shrink-0">
-			@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
-				@switchcomp.Switch(switchcomp.Props{
-					ID:         "mail-calendar-sidebar-enabled",
-					Name:       "mail_calendar_sidebar_enabled",
-					Checked:    uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true",
-					Attributes: templ.Attributes{"aria-labelledby": "mail-calendar-sidebar-enabled-label", "data-ui-setting-switch": "mail_calendar_sidebar_enabled"},
-				})
-			}
-		</div>
+		@settingsSubSwitch("mail-calendar-sidebar-phones", "mail_calendar_sidebar_phones", i18n.T(ctx, "settings.panes.mail_calendar_sidebar_phones_title"), uiSettingGet(uiSettings, "mail_calendar_sidebar_phones", "false") == "true", !enabled, templ.Attributes{"data-mail-calendar-sidebar-phones-row": ""}) {
+			{ i18n.T(ctx, "settings.panes.mail_calendar_sidebar_phones_description") }
+		}
 	</div>
 }

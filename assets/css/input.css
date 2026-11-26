@@ -4686,11 +4686,64 @@ body.mail-list-column-resizing {
   }
 }
 
-/* Phones show Mail one pane at a time, with Calendar a tap away, so the
-   calendar isn't shown beside it there. */
+/* Small screens show Mail one pane at a time, so the calendar is only there
+   when it's turned on for them too. Then it's a drawer from the right, opened
+   from a button in the top bar, and slides like the sidebar's drawer from
+   the left, over the same backdrop. */
+.mobile-topbar .mobile-topbar-calendar {
+  display: none;
+}
+
 @media (max-width: 1023.98px) {
-  .mail-calendar-shell {
+  html:not([data-mail-calendar-phones]) .mail-calendar-shell {
     display: none;
+  }
+
+  html[data-mail-calendar-phones][data-mail-calendar-in-page] .mobile-topbar .mobile-topbar-calendar {
+    display: inline-flex;
+  }
+
+  .mail-calendar-shell {
+    z-index: 46;
+    width: min(20rem, 86vw) !important;
+    background: var(--background);
+    transform: translateX(105%);
+    visibility: hidden;
+    transition: transform 220ms ease, visibility 0s linear 220ms;
+  }
+
+  html[data-mail-calendar-drawer-open] .mail-calendar-shell {
+    transform: none;
+    visibility: visible;
+    transition: transform 220ms ease;
+  }
+
+  /* The drawer shows the calendar whatever the wider screens left it at. */
+  .mail-calendar-shell .mail-calendar-aside {
+    display: flex !important;
+    top: env(safe-area-inset-top);
+    bottom: env(safe-area-inset-bottom);
+    width: 100%;
+    box-shadow: 0 0 2rem rgb(0 0 0 / 0.3);
+  }
+
+  .mail-calendar-shell :is(.mail-calendar-toggle, .mail-calendar-grip) {
+    display: none;
+  }
+
+  html[data-mail-calendar-drawer-open] .mobile-nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  html[data-mail-calendar-drawer-open] body {
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 1023.98px) and (prefers-reduced-motion: reduce) {
+  .mail-calendar-shell {
+    transition: none !important;
   }
 }
 

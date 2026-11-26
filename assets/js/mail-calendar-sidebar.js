@@ -23,6 +23,17 @@
     return matchMedia("(min-width: 1536px)").matches;
   }
 
+  // Small screens show the calendar as a drawer, opened from the top bar.
+  const SMALL = "(max-width: 1023.98px)";
+
+  function small() {
+    return matchMedia(SMALL).matches;
+  }
+
+  function drawerOpen() {
+    return document.documentElement.hasAttribute("data-mail-calendar-drawer-open");
+  }
+
   function clamp(value) {
     return Math.max(MIN, Math.min(MAX, Math.round(value)));
   }
@@ -75,17 +86,45 @@
     }
 
     if (aside) {
-      aside.setAttribute("aria-hidden", String(!open));
-      aside.inert = !open;
+      const shown = small() ? drawerOpen() : open;
+      aside.setAttribute("aria-hidden", String(!shown));
+      aside.inert = !shown;
     }
   }
 
-  function initialize() {
-    const shell = document.querySelector(
-      "#main-content [data-mail-calendar-shell]"
-    );
+  function currentShell() {
+    return document.querySelector("#main-content [data-mail-calendar-shell]");
+  }
 
-    if (!shell) return;
+  // Opens or closes the drawer on small screens. The open state of wider
+  // screens stays as it was.
+  function setDrawer(open) {
+    if (open === drawerOpen()) return;
+
+    document.documentElement.toggleAttribute("data-mail-calendar-drawer-open", open);
+    document.querySelectorAll("[data-mobile-mail-calendar]").forEach(function (button) {
+      button.setAttribute("aria-expanded", String(open));
+    });
+
+    const shell = currentShell();
+    if (shell) apply(shell, shell.dataset.open === "true", width());
+  }
+
+  function initialize() {
+    const shell = currentShell();
+    const root = document.documentElement;
+
+    // Marks the page while Mail shows the calendar, so CSS shows the top
+    // bar's calendar button there and nowhere else.
+    if (root.hasAttribute("data-mail-calendar-in-page") !== !!shell) {
+      root.toggleAttribute("data-mail-calendar-in-page", !!shell);
+    }
+
+    // Leaving Mail takes the calendar away, so its drawer can't stay open.
+    if (!shell) {
+      setDrawer(false);
+      return;
+    }
 
     if (shell.dataset.controlsReady !== "yes") {
       shell.dataset.controlsReady = "yes";
@@ -102,6 +141,33 @@
       window.htmx.process(pending);
     }
   }
+
+  // The top bar's calendar button opens and closes the drawer, and a tap on
+  // the backdrop beside it closes it, as with the sidebar's drawer.
+  document.addEventListener("click", function (event) {
+    const target = event.target && event.target.closest ? event.target : null;
+    if (!target) return;
+
+    if (target.closest("[data-mobile-mail-calendar]")) {
+      setDrawer(!drawerOpen());
+    } else if (drawerOpen() && target.closest("[data-mobile-nav-close]")) {
+      setDrawer(false);
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && drawerOpen()) setDrawer(false);
+  });
+
+  window.addEventListener("popstate", function () {
+    setDrawer(false);
+  });
+
+  matchMedia(SMALL).addEventListener("change", function () {
+    setDrawer(false);
+    const shell = currentShell();
+    if (shell) apply(shell, shell.dataset.open === "true", width());
+  });
 
   document.addEventListener("click", function (event) {
     const button = event.target.closest(

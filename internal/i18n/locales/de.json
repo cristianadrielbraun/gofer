@@ -6775,6 +6775,8 @@
   "settings.panes.list": "Kein Lesebereich",
   "settings.panes.mail": "E-Mail",
   "settings.panes.mail_calendar_sidebar_description": "Zeigt einen Monatskalender und die Termine des Tages neben deinen E-Mails.",
+  "settings.panes.mail_calendar_sidebar_phones_description": "Öffnet sich über eine Kalender-Schaltfläche oben auf dem Bildschirm.",
+  "settings.panes.mail_calendar_sidebar_phones_title": "Auch auf kleinen Bildschirmen anzeigen",
   "settings.panes.mail_calendar_sidebar_title": "Kalender-Seitenleiste in E-Mail anzeigen",
   "settings.panes.mail_description": "Nachrichtenliste und Lesebereich.",
   "settings.panes.side": "Nebeneinander",

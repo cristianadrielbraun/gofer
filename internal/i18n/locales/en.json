@@ -6776,6 +6776,8 @@
   "settings.panes.list": "No reading pane",
   "settings.panes.mail": "Email",
   "settings.panes.mail_calendar_sidebar_description": "Show a monthly calendar and daily agenda alongside your email.",
+  "settings.panes.mail_calendar_sidebar_phones_description": "It opens from a calendar button at the top of the screen.",
+  "settings.panes.mail_calendar_sidebar_phones_title": "Also show on small screens",
   "settings.panes.mail_calendar_sidebar_title": "Show calendar sidebar in Mail",
   "settings.panes.mail_description": "The message list and the reading pane.",
   "settings.panes.side": "Side by side",

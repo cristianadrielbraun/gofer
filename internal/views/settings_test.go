@@ -1543,3 +1543,41 @@ func TestMailSourceWarningsFollowTheLanguage(t *testing.T) {
 		t.Fatalf("header label = %q, want it unchanged", got)
 	}
 }
+
+func TestMailCalendarSidebarPhonesSwitchFollowsMainSwitch(t *testing.T) {
+	render := func(settings map[string]string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := mailCalendarSidebarSetting(settings).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	phonesSwitch := regexp.MustCompile(`<input[^>]*id="mail-calendar-sidebar-phones"[^>]*>`)
+	phonesRow := regexp.MustCompile(`<div[^>]*data-mail-calendar-sidebar-phones-row[^>]*>`)
+	disabled := regexp.MustCompile(`\sdisabled[\s/>]`)
+	checked := regexp.MustCompile(`\schecked[\s/>]`)
+
+	html := render(map[string]string{})
+	if !disabled.MatchString(phonesSwitch.FindString(html)) {
+		t.Fatal("the small-screen switch should be locked while the calendar beside Mail is off")
+	}
+	if !strings.Contains(phonesRow.FindString(html), "data-disabled") {
+		t.Fatal("the small-screen row should be dimmed while the calendar beside Mail is off")
+	}
+
+	html = render(map[string]string{"mail_calendar_sidebar_enabled": "true", "mail_calendar_sidebar_phones": "true"})
+	tag := phonesSwitch.FindString(html)
+	if tag == "" {
+		t.Fatal("no small-screen switch")
+	}
+	if disabled.MatchString(tag) || strings.Contains(phonesRow.FindString(html), "data-disabled") {
+		t.Fatal("the small-screen switch should be usable while the calendar beside Mail is on")
+	}
+	if !checked.MatchString(tag) {
+		t.Fatal("the small-screen switch should show the saved choice")
+	}
+	if !strings.Contains(tag, `data-ui-setting-switch="mail_calendar_sidebar_phones"`) {
+		t.Fatal("the small-screen switch should save mail_calendar_sidebar_phones")
+	}
+}

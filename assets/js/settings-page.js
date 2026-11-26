@@ -1317,6 +1317,15 @@
 
 // Advanced tab: switches saved as they change
 (function() {
+  // "Show on phones too" only means something while the calendar beside Mail
+  // is on, so it's dimmed and locked while that's off.
+  function syncMailCalendarPhones(enabled) {
+    var row = document.querySelector('[data-mail-calendar-sidebar-phones-row]');
+    var phones = document.getElementById('mail-calendar-sidebar-phones');
+    if (row) row.toggleAttribute('data-disabled', !enabled);
+    if (phones) phones.disabled = !enabled;
+  }
+
   document.addEventListener('change', function(e) {
     var toggle = e.target.closest('[data-ui-setting-switch]');
     if (!toggle || typeof GoferSettings === 'undefined') return;
@@ -1327,7 +1336,10 @@
 
     toggle.disabled = true;
     saved.then(function(response) {
-      if (response && response.ok) return;
+      if (response && response.ok) {
+        syncMailCalendarPhones(checked);
+        return;
+      }
       toggle.checked = !checked;
       if (typeof showGoferToast === 'function') {
         showGoferToast({

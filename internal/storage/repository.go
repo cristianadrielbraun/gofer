@@ -8740,6 +8740,7 @@ func defaultUISettings() map[string]string {
 		"contacts_pane_layout":              "side",
 		"calendar_pane_layout":              "side",
 		"mail_calendar_sidebar_enabled":     "false",
+		"mail_calendar_sidebar_phones":      "false",
 		"mail_single_click_open":            "false",
 		"calendar_view":                     "month",
 		"mail_list_width":                   "50%",

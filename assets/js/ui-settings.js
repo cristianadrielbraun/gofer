@@ -1074,6 +1074,11 @@ var GoferSettings;
     if (key === "timezone") {
       document.documentElement.setAttribute("data-timezone", value || browserTimezone());
     }
+    // Phones only show the calendar beside Mail when this is on, as a drawer
+    // from the top bar (mail-calendar-sidebar.js).
+    if (key === "mail_calendar_sidebar_phones") {
+      document.documentElement.toggleAttribute("data-mail-calendar-phones", value === "true");
+    }
     if (key === "language") {
       // Pages shown before sign-in read the cookie, so they keep the chosen
       // language after signing out. Automatic leaves them to the browser.

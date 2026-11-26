@@ -6776,6 +6776,8 @@
   "settings.panes.list": "Sem painel de leitura",
   "settings.panes.mail": "E-mail",
   "settings.panes.mail_calendar_sidebar_description": "Mostra um calendário mensal e a agenda do dia ao lado das mensagens.",
+  "settings.panes.mail_calendar_sidebar_phones_description": "Abre por um botão de calendário no topo da tela.",
+  "settings.panes.mail_calendar_sidebar_phones_title": "Mostrar também em telas pequenas",
   "settings.panes.mail_calendar_sidebar_title": "Mostrar uma barra lateral de calendário no E-mail",
   "settings.panes.mail_description": "A lista de mensagens e o painel de leitura.",
   "settings.panes.side": "Lado a lado",
