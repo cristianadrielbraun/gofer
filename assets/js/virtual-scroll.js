@@ -15,6 +15,24 @@ function listRemPx(rem) {
   return Math.round(rem * listRootFontPx)
 }
 
+// fanInElements brings elements in the way a new list's rows arrive: each
+// fades in first and then drops into place from above, slightly bigger as if
+// dropped, one after another (25ms apart, the last at most 150ms after the
+// first), each after delay ms. The calendar beside Mail brings its events in
+// the same way. Callers skip it when the user prefers reduced motion.
+function fanInElements(nodes, delay) {
+  delay = delay || 0
+  for (var j = 0; j < nodes.length; j++) {
+    nodes[j].style.opacity = ""
+    if (typeof nodes[j].animate !== "function") continue
+    nodes[j].animate([
+      { opacity: 0, translate: "0 -18px", scale: "1.01" },
+      { opacity: 1, offset: 0.55 },
+      { opacity: 1, translate: "0 0", scale: "1" },
+    ], { duration: 220, delay: delay + Math.min(150, j * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
+  }
+}
+
 // Search results show where they are in a band (data-search-group): along
 // the top of every card, 1.5rem, and above a table row's columns, 1.25rem,
 // once per run of rows from one place (input.css). getHeight adds it to
@@ -1165,15 +1183,7 @@ class VirtualMailList {
     if (nodes.length === 0) return
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
-        for (var j = 0; j < nodes.length; j++) {
-          nodes[j].style.opacity = ""
-          if (typeof nodes[j].animate !== "function") continue
-          nodes[j].animate([
-            { opacity: 0, translate: "0 -18px", scale: "1.01" },
-            { opacity: 1, offset: 0.55 },
-            { opacity: 1, translate: "0 0", scale: "1" },
-          ], { duration: 220, delay: delay + Math.min(150, j * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
-        }
+        fanInElements(nodes, delay)
       })
     })
   }
@@ -4430,15 +4440,7 @@ class VirtualContactsList {
     if (nodes.length === 0) return
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
-        for (var j = 0; j < nodes.length; j++) {
-          nodes[j].style.opacity = ""
-          if (typeof nodes[j].animate !== "function") continue
-          nodes[j].animate([
-            { opacity: 0, translate: "0 -18px", scale: "1.01" },
-            { opacity: 1, offset: 0.55 },
-            { opacity: 1, translate: "0 0", scale: "1" },
-          ], { duration: 220, delay: delay + Math.min(150, j * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
-        }
+        fanInElements(nodes, delay)
       })
     })
   }

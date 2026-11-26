@@ -92,6 +92,19 @@
     }
   }
 
+  // A day's events arrive like a new mail list's rows (fanInElements in
+  // virtual-scroll.js), when the calendar first loads and whenever another
+  // day or month comes in. This runs before the new events are first drawn.
+  function fanInEvents(shell) {
+    const content = shell.querySelector("#mail-calendar-sidebar-content");
+    if (!content || content.getAttribute("aria-busy") === "true" || content.dataset.fannedIn) return;
+
+    content.dataset.fannedIn = "true";
+    if (typeof fanInElements !== "function" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    fanInElements(Array.from(content.querySelectorAll("[data-calendar-event-trigger]")), 0);
+  }
+
   function currentShell() {
     return document.querySelector("#main-content [data-mail-calendar-shell]");
   }
@@ -130,6 +143,8 @@
       shell.dataset.controlsReady = "yes";
       apply(shell, preferredOpen(), width());
     }
+
+    fanInEvents(shell);
 
     // Initialize HTMX for calendar nodes inserted by SPA navigation.
     const pending = shell.querySelector(

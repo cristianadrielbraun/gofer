@@ -8,7 +8,9 @@ const source = fs.readFileSync(path.join(__dirname, '../assets/js/mail-calendar-
 // Loads the calendar beside Mail with a fake page, as wide as screen says.
 // slide stands in for resize.js's slideAppPanelWidth and decides what it
 // hands back.
-function load(slide, screen = 'wide') {
+function load(slide, screen = 'wide', reducedMotion = false) {
+  const fannedIn = []
+  let content = null
   const listeners = {}
   const windowListeners = {}
   const mediaListeners = {}
@@ -31,6 +33,7 @@ function load(slide, screen = 'wide') {
       if (selector === '[data-mail-calendar-toggle]') return toggle
       if (selector === '[data-mail-calendar-grip]') return grip
       if (selector === '[data-mail-calendar-sidebar]') return aside
+      if (selector === '#mail-calendar-sidebar-content') return content
       return null
     },
     getBoundingClientRect() { return {width: this.dataset.open === 'true' ? 300 : 0} },
@@ -43,7 +46,7 @@ function load(slide, screen = 'wide') {
     window: {addEventListener(type, listener) { windowListeners[type] = listener }, removeEventListener() {}},
     localStorage: {getItem: key => storage[key] ?? null, setItem: (key, value) => { storage[key] = value }},
     matchMedia: query => ({
-      matches: query.includes('min-width: 1536px') ? screen === 'wide' : query.includes('max-width: 1023.98px') ? screen === 'small' : false,
+      matches: query.includes('min-width: 1536px') ? screen === 'wide' : query.includes('max-width: 1023.98px') ? screen === 'small' : query.includes('reduced-motion') ? reducedMotion : false,
       addEventListener(type, listener) { mediaListeners[query] = listener },
     }),
     MutationObserver: class { constructor(callback) { observers.push(callback) } observe() {} },
@@ -55,6 +58,7 @@ function load(slide, screen = 'wide') {
       querySelector: selector => selector === '#main-content [data-mail-calendar-shell]' && shellOnPage ? shell : null,
       querySelectorAll: selector => selector === '[data-mobile-mail-calendar]' ? [topbarButton] : [],
     },
+    fanInElements(nodes, delay) { fannedIn.push({nodes, delay}) },
     slideAppPanelWidth(target, from, to) {
       slides.push({target, from, to})
       return slide()
@@ -75,6 +79,13 @@ function load(slide, screen = 'wide') {
     releaseGrip: () => dispatch('pointerup', {}),
     goBack: () => windowListeners.popstate(),
     leaveMail() { shellOnPage = false; observers.forEach(callback => callback()) },
+    fannedIn,
+    observe: () => observers.forEach(callback => callback()),
+    // Puts calendar content in the sidebar, as htmx does, with these events.
+    swapIn(events, busy = false) {
+      content = {dataset: {}, getAttribute: name => name === 'aria-busy' ? String(busy) : null, querySelectorAll: selector => selector === '[data-calendar-event-trigger]' ? events : []}
+      observers.forEach(callback => callback())
+    },
   }
 }
 
@@ -138,6 +149,22 @@ page.moveTo(860)
 page.releaseGrip()
 assert(!('data-dragging' in page.grip.attributes), 'Letting go clears the mark')
 assert.equal(page.storage['gofer.mailCalendar.width.v2'], '340', 'The dragged width is kept')
+
+// Events come in like a new mail list's rows, once for each day or month
+// that arrives, but not while the calendar is still loading.
+page = load(() => null)
+page.swapIn(['skeleton'], true)
+assert.equal(page.fannedIn.length, 0, 'The loading calendar has no events to bring in')
+page.swapIn(['lunch', 'standup'])
+assert.equal(page.fannedIn.length, 1)
+assert.deepEqual([...page.fannedIn[0].nodes], ['lunch', 'standup'], 'The day\'s events come in together, like list rows')
+page.observe()
+assert.equal(page.fannedIn.length, 1, 'Other changes on the page don\'t bring the same events in again')
+page.swapIn(['dentist'])
+assert.equal(page.fannedIn.length, 2, 'Another day coming in brings its events in again')
+page = load(() => null, 'wide', true)
+page.swapIn(['lunch'])
+assert.equal(page.fannedIn.length, 0, 'Reduced motion shows events without the fan-in')
 
 // Small screens: the top bar's button opens the calendar as a drawer. It
 // starts closed, whatever wider screens left the calendar at.

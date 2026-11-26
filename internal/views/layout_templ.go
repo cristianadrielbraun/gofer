@@ -398,7 +398,7 @@ func Layout(accounts []models.Account, activeFolder string, emails []models.Emai
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettings).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1400,7 +1400,7 @@ func MailShell(accounts []models.Account, activeFolder string, emails []models.E
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettings).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1467,7 +1467,7 @@ func MailAppPartial(accounts []models.Account, activeFolder string, emails []mod
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettings).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2285,7 +2285,7 @@ func MailContentPartial(accounts []models.Account, emails []models.Email, active
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = mailCalendarSidebarSlot(uiSettings).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
