@@ -8,6 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/radio"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
 
@@ -49,6 +50,10 @@ type ProfileImportPreviewData struct {
 	Contacts       int
 	Conflicts      []ProfileImportContactConflict
 	Accounts       []ProfileImportAccount
+	// MailRules are the profile's mail rules as importing them would add
+	// them (in Import), among the user's accounts and the ones the profile
+	// adds; nil when it has none.
+	MailRules *models.MailRulesData
 }
 
 type ProfileImportResultData struct {
@@ -60,6 +65,8 @@ type ProfileImportResultData struct {
 	ContactsReplaced int
 	ContactsSkipped  int
 	Preferences      bool
+	// Rules says what importing the mail rules added, or why none were.
+	Rules string
 }
 
 const profileButtonClass = "inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
@@ -68,26 +75,43 @@ const profilePrimaryButtonClass = "inline-flex h-8 shrink-0 items-center justify
 
 templ ProfileImportUploadForm(message string) {
 	@dataDialogScroll("pb-6") {
-		<form
-			hx-post="/api/profile/import/preview"
-			hx-encoding="multipart/form-data"
-			hx-target="#profile-import-panel"
-			hx-swap="innerHTML"
-			class="space-y-1.5"
-		>
-			<label for="profile-import-file" class="block text-sm font-medium text-foreground">{ i18n.T(ctx, "transfer.profile.file") }</label>
-			<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-				<input id="profile-import-file" type="file" name="profile" accept=".json,application/json" required class="profile-file-input block h-8 w-full min-w-0 flex-1 rounded-md border border-input bg-background p-[3px] text-xs text-foreground file:mr-3 file:h-full file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:text-xs file:font-medium file:text-primary-foreground hover:file:bg-primary/90"/>
-				<button type="submit" class={ profileButtonClass }>
-					@icon.Upload(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "transfer.profile.review") }
-				</button>
-			</div>
-			if message != "" {
-				<p class="text-xs text-destructive" role="alert" data-profile-import-error>{ message }</p>
-			}
-		</form>
+		@dataFileUploadForm(dataFileUpload{
+			Post: "/api/profile/import/preview", Target: "#profile-import-panel", Swap: "innerHTML",
+			InputID: "profile-import-file", Name: "profile", Label: i18n.T(ctx, "transfer.profile.file"), Message: message,
+		})
 	}
+}
+
+// dataFileUpload is a form that sends one JSON file to be looked at before
+// anything in it is imported, as the profile and rules imports do: Post
+// gets the file as Name, and its answer replaces Target as Swap says.
+// Message says why the last file sent can't be imported.
+type dataFileUpload struct {
+	Post, Target, Swap string
+	InputID, Name      string
+	Label, Message     string
+}
+
+templ dataFileUploadForm(upload dataFileUpload) {
+	<form
+		hx-post={ upload.Post }
+		hx-encoding="multipart/form-data"
+		hx-target={ upload.Target }
+		hx-swap={ upload.Swap }
+		class="space-y-1.5"
+	>
+		<label for={ upload.InputID } class="block text-sm font-medium text-foreground">{ upload.Label }</label>
+		<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+			<input id={ upload.InputID } type="file" name={ upload.Name } accept=".json,application/json" required class="profile-file-input block h-8 w-full min-w-0 flex-1 rounded-md border border-input bg-background p-[3px] text-xs text-foreground file:mr-3 file:h-full file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:text-xs file:font-medium file:text-primary-foreground hover:file:bg-primary/90"/>
+			<button type="submit" class={ profileButtonClass }>
+				@icon.Upload(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "transfer.profile.review") }
+			</button>
+		</div>
+		if upload.Message != "" {
+			<p class="text-xs text-destructive" role="alert" data-profile-import-error>{ upload.Message }</p>
+		}
+	</form>
 }
 
 func profileImportStatusLabel(ctx context.Context, status string) string {
@@ -146,7 +170,13 @@ templ ProfileImportPreview(data ProfileImportPreviewData) {
 				if data.Contacts > 0 {
 					@profileImportSection("contacts", i18n.N(ctx, "transfer.profile.contacts", data.Contacts), profileContactsDescription(ctx, data), true)
 				}
+				if data.MailRules != nil {
+					@profileImportSection("mail_rules", i18n.N(ctx, "transfer.profile.rules", len(data.MailRules.Import.Rules)), i18n.T(ctx, "transfer.profile.rules_detail"), true)
+				}
 			</div>
+			if data.MailRules != nil {
+				@profileMailRules(*data.MailRules)
+			}
 			if len(data.Conflicts) > 0 {
 				@profileContactConflicts(data.Conflicts)
 			}
@@ -191,12 +221,20 @@ func profileContactsDescription(ctx context.Context, data ProfileImportPreviewDa
 // profileConflictChoices lets the person skip something that is already in
 // Gofer, replace it, or keep both when that is possible.
 templ profileConflictChoices(name string, selected string, keepBoth bool, replaceLabel string) {
-	<span class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground sm:ml-auto" role="radiogroup" data-profile-conflict-choices>
+	@profileConflictChoiceGroup() {
 		@profileConflictChoice(name, "skip", i18n.T(ctx, "transfer.profile.skip"), selected)
 		@profileConflictChoice(name, "replace", replaceLabel, selected)
 		if keepBoth {
 			@profileConflictChoice(name, "add", i18n.T(ctx, "transfer.profile.keep_both"), selected)
 		}
+	}
+}
+
+// profileConflictChoiceGroup holds the choices for one thing already in
+// Gofer, at the right of its row on wider screens.
+templ profileConflictChoiceGroup() {
+	<span class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground sm:ml-auto" role="radiogroup" data-profile-conflict-choices>
+		{ children... }
 	</span>
 }
 
@@ -205,6 +243,19 @@ templ profileConflictChoice(name string, value string, label string, selected st
 		@radio.Radio(radio.Props{Name: name, Value: value, Checked: selected == value, Attributes: templ.Attributes{"data-profile-conflict-choice": value}})
 		<span>{ label }</span>
 	</label>
+}
+
+// profileMailRules lists the profile's mail rules as the Rules import lists
+// a rules file's, with the same choices for those whose name is taken.
+templ profileMailRules(data models.MailRulesData) {
+	<div class="space-y-2" data-profile-mail-rules>
+		<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "transfer.profile.rules_heading") }</p>
+		<ul class="max-h-80 space-y-2 overflow-y-auto">
+			for _, item := range data.Import.Rules {
+				@mailRulesImportRow(data, item)
+			}
+		</ul>
+	</div>
 }
 
 templ profileContactConflicts(conflicts []ProfileImportContactConflict) {
@@ -320,6 +371,9 @@ templ ProfileImportResult(result ProfileImportResultData) {
 						}
 						if result.ContactsSkipped > 0 {
 							<li>{ i18n.N(ctx, "transfer.profile.result.skipped", result.ContactsSkipped) }</li>
+						}
+						if result.Rules != "" {
+							<li data-profile-import-rules>{ result.Rules }</li>
 						}
 						if len(result.Accounts) > 0 {
 							<li>{ i18n.N(ctx, "transfer.profile.result.accounts", len(result.Accounts), "accounts", settingsJoinAnd(ctx, result.Accounts)) }</li>

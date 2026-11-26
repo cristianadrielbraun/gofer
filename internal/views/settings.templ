@@ -41,7 +41,7 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 				if activeTab == "accounts" {
 					@SettingsAccountsTab(accounts)
 				} else if activeTab == "sync" {
-					@SettingsSyncTab(syncSettings, uiSettings)
+					@SettingsSyncTab(syncSettings, uiSettings, unifiedSidebarLabels(accounts, uiSettings))
 				} else if activeTab == "rules" {
 					@SettingsRulesTab()
 				} else if activeTab == "operations" {
@@ -50,7 +50,6 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 					@SettingsContactsTab(accounts, uiSettings)
 				} else if activeTab == "appearance" {
 					@SettingsAppearanceTab(uiSettings)
-					@TagAppearanceSettings(accounts, uiSettings)
 				} else if activeTab == "regional" {
 					@SettingsRegionalTab(uiSettings)
 				} else if activeTab == "compose-display" {
@@ -1511,7 +1510,10 @@ templ SettingsAccountsTab(accounts []models.Account) {
 	</div>
 }
 
-templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string) {
+// SettingsSyncTab is the sync settings, and the unified folders and tags
+// in their own tab. unifiedTags are the tags of all accounts
+// (unifiedSidebarLabels).
+templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string, unifiedTags []models.Label) {
 	@tabs.Tabs(tabs.Props{ID: "email-sync-folder-tabs", Class: "mt-6 gap-5", Attributes: templ.Attributes{"data-tui-tabs-local": "", "data-tui-tabs-animate-content": "", "aria-label": i18n.T(ctx, "settings.sync.tabs_label")}}) {
 		@tabs.List(tabs.ListProps{Class: "bg-card"}) {
 			@tabs.Trigger(tabs.TriggerProps{Value: "sync", IsActive: true, Class: "px-3 text-xs"}) {
@@ -1682,6 +1684,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 					}
 				</div>
 			</div>
+			@UnifiedTagSettings(unifiedTags, uiSettings)
 			@ScheduledViewAppearanceSetting(uiSettings)
 		}
 	}
@@ -1704,39 +1707,110 @@ templ UnifiedFolderSettingRow(folder unifiedFolderOption, accounts []models.Acco
 	{{ key := unifiedFolderSettingKey(folder.ID) }}
 	{{ enabled := uiSettingGet(uiSettings, key, "true") != "false" }}
 	{{ masterEnabled := uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" }}
+	@unifiedSettingRow(unifiedRow{
+		Name:     folder.Name,
+		NameID:   "unified-folder-" + folder.ID + "-label",
+		Icon:     FolderAppearanceIcon(virtualFolderAppearance(folder.ID, uiSettings)),
+		Handle:   "data-unified-order-handle",
+		Dimmed:   !masterEnabled,
+		Attributes: templ.Attributes{"data-unified-order-item": "", "data-folder-id": folder.ID},
+	}) {
+		@VirtualFolderAppearanceButton(folder.ID, folder.Name)
+		@UnifiedFolderAccountPopover(folder, accounts, uiSettings, masterEnabled)
+		@switchcomp.Switch(switchcomp.Props{
+			ID:       "unified-folder-" + folder.ID,
+			Name:     key,
+			Checked:  enabled,
+			Disabled: !masterEnabled,
+			Attributes: templ.Attributes{
+				"data-unified-folder-switch": folder.ID,
+				"aria-labelledby":            "unified-folder-" + folder.ID + "-label",
+			},
+		})
+	}
+}
+
+// unifiedRow is one row of the Unified folders tab's lists: a unified
+// folder or a unified tag, put in order by its handle.
+type unifiedRow struct {
+	Name, NameID string
+	Icon         templ.Component
+	// Handle is the handle's data attribute, which names its list's order
+	// (settings.js).
+	Handle string
+	// Dimmed is set while unified folders are off.
+	Dimmed     bool
+	Attributes templ.Attributes
+}
+
+// unifiedSettingRow is a unified folder's or tag's row, with its controls
+// (children) on the right.
+templ unifiedSettingRow(row unifiedRow) {
 	<div
 		class={
 			"flex min-h-12 items-center justify-between gap-3 border-b border-border/60 bg-background px-3 py-2.5 transition-[background-color,transform] duration-200 ease-out last:border-b-0 hover:bg-muted/30",
-			templ.KV("opacity-50", !masterEnabled),
+			templ.KV("opacity-50", row.Dimmed),
 		}
 		data-unified-folder-dependent
-		data-unified-order-item
-		data-folder-id={ folder.ID }
+		{ row.Attributes... }
 	>
 		<div class="flex min-w-0 items-center gap-3">
-			@OrderHandle("data-unified-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", folder.Name))
+			@OrderHandle(row.Handle, i18n.T(ctx, "settings.folders.reorder_label", "name", row.Name))
 			<span class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground">
-				@FolderAppearanceIcon(virtualFolderAppearance(folder.ID, uiSettings))
+				@row.Icon
 			</span>
 			<div class="min-w-0">
-				<span id={ "unified-folder-" + folder.ID + "-label" } class="text-sm font-medium text-foreground">{ folder.Name }</span>
+				<span id={ row.NameID } class="text-sm font-medium text-foreground">{ row.Name }</span>
 			</div>
 		</div>
 		<div class="flex shrink-0 items-center gap-2">
-			@VirtualFolderAppearanceButton(folder.ID, folder.Name)
-			@UnifiedFolderAccountPopover(folder, accounts, uiSettings, masterEnabled)
-			@switchcomp.Switch(switchcomp.Props{
-				ID:       "unified-folder-" + folder.ID,
-				Name:     key,
-				Checked:  enabled,
-				Disabled: !masterEnabled,
-				Attributes: templ.Attributes{
-					"data-unified-folder-switch": folder.ID,
-					"aria-labelledby":            "unified-folder-" + folder.ID + "-label",
-				},
-			})
+			{ children... }
 		</div>
 	</div>
+}
+
+// UnifiedTagSettings lists the tags of all accounts, as the sidebar's
+// unified Tags group has them, hidden ones included: each with its
+// appearance, a switch for whether it shows there, which is where a hidden
+// one is shown again (toggleTagSidebarVisibility, app.js), and its handle to
+// put it in order. Each account's own copy of a tag is apart from it, in the
+// account's Folders dialog.
+templ UnifiedTagSettings(tags []models.Label, uiSettings map[string]string) {
+	if len(tags) > 0 {
+		{{ masterEnabled := uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" }}
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5" data-unified-tag-settings>
+			<div>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.unified.tags_title") }</h3>
+				<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "settings.unified.tags_description") }</p>
+			</div>
+			<div class="settings-item overflow-hidden rounded-lg border border-border/60 bg-background/40" data-unified-tag-order-list>
+				for _, tag := range tags {
+					@unifiedSettingRow(unifiedRow{
+						Name:       tag.Name,
+						NameID:     "unified-tag-" + tag.ID + "-label",
+						Icon:       TagAppearanceIcon(tag),
+						Handle:     "data-unified-tag-order-handle",
+						Dimmed:     !masterEnabled,
+						Attributes: templ.Attributes{"data-unified-tag-order-item": "", "data-tag-id": tag.ID},
+					}) {
+						@TagAppearanceButton(tag)
+						@switchcomp.Switch(switchcomp.Props{
+							Checked:  !tag.Hidden,
+							Disabled: !masterEnabled,
+							Attributes: templ.Attributes{
+								"aria-label":                  i18n.T(ctx, "settings.unified.tag_in_sidebar", "name", tag.Name),
+								"data-unified-tag-switch":     "",
+								"data-tag-visibility":         tag.ID,
+								"data-tag-visibility-name":    tag.Name,
+								"data-tag-visibility-unified": true,
+								"data-on-change":              onAction("toggleTagSidebarVisibility", actionElement),
+							},
+						})
+					}
+				}
+			</div>
+		</div>
+	}
 }
 
 templ UnifiedFolderAccountPopover(folder unifiedFolderOption, accounts []models.AccountSyncStatus, uiSettings map[string]string, masterEnabled bool) {
@@ -2473,11 +2547,10 @@ templ SettingsAccountActionsMenu(account models.Account) {
 				}) {
 					if account.Provider == "gmail" {
 						@icon.Tags(icon.Props{Class: "size-3.5"})
-						{ i18n.T(ctx, "settings.account.labels") }
 					} else {
 						@icon.Folders(icon.Props{Class: "size-3.5"})
-						{ i18n.T(ctx, "settings.account.folders") }
 					}
+					{ foldersDialogName(ctx, account, len(account.Labels) > 0) }
 				}
 			}
 			if account.Provider == "imap" {

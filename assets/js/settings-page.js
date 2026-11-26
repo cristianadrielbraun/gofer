@@ -1650,7 +1650,7 @@
     document.querySelectorAll('[data-unified-folder-switch]').forEach(function(input) {
       input.disabled = !enabled;
     });
-    document.querySelectorAll('[data-unified-folder-account-switch]').forEach(function(input) {
+    document.querySelectorAll('[data-unified-folder-account-switch], [data-unified-tag-switch]').forEach(function(input) {
       input.disabled = !enabled;
     });
     document.querySelectorAll('[data-unified-folder-account-button]').forEach(function(button) {

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -1057,6 +1059,72 @@ func TestSyncStoresJMAPKeywordsAsLabels(t *testing.T) {
 	}
 }
 
+func TestSyncPreservesJMAPMetadataForEachCopy(t *testing.T) {
+	f := newUserGmailFixture(t)
+	server := newFakeJMAPServer(t)
+	server.emailState = "c0"
+	server.setMailboxes(
+		jmap.Mailbox{ID: "mb-notes", Name: "Annotations", Role: "memos", MyRights: readable()},
+		jmap.Mailbox{ID: "mb-custom", Name: "Scheduled", MyRights: readable()},
+	)
+	one := testJMAPEmail("note-1", "A sample message", 1, "mb-notes", "mb-custom")
+	two := testJMAPEmail("note-2", "A sample message", 2, "mb-notes")
+	one.MessageID, two.MessageID = []string{"shared@example.test"}, []string{"shared@example.test"}
+	one.Keywords = map[string]bool{"$memo": true, "$Vendor": true, "$new": false}
+	two.Keywords = map[string]bool{"$mailflagbit2": true}
+	server.emails = []jmap.Email{one, two}
+	useFakeJMAPAccount(t, f, server)
+	account := f.ids["alice"]
+	f.local(t, "alice", func(db *storage.DB) error {
+		return db.MarkLabelSyncSuccess(t.Context(), account, storage.LabelProviderJMAP, "email", "c0", true)
+	})
+	sync := func() {
+		t.Helper()
+		if err := f.worker.Sync(t.Context(), "alice", account); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertKeywords := func(copy string, want []string) {
+		t.Helper()
+		f.local(t, "alice", func(db *storage.DB) error {
+			var id int64
+			if err := db.Read().QueryRow(`SELECT id FROM messages WHERE account_id = ? AND internet_message_id = '<shared@example.test>'`, account).Scan(&id); err != nil {
+				return err
+			}
+			got, fetched, err := db.GetProviderMessageKeywords(t.Context(), id, copy)
+			if err != nil || !fetched || got == nil || !slices.Equal(got, want) {
+				return fmt.Errorf("keywords for %s = %#v, fetched=%v, err=%v, want %#v", copy, got, fetched, err, want)
+			}
+			return nil
+		})
+	}
+	sync()
+	assertKeywords("note-1", []string{"$Vendor", "$memo"})
+	assertKeywords("note-2", []string{"$mailflagbit2"})
+	if got := jmapLabels(t, f, "note-1"); got != "$Vendor" {
+		t.Fatalf("visible labels = %q, want $Vendor", got)
+	}
+	f.local(t, "alice", func(db *storage.DB) error {
+		for mailbox, want := range map[string][]keywords.MailboxAttribute{"mb-notes": {keywords.MailboxMemos}, "mb-custom": {}} {
+			got, err := db.GetMailboxAttributes(t.Context(), jmapLocalFolderID(account, mailbox))
+			if err != nil || got == nil || !slices.Equal(got, want) {
+				return fmt.Errorf("attributes for %s = %#v, %v, want %#v", mailbox, got, err, want)
+			}
+		}
+		return nil
+	})
+	if folder := jmapFolders(t, f)["mb-notes"]; folder.Role != "custom" || !folder.Selectable {
+		t.Fatalf("memo mailbox is no longer an accessible folder: %+v", folder)
+	}
+	server.updateEmail("note-1", func(e *jmap.Email) { e.Keywords = nil })
+	sync()
+	assertKeywords("note-1", []string{"$Vendor", "$memo"})
+	server.updateEmail("note-1", func(e *jmap.Email) { e.Keywords = map[string]bool{} })
+	sync()
+	assertKeywords("note-1", []string{})
+	assertKeywords("note-2", []string{"$mailflagbit2"})
+}
+
 // Label changes queued in Gofer reach the server as keywords on the next
 // sync: an alias like Work becomes $label2, and removing a label clears the
 // keyword in the casing the server has.
@@ -1201,7 +1269,7 @@ func TestSyncReplaysJMAPLabelChangesToEveryCopy(t *testing.T) {
 	received := testJMAPEmail("in-1", "Reminder to self", 1, "mb-in")
 	sent.MessageID = []string{"reminder@example.test"}
 	received.MessageID = []string{"reminder@example.test"}
-	sent.Keywords = map[string]bool{"Client": true}
+	sent.Keywords = map[string]bool{"Client": true, "$mailflagbit0": true, "$x-me-vendor": true}
 	received.Keywords = map[string]bool{"Client": true, "Family": true}
 	server.emails = []jmap.Email{sent, received}
 	useFakeJMAPAccount(t, f, server)
@@ -1228,7 +1296,7 @@ func TestSyncReplaysJMAPLabelChangesToEveryCopy(t *testing.T) {
 	if err := f.worker.Sync(t.Context(), "alice", account); err != nil {
 		t.Fatalf("Sync() replaying labels error = %v", err)
 	}
-	for id, want := range map[string]map[string]bool{"sent-1": {"$label2": true}, "in-1": {"$label2": true, "Family": true}} {
+	for id, want := range map[string]map[string]bool{"sent-1": {"$label2": true, "$mailflagbit0": true, "$x-me-vendor": true}, "in-1": {"$label2": true, "Family": true}} {
 		if email, _ := server.email(id); !maps.Equal(email.Keywords, want) {
 			t.Fatalf("%s keywords on the server = %v, want %v", id, email.Keywords, want)
 		}

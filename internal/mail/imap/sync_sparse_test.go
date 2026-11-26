@@ -87,7 +87,7 @@ func serveSparseSyncScript(conn net.Conn, script *sparseSyncServerScript) {
 			}
 		case strings.Contains(upper, " UID FETCH "):
 			if strings.Contains(upper, "UID FETCH 2,1000000 ") {
-				fmt.Fprint(writer, "* 1 FETCH (UID 2)\r\n* 2 FETCH (UID 1000000)\r\n")
+				fmt.Fprint(writer, "* 1 FETCH (UID 2 FLAGS ($HasMemo $VendorMarker))\r\n* 2 FETCH (UID 1000000)\r\n")
 				fmt.Fprintf(writer, "%s OK fetch\r\n", tag)
 			} else {
 				fmt.Fprintf(writer, "%s BAD unexpected UID set\r\n", tag)
@@ -127,6 +127,9 @@ func TestSyncFolderFetchesOnlyUIDsThatExist(t *testing.T) {
 	}
 	if len(synced) != 2 || synced[0].RemoteUID != 2 || synced[1].RemoteUID != 1000000 {
 		t.Fatalf("synced messages = %#v", synced)
+	}
+	if got := strings.Join(synced[0].KeywordSnapshot, " "); got != "$HasMemo $VendorMarker" || len(synced[0].Labels) != 1 || synced[0].Labels[0].Name != "$VendorMarker" || synced[1].KeywordSnapshot != nil {
+		t.Fatalf("synced FLAGS and labels = %#v", synced)
 	}
 	if total != 2 || !totalSeenBeforeBatch {
 		t.Fatalf("total callback = %d, seen before batch = %v; want 2/true", total, totalSeenBeforeBatch)

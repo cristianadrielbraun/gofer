@@ -1578,6 +1578,13 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
+/* A folder's or a Gmail label's "Hide from sidebar" and the mark on a
+   hidden one in the Folders dialog. */
+[data-theme="express"] svg[data-lucide="eye-off"] {
+  --xp-icon: url("/assets/icons/express/eye-off.svg");
+  --xp-icon-paths: hidden;
+}
+
 [data-theme="express"] svg[data-lucide="layout-list"] {
   --xp-icon: url("/assets/icons/express/cards.svg");
   --xp-icon-paths: hidden;

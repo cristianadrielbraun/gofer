@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -97,10 +99,21 @@ func (h *Handler) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var conflicts []profileContactConflict
+	var rules *models.MailRulesData
 	if err := h.withProfileStore(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
 		var err error
-		conflicts, err = findProfileContactConflicts(ctx, db, owner, contacts)
-		return err
+		if conflicts, err = findProfileContactConflicts(ctx, db, owner, contacts); err != nil {
+			return err
+		}
+		if file.MailRules != nil && len(file.MailRules.Rules) > 0 {
+			data, err := profileMailRulesData(ctx, db, owner, file, plans)
+			if err != nil {
+				return err
+			}
+			data.Import = mailRulesImportView(ctx, file.MailRules, "", data, nil)
+			rules = &data
+		}
+		return nil
 	}); err != nil {
 		userAccountError(w, r, err)
 		return
@@ -109,6 +122,7 @@ func (h *Handler) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 	preview := views.ProfileImportPreviewData{
 		Profile:        string(data),
 		HasPreferences: len(file.Preferences.UI) > 0 || file.Preferences.SyncIntervalMinutes != "" || file.Preferences.IdleFolders != "" || len(file.Preferences.AllowedSenders) > 0,
+		MailRules:      rules,
 	}
 	if exported, err := time.Parse(time.RFC3339, file.ExportedAt); err == nil {
 		preview.ExportedAt = i18n.Dates(r.Context()).LongMonthDate(exported)
@@ -158,6 +172,8 @@ func (h *Handler) handleImportProfile(w http.ResponseWriter, r *http.Request) {
 		Preferences:    r.PostForm.Get("preferences") == "1",
 		Signatures:     r.PostForm.Get("signatures") == "1",
 		Contacts:       r.PostForm.Get("contacts") == "1",
+		Rules:          r.PostForm.Get("mail_rules") == "1",
+		RuleActions:    mailRulesImportChoices(r),
 		Accounts:       map[string]bool{},
 		AccountActions: map[string]string{},
 		ContactActions: map[int]string{},
@@ -189,11 +205,19 @@ func (h *Handler) handleImportProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = views.ProfileImportResult(profileImportResultView(result)).Render(ctx, w)
+	_ = views.ProfileImportResult(profileImportResultView(ctx, result)).Render(ctx, w)
 }
 
-func profileImportResultView(result profileImportResult) views.ProfileImportResultData {
+func profileImportResultView(ctx context.Context, result profileImportResult) views.ProfileImportResultData {
+	rules := ""
+	switch {
+	case result.RulesTooMany:
+		rules = i18n.N(ctx, "transfer.profile.result.rules_too_many", mailrules.MaxRulesPerOwner, "count", i18n.Number(ctx, mailrules.MaxRulesPerOwner))
+	case result.Rules.Imported > 0:
+		rules = mailRulesImportNotice(ctx, result.Rules)
+	}
 	return views.ProfileImportResultData{
+		Rules:            rules,
 		Accounts:         result.Accounts,
 		AccountsReplaced: result.AccountsReplaced,
 		AccountFailures:  result.AccountFailures,

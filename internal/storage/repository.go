@@ -21,6 +21,7 @@ import (
 
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -220,19 +221,20 @@ type folderRow struct {
 }
 
 type UpsertFolderInput struct {
-	ID               string
-	AccountID        string
-	ParentID         string
-	RemoteID         string
-	ProviderRemoteID string
-	Name             string
-	Icon             string
-	Role             string
-	Selectable       bool
-	SortOrder        int
-	CountsKnown      bool
-	TotalCount       int
-	UnreadCount      int
+	ID                string
+	AccountID         string
+	ParentID          string
+	RemoteID          string
+	ProviderRemoteID  string
+	Name              string
+	Icon              string
+	Role              string
+	Selectable        bool
+	SortOrder         int
+	CountsKnown       bool
+	TotalCount        int
+	UnreadCount       int
+	MailboxAttributes []keywords.MailboxAttribute
 }
 
 func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) error {
@@ -243,8 +245,8 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO folders (id, account_id, parent_id, remote_id, provider_remote_id, name, icon, role, selectable, sort_order, total_count, unread_count)
-		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? ELSE 0 END, CASE WHEN ? THEN ? ELSE 0 END)
+		INSERT INTO folders (id, account_id, parent_id, remote_id, provider_remote_id, name, icon, role, selectable, sort_order, total_count, unread_count, mailbox_attributes)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? ELSE 0 END, CASE WHEN ? THEN ? ELSE 0 END, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			parent_id = NULL,
 			remote_id = excluded.remote_id,
@@ -254,6 +256,7 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 			role = excluded.role,
 			selectable = excluded.selectable,
 			sort_order = excluded.sort_order,
+			mailbox_attributes = COALESCE(excluded.mailbox_attributes, folders.mailbox_attributes),
 			total_count = CASE WHEN ? THEN ? ELSE folders.total_count END,
 			unread_count = CASE WHEN ? THEN ? ELSE folders.unread_count END,
 			updated_at = CURRENT_TIMESTAMP`)
@@ -270,6 +273,7 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 		if _, err := stmt.ExecContext(ctx,
 			f.ID, f.AccountID, f.RemoteID, f.ProviderRemoteID, f.Name, f.Icon, f.Role, boolInt(f.Selectable), f.SortOrder,
 			countsKnown, clampNonNegative(f.TotalCount), countsKnown, clampNonNegative(f.UnreadCount),
+			encodeMetadata(f.MailboxAttributes),
 			countsKnown, clampNonNegative(f.TotalCount), countsKnown, clampNonNegative(f.UnreadCount),
 		); err != nil {
 			return fmt.Errorf("upsert folder %s: %w", f.ID, err)
@@ -291,7 +295,22 @@ func (db *DB) UpsertFolders(ctx context.Context, folders []UpsertFolderInput) er
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Rules imported before these folders were here may be waiting for
+	// them, as rules a profile import brings for an account it adds. A rule
+	// that can't be given its folders doesn't stop the folders syncing.
+	var accounts []string
+	for _, f := range folders {
+		if !slices.Contains(accounts, f.AccountID) {
+			accounts = append(accounts, f.AccountID)
+		}
+	}
+	if err := db.findMissingMailRuleFolders(ctx, accounts); err != nil {
+		log.Printf("upsert folders: %v", err)
+	}
+	return nil
 }
 
 // ListedProviderFolder is a folder the provider lists, with the provider's
@@ -949,6 +968,7 @@ type SyncMessage struct {
 	Labels           []LabelInput
 	LabelsKnown      bool
 	LabelProvider    string
+	KeywordSnapshot  []string // Nil when FLAGS was not returned.
 	ToRecipients     []Recipient
 	CCRecipients     []Recipient
 	BCCRecipients    []Recipient
@@ -981,6 +1001,7 @@ type ProviderSyncMessage struct {
 	Labels            []LabelInput
 	LabelsKnown       bool
 	LabelProvider     string
+	KeywordSnapshot   []string // Nil when provider keywords were not returned.
 	ToRecipients      []Recipient
 	CCRecipients      []Recipient
 	BCCRecipients     []Recipient
@@ -1535,10 +1556,12 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 	defer dupUIDStmt.Close()
 
 	stateStmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+		INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at, remote_keywords)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
 		ON CONFLICT(message_id, folder_id) DO UPDATE SET
 			remote_uid = excluded.remote_uid,
+			remote_keywords = CASE WHEN message_folder_state.remote_uid IS excluded.remote_uid
+				THEN COALESCE(excluded.remote_keywords, message_folder_state.remote_keywords) ELSE excluded.remote_keywords END,
 			is_read = excluded.is_read,
 			is_starred = excluded.is_starred,
 			is_draft = excluded.is_draft,
@@ -1722,7 +1745,7 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			}
 		}
 		if _, err := stateStmt.ExecContext(ctx, msgID, m.FolderID, remoteUID,
-			isRead, isStarred, m.IsDraft, boolInt(!visible), time.Now().UTC()); err != nil {
+			isRead, isStarred, m.IsDraft, boolInt(!visible), time.Now().UTC(), encodeMetadata(m.KeywordSnapshot)); err != nil {
 			return fmt.Errorf("upsert state: %w", err)
 		}
 
@@ -2018,6 +2041,9 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		}
 		copyKey := providerCopy{messageID: msgID, providerID: m.ProviderMessageID}
 		if observedProviderFolders[copyKey] == nil {
+			if err := saveProviderKeywords(ctx, tx, msgID, m.ProviderMessageID, m.KeywordSnapshot); err != nil {
+				return nil, fmt.Errorf("save provider keywords: %w", err)
+			}
 			observedProviderFolders[copyKey] = map[string]bool{}
 			desiredProviderFolders[copyKey] = map[string]bool{}
 			copyOrder = append(copyOrder, copyKey)
@@ -2714,27 +2740,32 @@ func (db *DB) ResolveLabelAliasProviderID(ctx context.Context, accountID, provid
 	}
 	defer tx.Rollback()
 
+	providerID, found, err := db.resolveLabelAliasProviderIDTx(ctx, tx, accountID, providerType, displayName)
+	if err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	return providerID, found, nil
+}
+
+func (db *DB) resolveLabelAliasProviderIDTx(ctx context.Context, tx *sql.Tx, accountID, providerType, displayName string) (string, bool, error) {
 	if err := db.ensureDefaultLabelAliasesTx(ctx, tx, accountID, providerType); err != nil {
 		return "", false, err
 	}
 
 	var providerID string
-	err = tx.QueryRowContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		SELECT provider_id
 		FROM label_aliases
 		WHERE account_id = ? AND provider_type = ? AND lower(display_name) = lower(?)
 		ORDER BY CASE source WHEN 'user' THEN 0 WHEN 'default' THEN 1 ELSE 2 END, provider_id
 		LIMIT 1`, accountID, providerType, displayName).Scan(&providerID)
 	if err == sql.ErrNoRows {
-		if err := tx.Commit(); err != nil {
-			return "", false, err
-		}
 		return "", false, nil
 	}
 	if err != nil {
-		return "", false, err
-	}
-	if err := tx.Commit(); err != nil {
 		return "", false, err
 	}
 	return providerID, true, nil
@@ -5005,12 +5036,14 @@ func (db *DB) attachAccountLabels(ctx context.Context, userID string, accounts [
 		return nil
 	}
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type, COALESCE(tag_color.value, ''), COALESCE(tag_style.value, ''), CAST(tag_order.value AS INTEGER)
+		SELECT l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type, COALESCE(tag_color.value, ''), COALESCE(tag_style.value, ''), CAST(tag_order.value AS INTEGER),
+		 COALESCE(tag_visible.value, '') = 'false'
 		FROM labels l
 		JOIN accounts a ON a.id = l.account_id
 		LEFT JOIN app_settings tag_color ON tag_color.user_id=a.user_id AND tag_color.key='tag_color:' || l.id
 		LEFT JOIN app_settings tag_style ON tag_style.user_id=a.user_id AND tag_style.key='tag_style:' || l.id
 		LEFT JOIN app_settings tag_order ON tag_order.user_id=a.user_id AND tag_order.key='tag_order:' || l.id
+		LEFT JOIN app_settings tag_visible ON tag_visible.user_id=a.user_id AND tag_visible.key='tag_visible:' || l.id
 		WHERE a.user_id = ?
 		  AND `+tagVisibilitySQL+`
 		ORDER BY l.account_id, l.name COLLATE NOCASE`, userID)
@@ -5025,7 +5058,7 @@ func (db *DB) attachAccountLabels(ctx context.Context, userID string, accounts [
 	for rows.Next() {
 		var label models.Label
 		var place sql.NullInt64
-		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.Color, &label.ProviderID, &label.ProviderType, &label.AppearanceColor, &label.IconStyle, &place); err != nil {
+		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.Color, &label.ProviderID, &label.ProviderType, &label.AppearanceColor, &label.IconStyle, &place, &label.Hidden); err != nil {
 			return fmt.Errorf("scan account label: %w", err)
 		}
 		places[label.ID] = place
@@ -5107,13 +5140,15 @@ func calendarTimestamp(at *time.Time) string {
 
 func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT f.id, f.name, f.icon, f.role, f.unread_count, f.parent_id, COALESCE(appearance.value, ''), COALESCE(icon_appearance.value, ''), COALESCE(style_appearance.value, ''), CAST(folder_order.value AS INTEGER)
+		`SELECT f.id, f.name, f.icon, f.role, f.unread_count, f.parent_id, COALESCE(appearance.value, ''), COALESCE(icon_appearance.value, ''), COALESCE(style_appearance.value, ''), CAST(folder_order.value AS INTEGER),
+		 f.role = 'custom' AND COALESCE(visibility.value, '') = 'false'
 		 FROM folders f
 		 JOIN accounts a ON a.id = f.account_id
 		 LEFT JOIN app_settings appearance ON appearance.user_id = a.user_id AND appearance.key = 'folder_color:' || f.id
 		 LEFT JOIN app_settings icon_appearance ON icon_appearance.user_id = a.user_id AND icon_appearance.key = 'folder_icon:' || f.id
 		 LEFT JOIN app_settings style_appearance ON style_appearance.user_id = a.user_id AND style_appearance.key = 'folder_icon_style:' || f.id
 		 LEFT JOIN app_settings folder_order ON folder_order.user_id = a.user_id AND folder_order.key = 'folder_order:' || f.id
+		 LEFT JOIN app_settings visibility ON visibility.user_id = a.user_id AND visibility.key = 'folder_visible:' || f.id
 		 WHERE f.account_id = ?
 		   AND COALESCE(f.discovery_state, 'active') = 'active'
 		   AND COALESCE(f.selectable, 1) = 1
@@ -5132,7 +5167,7 @@ func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder
 	for rows.Next() {
 		var fr folderRow
 		var role string
-		if err := rows.Scan(&fr.folder.ID, &fr.folder.Name, &fr.folder.Icon, &role, &fr.folder.Unread, &fr.parentID, &fr.folder.Color, &fr.folder.IconOverride, &fr.folder.IconStyle, &fr.place); err != nil {
+		if err := rows.Scan(&fr.folder.ID, &fr.folder.Name, &fr.folder.Icon, &role, &fr.folder.Unread, &fr.parentID, &fr.folder.Color, &fr.folder.IconOverride, &fr.folder.IconStyle, &fr.place, &fr.folder.Hidden); err != nil {
 			return nil, fmt.Errorf("scan folder: %w", err)
 		}
 		fr.folder.Role = role
@@ -7988,6 +8023,7 @@ func (db *DB) AddMessageToFolder(ctx context.Context, messageID int64, folderID 
 		`INSERT INTO message_folder_state (message_id, folder_id, remote_uid, is_read, is_starred, is_flagged, is_draft, is_deleted, synced_at)
 		 VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)
 		 ON CONFLICT(message_id, folder_id) DO UPDATE SET
+			remote_keywords = CASE WHEN message_folder_state.remote_uid = excluded.remote_uid THEN message_folder_state.remote_keywords END,
 			remote_uid = excluded.remote_uid`,
 		messageID, folderID, remoteUID, isRead, isStarred, time.Now().UTC())
 	if err != nil {
@@ -8003,6 +8039,7 @@ func (db *DB) AddMessageToFolderWithoutRemoteUID(ctx context.Context, messageID 
 		 VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?)
 		 ON CONFLICT(message_id, folder_id) DO UPDATE SET
 			remote_uid = NULL,
+			remote_keywords = NULL,
 			is_read = excluded.is_read,
 			is_starred = excluded.is_starred,
 			is_deleted = 0,
@@ -8038,8 +8075,8 @@ func setMessageFolderRemoteUIDTx(ctx context.Context, tx *sql.Tx, messageID int6
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE message_folder_state
-		SET remote_uid = ?, synced_at = ?
-		WHERE message_id = ? AND folder_id = ?`, remoteUID, time.Now().UTC(), messageID, folderID)
+		SET remote_keywords = CASE WHEN remote_uid = ? THEN remote_keywords END, remote_uid = ?, synced_at = ?
+		WHERE message_id = ? AND folder_id = ?`, remoteUID, remoteUID, time.Now().UTC(), messageID, folderID)
 	if err != nil {
 		return err
 	}
@@ -8757,7 +8794,7 @@ func defaultUISettings() map[string]string {
 func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]FolderSyncInfo, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT f.id, f.account_id, f.remote_id, COALESCE(f.provider_remote_id, ''), f.role,
-		        COALESCE(f.uid_validity, 0), COALESCE(f.highest_seen_uid, 0), COALESCE(f.highest_modseq, 0),
+		        COALESCE(f.uid_validity, 0), COALESCE(f.highest_seen_uid, 0), CASE WHEN f.flags_metadata_synced = 1 THEN COALESCE(f.highest_modseq, 0) ELSE 0 END,
 		        f.last_full_sync_at, f.last_incremental_sync_at, COALESCE(f.sync_cursor, ''),
 		        COALESCE(f.sync_progress_current, 0), f.sync_progress_started_at,
 		        COALESCE(f.total_count, 0), COALESCE(f.uid_next, 0),
@@ -8818,7 +8855,7 @@ func (db *DB) GetStoredUIDValidity(ctx context.Context, folderID string) (uint32
 func (db *DB) GetHighestModSeq(ctx context.Context, folderID string) (uint64, error) {
 	var highestModSeq sql.NullInt64
 	err := db.Read().QueryRowContext(ctx,
-		`SELECT highest_modseq FROM folders WHERE id = ?`, folderID,
+		`SELECT CASE WHEN flags_metadata_synced = 1 THEN highest_modseq END FROM folders WHERE id = ?`, folderID,
 	).Scan(&highestModSeq)
 	if err != nil {
 		return 0, err
@@ -8938,7 +8975,7 @@ func (db *DB) ResetFolderUIDState(ctx context.Context, folderID string, uidValid
 		return fmt.Errorf("delete states: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE message_folder_state SET remote_uid = NULL, synced_at = CURRENT_TIMESTAMP
+		UPDATE message_folder_state SET remote_uid = NULL, remote_keywords = NULL, synced_at = CURRENT_TIMESTAMP
 		WHERE folder_id = ? AND EXISTS (
 			SELECT 1 FROM message_mutations mm
 			WHERE mm.message_id = message_folder_state.message_id
@@ -8972,12 +9009,13 @@ func (db *DB) ResetFolderUIDState(ctx context.Context, folderID string, uidValid
 }
 
 type FlagUpdate struct {
-	UID           uint32
-	IsRead        bool
-	IsStarred     bool
-	Labels        []LabelInput
-	LabelsKnown   bool
-	LabelProvider string
+	UID             uint32
+	IsRead          bool
+	IsStarred       bool
+	Labels          []LabelInput
+	LabelsKnown     bool
+	LabelProvider   string
+	KeywordSnapshot []string // Nil when FLAGS was not returned.
 }
 
 func (db *DB) BatchUpdateFlags(ctx context.Context, folderID string, updates []FlagUpdate) (int, error) {
@@ -9003,7 +9041,7 @@ func (db *DB) applyIMAPFlagUpdates(ctx context.Context, folderID string, expecte
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx,
-		`UPDATE message_folder_state SET is_read = ?, is_starred = ?
+		`UPDATE message_folder_state SET is_read = ?, is_starred = ?, remote_keywords = COALESCE(?, remote_keywords)
 		 WHERE folder_id = ? AND remote_uid = ?`)
 	if err != nil {
 		return 0, fmt.Errorf("prepare: %w", err)
@@ -9014,9 +9052,10 @@ func (db *DB) applyIMAPFlagUpdates(ctx context.Context, folderID string, expecte
 	for _, u := range updates {
 		var messageID int64
 		var isRead, isStarred int
+		var savedKeywords sql.NullString
 		err := tx.QueryRow(
-			`SELECT message_id, is_read, is_starred FROM message_folder_state WHERE folder_id = ? AND remote_uid = ?`,
-			folderID, u.UID).Scan(&messageID, &isRead, &isStarred)
+			`SELECT message_id, is_read, is_starred, remote_keywords FROM message_folder_state WHERE folder_id = ? AND remote_uid = ?`,
+			folderID, u.UID).Scan(&messageID, &isRead, &isStarred, &savedKeywords)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -9040,8 +9079,9 @@ func (db *DB) applyIMAPFlagUpdates(ctx context.Context, folderID string, expecte
 			newStarred = 1
 		}
 
-		if isRead != newRead || isStarred != newStarred {
-			if _, err := stmt.ExecContext(ctx, newRead, newStarred, folderID, u.UID); err != nil {
+		keywordSnapshot := encodeMetadata(u.KeywordSnapshot)
+		if isRead != newRead || isStarred != newStarred || (keywordSnapshot.Valid && keywordSnapshot.String != savedKeywords.String) {
+			if _, err := stmt.ExecContext(ctx, newRead, newStarred, keywordSnapshot, folderID, u.UID); err != nil {
 				if saveCheckpoint {
 					return 0, fmt.Errorf("update IMAP flags for UID %d: %w", u.UID, err)
 				}
@@ -9064,7 +9104,7 @@ func (db *DB) applyIMAPFlagUpdates(ctx context.Context, folderID string, expecte
 	}
 	if saveCheckpoint {
 		result, err := tx.ExecContext(ctx, `
-			UPDATE folders SET highest_modseq = ?, updated_at = CURRENT_TIMESTAMP
+			UPDATE folders SET highest_modseq = ?, flags_metadata_synced = 1, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND COALESCE(uid_validity, 0) = ?`, int64(highestModSeq), folderID, expectedUIDValidity)
 		if err != nil {
 			return 0, fmt.Errorf("save IMAP flag checkpoint: %w", err)

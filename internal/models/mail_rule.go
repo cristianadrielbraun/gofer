@@ -67,6 +67,40 @@ type MailRuleFolderTarget struct {
 	// before a rule could name another account's folder leave it empty: the
 	// folder is then in the account the message is in.
 	AccountID string `json:"account_id,omitempty"`
+	// AccountName is set, with no FolderID, on a folder an imported rule
+	// names that wasn't found here: it is the address, or the name, of the
+	// account the folder was in, which may not be here either (AccountID is
+	// then empty). Such a folder is shown by Path and AccountName until
+	// another is chosen; the rule doesn't run until then.
+	AccountName string `json:"account_name,omitempty"`
+	// TurnOnWhenFound is set, with AccountName, on a folder an import didn't
+	// find yet in an account that is here, of a rule that was on where it
+	// was exported: once its account has a folder at Path, and the rule
+	// names no other folder that wasn't found, the rule is turned on again.
+	// An account a profile import adds has no folders until it syncs.
+	TurnOnWhenFound bool `json:"turn_on_when_found,omitempty"`
+}
+
+// Missing reports whether the target names a folder that an import didn't
+// find: one with neither a role nor an ID.
+func (t MailRuleFolderTarget) Missing() bool {
+	return t.Role == "" && t.FolderID == ""
+}
+
+// MissingFolders reports whether a condition or an action of the rule names
+// a folder that an import didn't find, which keeps the rule from running.
+func (r MailRule) MissingFolders() bool {
+	for _, condition := range r.Conditions {
+		if condition.Folder != nil && condition.Folder.Missing() {
+			return true
+		}
+	}
+	for _, action := range r.Actions {
+		if action.Folder != nil && action.Folder.Missing() {
+			return true
+		}
+	}
+	return false
 }
 
 // WatchesAccount reports whether the rule runs on an account's mail.
@@ -196,6 +230,54 @@ type MailRulesData struct {
 	// TagChange is the dialog that adds tags to the rules selected in the
 	// list, or takes some off them.
 	TagChange *MailRuleTagChange
+	// Import is the dialog that imports rules from a file.
+	Import *MailRuleImport
+}
+
+// MailRuleImport is the dialog that imports rules from a rules file: first
+// the file to choose, then, once File holds it, what importing it adds.
+type MailRuleImport struct {
+	// File is the file chosen, sent back with what to do with each rule.
+	File       string
+	ExportedAt string
+	Rules      []MailRuleImportRule
+}
+
+// MailRuleImportRule is one rule of a file being imported.
+type MailRuleImportRule struct {
+	// Index is the rule's place in the file.
+	Index int
+	// Rule is the rule as it would be added, turned off when something it
+	// names wasn't found.
+	Rule MailRule
+	// MissingAccounts and MissingFolders are what it names that wasn't
+	// found, accounts by address or name.
+	MissingAccounts []string
+	MissingFolders  []MailRuleMissingFolder
+	// Problem says why the rule can't be imported, when it can't.
+	Problem string
+	// TurnsOn is set when the rule turns on again once the folders it is
+	// missing are found in their accounts, which are here.
+	TurnsOn bool
+	// SameName is set when a rule here has the same name, and Same when it
+	// also does the same. Choice is then what to do: skip the rule from the
+	// file, or add it beside the other, under a name of its own.
+	SameName bool
+	Same     bool
+	Choice   string
+}
+
+// What to do with a rule from a file when one here has its name.
+const (
+	MailRuleImportSkip = "skip"
+	MailRuleImportAdd  = "add"
+)
+
+// MailRuleMissingFolder is a folder an imported rule names that wasn't
+// found: its path, and the address or name of its account, when known.
+type MailRuleMissingFolder struct {
+	Path    string
+	Account string
 }
 
 // MailRuleTagChange is the dialog that adds tags to the rules selected in

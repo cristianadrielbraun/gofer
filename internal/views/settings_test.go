@@ -20,7 +20,7 @@ import (
 
 func TestSettingsSyncTabIncludesUnifiedFoldersPanel(t *testing.T) {
 	var out bytes.Buffer
-	if err := SettingsSyncTab(models.SyncSettings{SyncIntervalMinutes: 5}, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(models.SyncSettings{SyncIntervalMinutes: 5}, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -281,7 +281,7 @@ func TestSettingsSyncTabRendersUnifiedFolderAccountSwitches(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, uiSettings).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, uiSettings, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -320,7 +320,7 @@ func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -366,7 +366,7 @@ func TestSettingsSyncTabShowsConfiguredIDLEFolderInPollingDuringFallback(t *test
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -456,7 +456,7 @@ func TestSettingsSyncTabRendersGmailAPIInfoInsteadOfFolderModes(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -498,7 +498,7 @@ func TestSettingsSyncTabRendersOutlookGraphInfoInsteadOfFolderModes(t *testing.T
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()

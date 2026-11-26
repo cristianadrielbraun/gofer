@@ -48,11 +48,14 @@ const listeners = {}
 const requests = []
 const confirms = []
 const moved = []
+const downloads = []
 let typed = ''
 const context = vm.createContext({
   document: {
     addEventListener(name, listener) { (listeners[name] = listeners[name] || []).push(listener) },
     getElementById: id => id === 'mail-rules-panel' ? panel : null,
+    createElement: tag => ({tag, click() { downloads.push({href: this.href, download: this.download, inPage: !!this.added}) }, remove() { this.added = false }}),
+    body: {appendChild(link) { link.added = true }},
     querySelectorAll: s => s.includes('data-mail-rules-selection-action="up"') ? moves : [],
     querySelector: s => {
       if (s === '[data-mail-rules-selection-action="tags-remove"]') return removeTags
@@ -140,6 +143,11 @@ click({'data-mail-rules-selection-action': 'tags-add'})
 assert.deepEqual(requests.pop(), {method: 'GET', url: '/api/settings/rules/selected/tags?rule_ids=r1%2Cr2', values: undefined})
 click({'data-mail-rules-selection-action': 'tags-remove'})
 assert.equal(requests.pop().url, '/api/settings/rules/selected/tags?rule_ids=r1%2Cr2&remove=1')
+// Export downloads the selected rules as a file, leaving the page as it is.
+const asked = requests.length
+click({'data-mail-rules-selection-action': 'export'})
+assert.deepEqual(downloads.pop(), {href: '/api/settings/rules/export?rule_ids=r1%2Cr2', download: '', inPage: true}, 'export downloads the selected rules')
+assert.equal(requests.length, asked, 'without asking the server for anything else')
 
 click({'data-mail-rules-selection-clear': ''})
 assert.deepEqual(rows.map(r => r.box.checked), [false, false, false], 'clear selects none')
@@ -149,4 +157,4 @@ assert.equal(bar.hidden, true)
 context.searchMailRulesAgain({loaded: true, rules: ['r1', 'r2', 'r3'], selected: ['r2', 'gone']})
 assert.deepEqual(rows.map(r => r.box.checked), [false, true, false], 'a redrawn list keeps the selection')
 assert.equal(count.textContent, 'js.settings.rules.selected:1')
-console.log('Rules selection: select all, search, menu actions, categories, moving several and redraws passed.')
+console.log('Rules selection: select all, search, menu actions, categories, export, moving several and redraws passed.')

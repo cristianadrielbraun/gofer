@@ -576,7 +576,7 @@ func TestVirtualViewAppearancesPreserveVisibilityAndCounts(t *testing.T) {
 		}
 	}
 	out.Reset()
-	if err := SettingsSyncTab(models.SyncSettings{}, settings).Render(t.Context(), &out); err != nil {
+	if err := SettingsSyncTab(models.SyncSettings{}, settings, nil).Render(t.Context(), &out); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Count(out.String(), `data-folder-action="folder-appearance"`); got != 8 {

@@ -624,12 +624,12 @@ function saveAccountColor(picker, rawColor, source) {
   })
 }
 
-// Accounts on the Accounts page, rules on the Rules page and an account's
-// folders and labels in its Folders dialog are put in order by dragging an
-// item's handle, or with the arrow keys on a focused handle. Accounts also
-// move with Move up and Move down in their menu; accounts being deleted keep
-// their place and can't be moved. A folder moves among the folders next to
-// it, with the folders inside it.
+// Accounts on the Accounts page, rules on the Rules page, an account's
+// folders and tags in its Folders dialog, and the unified folders and tags
+// are put in order by dragging an item's handle, or with the arrow keys on a
+// focused handle. Accounts also move with Move up and Move down in their
+// menu; accounts being deleted keep their place and can't be moved. A
+// folder moves among the folders next to it, with the folders inside it.
 var accountOrder = {
   list: "[data-account-order-list]",
   item: "[data-settings-account-card]",
@@ -681,7 +681,17 @@ var unifiedFolderOrder = {
   save: function (list, previous) { saveOrderList(unifiedFolderOrder, list, previous, "/api/unified-folders/order", "virtual_folder_id", null) }
 }
 
-var orderKinds = [accountOrder, mailRuleOrder, folderOrder, tagOrder, unifiedFolderOrder]
+// The tags of all accounts, under the unified folders.
+var unifiedTagOrder = {
+  list: "[data-unified-tag-order-list]",
+  item: "[data-unified-tag-order-item]",
+  handle: "[data-unified-tag-order-handle]",
+  id: function (item) { return item.getAttribute("data-tag-id") },
+  movable: function () { return true },
+  save: function (list, previous) { saveOrderList(unifiedTagOrder, list, previous, "/api/unified-tags/order", "tag_id", null) }
+}
+
+var orderKinds = [accountOrder, mailRuleOrder, folderOrder, tagOrder, unifiedFolderOrder, unifiedTagOrder]
 
 function orderKindOf(el) {
   for (var i = 0; i < orderKinds.length; i++) {
@@ -1537,8 +1547,22 @@ document.addEventListener("click", function (e) {
     deleteSelectedMailRules(rows)
   } else if (action === "tags-add" || action === "tags-remove") {
     openMailRuleTagChange(rows, action === "tags-remove")
+  } else if (action === "export") {
+    exportSelectedMailRules(rows)
   }
 })
+
+// exportSelectedMailRules downloads the selected rules as a rules file,
+// leaving the page where it is.
+function exportSelectedMailRules(rows) {
+  var link = document.createElement("a")
+  link.href = "/api/settings/rules/export?rule_ids=" + encodeURIComponent(rows.map(mailRuleOrder.id).join(","))
+  link.download = ""
+  link.hidden = true
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
 
 // openMailRuleTagChange opens the dialog that adds categories to the
 // selected rules, or with remove, takes some off them.

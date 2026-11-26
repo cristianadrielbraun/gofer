@@ -14,6 +14,7 @@ import (
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providerquota"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -2311,12 +2312,13 @@ func convertFlagUpdates(imapUpdates []imap.FlagUpdate) []storage.FlagUpdate {
 	updates := make([]storage.FlagUpdate, len(imapUpdates))
 	for i, u := range imapUpdates {
 		updates[i] = storage.FlagUpdate{
-			UID:           u.UID,
-			IsRead:        u.IsRead,
-			IsStarred:     u.IsStarred,
-			Labels:        u.Labels,
-			LabelsKnown:   true,
-			LabelProvider: storage.LabelProviderKeyword,
+			UID:             u.UID,
+			IsRead:          u.IsRead,
+			IsStarred:       u.IsStarred,
+			Labels:          u.Labels,
+			LabelsKnown:     true,
+			LabelProvider:   storage.LabelProviderKeyword,
+			KeywordSnapshot: u.KeywordSnapshot,
 		}
 	}
 	return updates
@@ -2837,16 +2839,23 @@ func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices, exis
 			}
 		}
 
+		attributes := make([]keywords.MailboxAttribute, 0, len(f.Attributes))
+		for _, value := range f.Attributes {
+			if attr := keywords.RFC9979MailboxAttribute(string(value)); attr != "" {
+				attributes = append(attributes, attr)
+			}
+		}
 		folderInputs = append(folderInputs, storage.UpsertFolderInput{
-			ID:         folderID,
-			AccountID:  accountID,
-			ParentID:   parentID,
-			RemoteID:   f.Name,
-			Name:       name,
-			Icon:       imap.RoleIcon(role),
-			Role:       role,
-			Selectable: f.Selectable,
-			SortOrder:  order,
+			ID:                folderID,
+			AccountID:         accountID,
+			ParentID:          parentID,
+			RemoteID:          f.Name,
+			Name:              name,
+			Icon:              imap.RoleIcon(role),
+			Role:              role,
+			Selectable:        f.Selectable,
+			SortOrder:         order,
+			MailboxAttributes: attributes,
 		})
 	}
 	return folderInputs, nil

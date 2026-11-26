@@ -66,7 +66,7 @@ func TestUserJMAPHTTPRefreshAndSyncControls(t *testing.T) {
 		})
 	}
 	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
-		state, err := db.GetLabelSyncState(t.Context(), account.ID, storage.LabelProviderJMAP, "email")
+		state, err := db.GetLabelSyncState(t.Context(), account.ID, storage.LabelProviderJMAP, "email-keywords")
 		if err == nil && state.Cursor != "s1" {
 			t.Fatalf("refresh did not save the JMAP cursor: %+v", state)
 		}

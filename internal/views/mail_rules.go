@@ -98,8 +98,20 @@ func mailRuleFolderValue(target *models.MailRuleFolderTarget) string {
 		return "role:" + target.Role
 	case target.FolderID != "":
 		return "id:" + target.FolderID
+	case target.Path != "":
+		return mailrules.MissingFolderValue(*target)
 	}
 	return ""
+}
+
+// mailRuleRunTitle is the tooltip of a rule's Run now button, which a rule
+// that names a folder an import didn't find can't use until another is
+// chosen.
+func mailRuleRunTitle(ctx context.Context, rule models.MailRule) string {
+	if rule.MissingFolders() {
+		return i18n.T(ctx, "rules.missing.cant_run")
+	}
+	return i18n.T(ctx, "rules.run_now")
 }
 
 // mailRuleFolderName names a folder a rule points at.
@@ -109,6 +121,12 @@ func mailRuleFolderName(ctx context.Context, target *models.MailRuleFolderTarget
 	}
 	if target.Role != "" {
 		return mailRuleRoleLabel(ctx, target.Role)
+	}
+	if target.Missing() {
+		if target.AccountName != "" {
+			return i18n.T(ctx, "rules.missing.folder_in", "folder", target.Path, "account", target.AccountName)
+		}
+		return i18n.T(ctx, "rules.missing.folder", "folder", target.Path)
 	}
 	for _, account := range accounts {
 		for _, folder := range account.Folders {
@@ -483,6 +501,9 @@ func mailRuleDialogWidth(data models.MailRulesData) string {
 	}
 	if data.TagChange != nil {
 		return "sm:max-w-md"
+	}
+	if data.Import != nil {
+		return "sm:max-w-2xl"
 	}
 	return "sm:max-w-3xl"
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-func TestTagAppearanceSettingsAndUnifiedIdentity(t *testing.T) {
+func TestUnifiedTagSettingsAndIdentity(t *testing.T) {
 	accounts := []models.Account{
 		{ID: "imap", Name: "IMAP", EmailSyncEnabled: true, Labels: []models.Label{{ID: "imap-tag", AccountID: "imap", Name: "Work", AppearanceColor: "#ef4444", IconStyle: "filled"}}},
 		{ID: "gmail", Name: "Gmail", EmailSyncEnabled: true, Labels: []models.Label{{ID: "gmail-tag", AccountID: "gmail", Name: "work", AppearanceColor: "#3b82f6"}}},
@@ -25,11 +25,11 @@ func TestTagAppearanceSettingsAndUnifiedIdentity(t *testing.T) {
 		t.Fatal("combined tag identity changed with account order")
 	}
 	var out bytes.Buffer
-	if err := TagAppearanceSettings(accounts, settings).Render(t.Context(), &out); err != nil {
+	if err := UnifiedTagSettings(unifiedSidebarLabels(accounts, settings), settings).Render(t.Context(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(out.String(), `data-folder-action="folder-appearance"`) != 4 || !strings.Contains(out.String(), `data-folder-id="local-tag"`) {
-		t.Fatalf("settings omitted tags: %s", out.String())
+	if strings.Count(out.String(), `data-folder-action="folder-appearance"`) != 1 || !strings.Contains(out.String(), `data-folder-id="`+id+`"`) {
+		t.Fatalf("unified tags omitted Work: %s", out.String())
 	}
 	out.Reset()
 	if err := SidebarTagFilterLink(unified[0], "inbox", "inbox", models.EmailFilters{}, "").Render(t.Context(), &out); err != nil {

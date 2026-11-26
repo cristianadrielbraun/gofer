@@ -432,8 +432,12 @@ func mailRuleFromForm(r *http.Request) (models.MailRule, []bool) {
 }
 
 // mailRuleFolderFromValue reads a folder choice of the form: "role:" and a
-// role, or "id:" and a folder ID.
+// role, "id:" and a folder ID, or a folder an import didn't find, while no
+// other is chosen (mailrules.MissingFolderValue).
 func mailRuleFolderFromValue(value string) *models.MailRuleFolderTarget {
+	if target, ok := mailrules.ParseMissingFolderValue(value); ok {
+		return target
+	}
 	kind, rest, _ := strings.Cut(strings.TrimSpace(value), ":")
 	switch {
 	case rest == "":
@@ -454,6 +458,20 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule, _ := mailRuleFromForm(r)
+	if missing := mailRuleMissingFolderName(rule); missing != "" {
+		// A folder an import didn't find is kept until another is chosen;
+		// the rule can't be saved with it.
+		data, ok := h.loadMailRulesData(w, r)
+		if !ok {
+			return
+		}
+		data.Error = i18n.T(r.Context(), "rules.missing.choose_folder", "folder", missing)
+		rule, forGoodChosen := mailRuleFromForm(r)
+		fitMailRuleForm(&rule, data.Accounts, forGoodChosen)
+		data.Editing = &rule
+		h.renderMailRuleDialogPanel(w, r, data)
+		return
+	}
 	saved, saveErr := h.db.SaveMailRuleGuarded(r.Context(), h.userID(r.Context()), rule, h.signatureGuard)
 	if errors.Is(saveErr, sql.ErrNoRows) && rule.ID != "" {
 		http.NotFound(w, r)
@@ -497,6 +515,22 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.renderMailRulesDone(w, r, data)
+}
+
+// mailRuleMissingFolderName names the first folder of a rule that an
+// import didn't find, by its path, or is "" when there's none.
+func mailRuleMissingFolderName(rule models.MailRule) string {
+	for _, condition := range rule.Conditions {
+		if condition.Folder != nil && condition.Folder.Missing() {
+			return condition.Folder.Path
+		}
+	}
+	for _, action := range rule.Actions {
+		if action.Folder != nil && action.Folder.Missing() {
+			return action.Folder.Path
+		}
+	}
+	return ""
 }
 
 // sentence starts a message with a capital and ends it with a period.
@@ -552,8 +586,12 @@ func (h *Handler) handleMailRuleEnabled(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	log.Printf("make mail rule %s active or inactive: %v", r.PathValue("id"), err)
-	data.Error = i18n.T(r.Context(), "server.msg.the_rule_could_not_be_made_active")
+	if errors.Is(err, storage.ErrMailRuleMissingFolder) {
+		data.Error = i18n.T(r.Context(), "rules.missing.cant_turn_on")
+	} else {
+		log.Printf("make mail rule %s active or inactive: %v", r.PathValue("id"), err)
+		data.Error = i18n.T(r.Context(), "server.msg.the_rule_could_not_be_made_active")
+	}
 	w.Header().Set("HX-Retarget", "#mail-rules-panel")
 	w.Header().Set("HX-Reswap", "outerHTML")
 	h.renderMailRulesPanel(w, r, data)
@@ -595,6 +633,16 @@ func (h *Handler) handleMailRulesEnabled(w http.ResponseWriter, r *http.Request)
 		data.Error = i18n.T(r.Context(), "rules.bulk.failed")
 	case enabled:
 		data.Notice = i18n.N(r.Context(), "rules.bulk.turned_on", changed)
+		// Rules that name a folder an import didn't find stay off.
+		missing := 0
+		for _, rule := range data.Rules {
+			if slices.Contains(ids, rule.ID) && !rule.Enabled && rule.MissingFolders() {
+				missing++
+			}
+		}
+		if missing > 0 {
+			data.Notice += " " + i18n.N(r.Context(), "rules.bulk.missing_folders", missing, "count", i18n.Number(r.Context(), missing))
+		}
 	default:
 		data.Notice = i18n.N(r.Context(), "rules.bulk.turned_off", changed)
 	}
@@ -770,6 +818,10 @@ var mailRuleLocalRoutes = []mailRuleRoute{
 	{"POST /api/settings/rules/selected/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRulesEnabled }},
 	{"POST /api/settings/rules/selected/delete", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRules }},
 	{"GET /api/settings/rules/selected/tags", func(h *Handler) http.HandlerFunc { return h.handleMailRuleTagDialog }},
+	{"GET /api/settings/rules/export", func(h *Handler) http.HandlerFunc { return h.handleExportMailRules }},
+	{"GET /api/settings/rules/import", func(h *Handler) http.HandlerFunc { return h.handleMailRulesImportDialog }},
+	{"POST /api/settings/rules/import/preview", func(h *Handler) http.HandlerFunc { return h.handlePreviewMailRulesImport }},
+	{"POST /api/settings/rules/import", func(h *Handler) http.HandlerFunc { return h.handleImportMailRules }},
 	{"POST /api/settings/rules/selected/tags", func(h *Handler) http.HandlerFunc { return h.handleMailRulesTags }},
 	{"DELETE /api/settings/rules/{id}", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRule }},
 	{"POST /api/settings/rules/{id}/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRuleEnabled }},

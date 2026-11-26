@@ -210,7 +210,10 @@ func (h *Handler) handleManageFolders(w http.ResponseWriter, r *http.Request) {
 			data.Labels, err = db.ProviderLabels(ctx, accountID, storage.LabelProviderGmail)
 			return err
 		}
-		data.Folders, err = db.AccountFolderTree(ctx, accountID)
+		if data.Folders, err = db.AccountFolderTree(ctx, accountID); err != nil {
+			return err
+		}
+		data.Labels, err = db.AccountTags(ctx, owner, accountID)
 		return err
 	})
 	if err != nil {

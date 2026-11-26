@@ -981,7 +981,7 @@ func TestApplyIMAPFlagChangesRejectsStaleUIDValidity(t *testing.T) {
 	if err := db.UpsertFolders(ctx, []UpsertFolderInput{{ID: "acc_inbox", AccountID: "acc", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true}}); err != nil {
 		t.Fatalf("UpsertFolders() error = %v", err)
 	}
-	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET uid_validity = 100, highest_modseq = 700 WHERE id = 'acc_inbox'`); err != nil {
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET uid_validity = 100, highest_modseq = 700, flags_metadata_synced = 1 WHERE id = 'acc_inbox'`); err != nil {
 		t.Fatalf("seed folder state: %v", err)
 	}
 	if _, err := db.ApplyIMAPFlagChanges(ctx, "acc_inbox", 99, nil, 701); err == nil || !strings.Contains(err.Error(), "UIDVALIDITY changed") {
