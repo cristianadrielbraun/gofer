@@ -1,7 +1,7 @@
 // The sidebar's menu offers Hide from sidebar on folders without a role and
 // on any tag, and hiding or showing posts to the folder's or tag's
-// visibility and says where to show it again. A tag's switch in Settings →
-// Appearance turns back when saving fails.
+// visibility and says where to show it again. A unified tag's switch in
+// Settings → Sync turns back when saving fails.
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -59,9 +59,10 @@ assert.deepEqual(shown({ ...tag, accountID: '', provider: '', unifiedTag: true, 
 
 async function main() {
   await context.setSidebarVisibility({ accountID: 'acc', folderID: 'Trips/Coast', name: 'Coast' }, false)
-  await context.setSidebarVisibility({ accountID: 'mail', tag: true, labelID: 'receipts', name: 'Receipts' }, false)
+  await context.setSidebarVisibility({ accountID: 'mail', provider: 'gmail', tag: true, labelID: 'receipts', name: 'Receipts' }, false)
   await context.setSidebarVisibility({ accountID: '', tag: true, unifiedTag: true, labelID: 'unified_tag_1', name: 'Travel' }, false)
-  // From Settings → Appearance, which is where it'd be shown again.
+  await context.setSidebarVisibility({ accountID: 'work', provider: 'imap', tag: true, labelID: 'clients', name: 'Clients' }, false)
+  // From the Folders dialog, which is where it'd be shown again.
   await context.setSidebarVisibility({ accountID: 'work', tag: true, labelID: 'clients', name: 'Clients' }, false, true)
   await context.setSidebarVisibility({ accountID: 'acc', folderID: 'Trips/Coast', name: 'Coast' }, true)
   assert.deepEqual(posted.map(p => [p.url, p.fields.visible]), [
@@ -69,12 +70,14 @@ async function main() {
     ['/api/tags/receipts/visibility', 'false'],
     ['/api/unified-tags/unified_tag_1/visibility', 'false'],
     ['/api/tags/clients/visibility', 'false'],
+    ['/api/tags/clients/visibility', 'false'],
     ['/api/folders/Trips%2FCoast/visibility', 'true'],
   ])
   assert.deepEqual(toasts.map(t => [t.title, t.accountID, t.description]), [
     ['js.folders.hidden:Coast', 'acc', 'js.folders.hidden_where'],
-    ['js.folders.hidden:Receipts', 'mail', 'js.folders.hidden_tag_where'],
-    ['js.folders.hidden:Travel', '', 'js.folders.hidden_tag_where'],
+    ['js.folders.hidden:Receipts', 'mail', 'js.folders.hidden_label_where'],
+    ['js.folders.hidden:Travel', '', 'js.folders.hidden_unified_tag_where'],
+    ['js.folders.hidden:Clients', 'work', 'js.folders.hidden_tag_where'],
     ['js.folders.hidden:Clients', 'work', ''],
     ['js.folders.shown:Coast', 'acc', ''],
   ])

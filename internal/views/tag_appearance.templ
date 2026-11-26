@@ -3,7 +3,6 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/components/icon"
-	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -17,61 +16,4 @@ templ TagAppearanceButton(label models.Label) {
 	<button type="button" class="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ i18n.T(ctx, "appearance.of", "name", label.Name) } aria-label={ i18n.T(ctx, "appearance.of", "name", label.Name) } data-folder-action="folder-appearance" data-folder-id={ label.ID } data-folder-account={ label.AccountID } data-folder-name={ label.Name } data-tag-appearance data-tag-appearance-unified?={ label.IsUnified } data-on-click={ onAction("manageFolderAction", actionElement) }>
 		@icon.Palette(icon.Props{Class: "size-3.5"})
 	</button>
-}
-
-// tagAppearanceSettingRow is one tag: its look, and a switch for whether it
-// shows in the sidebar, which is where a hidden tag is shown again
-// (toggleTagSidebarVisibility, app.js).
-templ tagAppearanceSettingRow(label models.Label) {
-	<div class="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/40">
-		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-			@TagAppearanceIcon(label)
-		</span>
-		<span class="min-w-0 flex-1 truncate text-sm">{ label.Name }</span>
-		@TagAppearanceButton(label)
-		@switchcomp.Switch(switchcomp.Props{
-			Checked: !label.Hidden,
-			Attributes: templ.Attributes{
-				"aria-label":               i18n.T(ctx, "appearance.tag_in_sidebar", "name", label.Name),
-				"data-tag-visibility":      label.ID,
-				"data-tag-visibility-account": label.AccountID,
-				"data-tag-visibility-name": label.Name,
-				"data-tag-visibility-unified": label.IsUnified,
-				"data-on-change":           onAction("toggleTagSidebarVisibility", actionElement),
-			},
-		})
-	</div>
-}
-
-// Account tags retain their own appearance; the combined Tags list has its own preferences.
-templ TagAppearanceSettings(accounts []models.Account, uiSettings map[string]string) {
-	if len(unifiedSidebarLabels(accounts, uiSettings)) > 0 || hasAccountTags(accounts) {
-		<div class="settings-card mt-6 space-y-4 rounded-lg border bg-card p-6" data-tag-appearance-settings>
-			<div>
-				<h3 class="mb-1 text-sm font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "mail.tags") }</h3>
-				<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "appearance.tags_help") }</p>
-			</div>
-			<div class="max-h-80 space-y-3 overflow-y-auto">
-				{{ unified := unifiedSidebarLabels(accounts, uiSettings) }}
-				if len(unified) > 0 {
-					<div>
-						<p class="px-2 pb-1 text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "appearance.unified_tags") }</p>
-						for _, label := range unified {
-							@tagAppearanceSettingRow(label)
-						}
-					</div>
-				}
-				for _, account := range accounts {
-					if !account.IsDeleting && len(account.Labels) > 0 {
-						<div>
-							<p class="truncate px-2 pb-1 text-xs font-semibold text-muted-foreground">{ tagAppearanceAccountName(account) }</p>
-							for _, label := range account.Labels {
-								@tagAppearanceSettingRow(label)
-							}
-						</div>
-					}
-				}
-			</div>
-		</div>
-	}
 }

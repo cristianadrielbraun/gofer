@@ -270,8 +270,8 @@ type FolderRolesData struct {
 	Created string
 }
 
-// FoldersData is what an account's folders dialog shows: its folders, or
-// on Gmail its labels, which Gmail has instead.
+// FoldersData is what an account's folders dialog shows: its folders and
+// tags, or on Gmail its labels, which Gmail has instead of both.
 type FoldersData struct {
 	Account Account
 	Folders []Folder

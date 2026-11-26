@@ -334,3 +334,60 @@ func TestTagVisibilityHTTP(t *testing.T) {
 		t.Fatalf("settings = %v, want %v", keys, want)
 	}
 }
+
+// An account's Folders dialog lists its tags under its folders, and is
+// called Folders and tags then. A tag hidden from the sidebar is shown again
+// from there. Only Gmail's labels can be renamed or deleted.
+func TestFoldersDialogListsTags(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := t.Context()
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO folders (id, account_id, remote_id, name, role, selectable) VALUES ('f-inbox', 'victim-account', 'INBOX', 'Inbox', 'inbox', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	account := map[string]string{"id": "victim-account"}
+	rec := identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/", account, nil, true)
+	if body := rec.Body.String(); strings.Contains(body, "Folders and tags") || strings.Contains(body, "data-tag-order-list") {
+		t.Fatalf("an account without tags lists some: %q", body)
+	}
+
+	if err := db.UpsertLabels(ctx, []storage.LabelInput{
+		{AccountID: "victim-account", Name: "Clients", ProviderID: "Clients", ProviderType: "imap_keyword"},
+		{AccountID: "victim-account", Name: "Travel", ProviderID: "Travel", ProviderType: "imap_keyword"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := db.AccountTags(ctx, "owner", "victim-account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	for _, tag := range tags {
+		ids[tag.Name] = tag.ID
+	}
+	if len(ids) != 2 {
+		t.Fatalf("tags = %v", tags)
+	}
+	if code := identityRequest(t, h, h.handleSaveTagVisibility, http.MethodPost, "/visibility", map[string]string{"id": ids["Travel"]}, url.Values{"visible": {"false"}}, true).Code; code != http.StatusOK {
+		t.Fatalf("hide Travel = %d", code)
+	}
+
+	rec = identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/", account, nil, true)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Folders and tags") || !strings.Contains(body, "data-tag-order-list") {
+		t.Fatalf("dialog lacks the tags: %q", body)
+	}
+	actions := folderMenuActions(body)
+	for _, want := range []string{"folder-appearance " + ids["Clients"], "hide-tag " + ids["Clients"], "show-tag " + ids["Travel"]} {
+		if !actions[want] {
+			t.Errorf("menus lack %s: %v", want, actions)
+		}
+	}
+	for _, unwanted := range []string{"hide-tag " + ids["Travel"], "rename-label " + ids["Clients"], "delete-label " + ids["Clients"]} {
+		if actions[unwanted] {
+			t.Errorf("menus have %s", unwanted)
+		}
+	}
+	if got := strings.Count(body, "data-folder-hidden-mark"); got != 1 {
+		t.Errorf("hidden marks = %d, want 1 (Travel)", got)
+	}
+}

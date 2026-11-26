@@ -81,7 +81,7 @@ func TestSettingsJMAPSyncUsesAccountWideUpdates(t *testing.T) {
 				})
 			}
 			var out bytes.Buffer
-			if err := SettingsSyncTab(settings, nil).Render(t.Context(), &out); err != nil {
+			if err := SettingsSyncTab(settings, nil, nil).Render(t.Context(), &out); err != nil {
 				t.Fatal(err)
 			}
 			html := out.String()

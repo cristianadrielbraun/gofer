@@ -1,6 +1,7 @@
 package views
 
 import (
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -142,36 +143,44 @@ func TestSidebarHidesHiddenTags(t *testing.T) {
 	}
 }
 
-// Settings → Appearance lists hidden tags too, with their switch off, as
-// that's where they are shown again.
-func TestTagAppearanceSettingsShowsHiddenTags(t *testing.T) {
+// Settings → Sync lists the unified tags hidden from the sidebar too, with
+// their switch off, as that's where they are shown again. While unified
+// folders are off, the switches are too.
+func TestUnifiedTagSettingsShowsHiddenTags(t *testing.T) {
 	accounts := []models.Account{{ID: "work", Name: "Work", Provider: "imap", EmailSyncEnabled: true, Labels: []models.Label{
 		{ID: "travel", AccountID: "work", Name: "Travel", Hidden: true},
 		{ID: "clients", AccountID: "work", Name: "Clients"},
 	}}}
-	settings := map[string]string{models.TagVisibleKey(models.UnifiedTagID("Clients"), true): "false"}
-	var out strings.Builder
-	if err := TagAppearanceSettings(accounts, settings).Render(t.Context(), &out); err != nil {
-		t.Fatal(err)
+	switches := func(settings map[string]string) map[string]string {
+		t.Helper()
+		var out strings.Builder
+		if err := UnifiedTagSettings(unifiedSidebarLabels(accounts, settings), settings).Render(t.Context(), &out); err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, m := range regexp.MustCompile(`<input[^>]*data-tag-visibility="([^"]*)"[^>]*>`).FindAllStringSubmatch(out.String(), -1) {
+			state := "off"
+			if strings.Contains(m[0], " checked") {
+				state = "on"
+			}
+			if strings.Contains(m[0], " disabled") {
+				state += ", disabled"
+			}
+			got[m[1]] = state
+		}
+		return got
 	}
-	switches := regexp.MustCompile(`<input[^>]*data-tag-visibility="([^"]*)"[^>]*>`).FindAllStringSubmatch(out.String(), -1)
-	got := map[string]bool{}
-	for _, m := range switches {
-		got[m[1]] = strings.Contains(m[0], " checked")
-	}
-	want := map[string]bool{
-		"travel":                       false,
-		"clients":                      true,
-		models.UnifiedTagID("Travel"):  true,
-		models.UnifiedTagID("Clients"): false,
-	}
-	if len(got) != len(want) {
+	travel, clients := models.UnifiedTagID("Travel"), models.UnifiedTagID("Clients")
+	settings := map[string]string{models.TagVisibleKey(clients, true): "false"}
+	// Work's own Travel is hidden, which leaves the unified one.
+	want := map[string]string{travel: "on", clients: "off"}
+	if got := switches(settings); !maps.Equal(got, want) {
 		t.Fatalf("switches = %v, want %v", got, want)
 	}
-	for id, on := range want {
-		if shown, ok := got[id]; !ok || shown != on {
-			t.Errorf("switch %s = %v (present %v), want %v", id, shown, ok, on)
-		}
+	settings["unified_folders_enabled"] = "false"
+	want = map[string]string{travel: "on, disabled", clients: "off, disabled"}
+	if got := switches(settings); !maps.Equal(got, want) {
+		t.Fatalf("with unified folders off, switches = %v, want %v", got, want)
 	}
 }
 

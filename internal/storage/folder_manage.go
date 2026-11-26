@@ -360,6 +360,17 @@ func (db *DB) ProviderLabels(ctx context.Context, accountID, providerType string
 	return labels, rows.Err()
 }
 
+// AccountTags returns an account's tags as the sidebar lists them, in the
+// user's order, hidden ones included, for its Folders dialog. An account
+// that isn't the user's has none.
+func (db *DB) AccountTags(ctx context.Context, userID, accountID string) ([]models.Label, error) {
+	accounts := []models.Account{{ID: strings.TrimSpace(accountID)}}
+	if err := db.attachAccountLabels(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
+	return accounts[0].Labels, nil
+}
+
 // AccountFolderTree returns an account's folders as the sidebar shows them,
 // with the folders inside each.
 func (db *DB) AccountFolderTree(ctx context.Context, accountID string) ([]models.Folder, error) {

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -13,24 +14,23 @@ import (
 
 // FoldersDialog lists an account's folders, from its settings, to make,
 // rename and delete them where the sidebar's menu isn't at hand, as on a
-// phone, and to put them in order. Gmail has labels instead, which it lists.
-// Each row's menu runs the sidebar's folder actions (app.js), which ask
-// first; after each change the panel loads again. Each folder's handle drags it
-// among the folders next to it (settings.js), each label's among the labels.
+// phone, and to put them in order, and the account's tags under them. Gmail
+// has labels instead of both, which it lists. Each row's menu runs the
+// sidebar's folder actions (app.js), which ask first; after each change the
+// panel loads again. Each folder's handle drags it among the folders next to
+// it (settings.js), each tag's or label's among the tags.
 templ FoldersDialog(data models.FoldersData) {
 	@dialog.Dialog(dialog.Props{ID: "folders-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					if data.Account.Provider == "gmail" {
-						{ i18n.T(ctx, "settings.account.labels") }
-					} else {
-						{ i18n.T(ctx, "settings.account.folders") }
-					}
+					{ foldersDialogName(ctx, data.Account, len(data.Labels) > 0) }
 				}
 				@dialog.Description() {
 					if data.Account.Provider == "gmail" {
 						{ i18n.T(ctx, "settings.folders.gmail_description") }
+					} else if len(data.Labels) > 0 {
+						{ i18n.T(ctx, "settings.folders.tags_description") }
 					} else {
 						{ i18n.T(ctx, "settings.folders.description") }
 					}
@@ -74,40 +74,69 @@ templ FoldersPanel(data models.FoldersData) {
 				if len(data.Labels) == 0 {
 					<p class="px-3 py-6 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "settings.folders.no_labels") }</p>
 				}
-				<div data-tag-order-list data-account-id={ data.Account.ID }>
-				for _, label := range data.Labels {
-					<div class="flex items-center gap-2 rounded-md bg-background/60 px-2.5 py-1.5 transition-transform duration-200 ease-out hover:bg-accent" data-tag-order-item data-tag-id={ label.ID }>
-						@OrderHandle("data-tag-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", label.Name))
-						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-							@TagAppearanceIcon(label)
-						</span>
-						<span class={ "min-w-0 flex-1 truncate text-sm", templ.KV("text-muted-foreground", label.Hidden) }>{ label.Name }</span>
-						if label.Hidden {
-							@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden"))
-						}
-						@folderActionsMenu(label.ID, label.Name) {
-							@folderActionsItem("folder-appearance", data.Account.ID, label.ID, label.Name, false, templ.Attributes{"data-tag-appearance": "", "data-tag-appearance-unified": label.IsUnified}) {
-								@icon.Palette(icon.Props{Class: "size-3.5"})
-								{ i18n.T(ctx, "mail.folder_menu.appearance") }
-							}
-							@folderVisibilityItem("tag", data.Account.ID, label.ID, label.Name, label.Hidden, templ.Attributes{"data-tag-appearance": ""})
-							@folderActionsItem("rename-label", data.Account.ID, label.ID, label.Name, false, nil) {
-								@icon.Pencil(icon.Props{Class: "size-3.5"})
-								{ i18n.T(ctx, "mail.folder_menu.rename_label") }
-							}
-							@dropdown.Separator()
-							@folderActionsItem("delete-label", data.Account.ID, label.ID, label.Name, true, nil) {
-								@icon.Trash2(icon.Props{Class: "size-3.5"})
-								{ i18n.T(ctx, "mail.folder_menu.delete_label") }
-							}
-						}
-					</div>
-				}
-				</div>
+				@tagOrderList(data.Account, data.Labels)
 			} else {
 				@foldersOrderList(data.Account, data.Folders, 0, false, false)
+				if len(data.Labels) > 0 {
+					<p class="px-2.5 pb-1 pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "mail.tags") }</p>
+					@tagOrderList(data.Account, data.Labels)
+				}
 			}
 		</div>
+	</div>
+}
+
+// foldersDialogName is what the Folders dialog and the account menu item
+// that opens it are called: Labels on Gmail, which has them instead of
+// folders and tags, and Folders and tags on an account that has tags.
+func foldersDialogName(ctx context.Context, account models.Account, hasTags bool) string {
+	switch {
+	case account.Provider == "gmail":
+		return i18n.T(ctx, "settings.account.labels")
+	case hasTags:
+		return i18n.T(ctx, "settings.account.folders_and_tags")
+	default:
+		return i18n.T(ctx, "settings.account.folders")
+	}
+}
+
+// tagOrderList is an account's tags, or Gmail's labels, each with its
+// appearance and whether it shows in the sidebar, and its handle to put it
+// in order among them. Only Gmail's labels can be renamed or deleted: other
+// tags are only the words on the mail that has them.
+templ tagOrderList(account models.Account, labels []models.Label) {
+	{{ gmail := account.Provider == "gmail" }}
+	<div data-tag-order-list data-account-id={ account.ID }>
+		for _, label := range labels {
+			<div class="flex items-center gap-2 rounded-md bg-background/60 px-2.5 py-1.5 transition-transform duration-200 ease-out hover:bg-accent" data-tag-order-item data-tag-id={ label.ID }>
+				@OrderHandle("data-tag-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", label.Name))
+				<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+					@TagAppearanceIcon(label)
+				</span>
+				<span class={ "min-w-0 flex-1 truncate text-sm", templ.KV("text-muted-foreground", label.Hidden) }>{ label.Name }</span>
+				if label.Hidden {
+					@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden"))
+				}
+				@folderActionsMenu(label.ID, label.Name) {
+					@folderActionsItem("folder-appearance", account.ID, label.ID, label.Name, false, templ.Attributes{"data-tag-appearance": "", "data-tag-appearance-unified": label.IsUnified}) {
+						@icon.Palette(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.appearance") }
+					}
+					@folderVisibilityItem("tag", account.ID, label.ID, label.Name, label.Hidden, templ.Attributes{"data-tag-appearance": ""})
+					if gmail {
+						@folderActionsItem("rename-label", account.ID, label.ID, label.Name, false, nil) {
+							@icon.Pencil(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "mail.folder_menu.rename_label") }
+						}
+						@dropdown.Separator()
+						@folderActionsItem("delete-label", account.ID, label.ID, label.Name, true, nil) {
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "mail.folder_menu.delete_label") }
+						}
+					}
+				}
+			</div>
+		}
 	</div>
 }
 
