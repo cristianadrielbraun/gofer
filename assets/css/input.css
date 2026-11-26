@@ -3,7 +3,6 @@
 @import "./themes/minimal.css";
 @import "./themes/express.css";
 @import "./wolf.css";
-@import "./mail-calendar-sidebar.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -4586,6 +4585,99 @@ body.mail-list-column-resizing {
   }
 }
 
+/* === MAIL CALENDAR SIDEBAR === */
+
+/* The calendar beside Mail takes its saved width at the right edge on wide
+   screens. Smaller ones show it over the panes, from the right edge. */
+.mail-calendar-shell {
+  --mail-calendar-width: 300px;
+  position: relative;
+  display: flex;
+  flex: 0 0 var(--mail-calendar-width);
+  width: var(--mail-calendar-width);
+  min-width: 0;
+  height: 100%;
+}
+
+.mail-calendar-shell[data-open="false"] {
+  flex-basis: 0;
+  width: 0;
+}
+
+.mail-calendar-aside {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mail-calendar-shell[data-open="false"] :is(.mail-calendar-aside, .mail-calendar-grip),
+.mail-calendar-shell[data-open="true"] [data-mail-calendar-show-icon],
+.mail-calendar-shell[data-open="false"] [data-mail-calendar-hide-icon] {
+  display: none;
+}
+
+/* The tab that hides and shows it sticks out of its left edge. */
+.mail-calendar-toggle {
+  position: absolute;
+  top: 42%;
+  right: 100%;
+  z-index: 41;
+}
+
+/* The grip sits on the calendar's border and looks like the pane dividers. */
+.mail-calendar-grip {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 5px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.mail-calendar-grip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+}
+
+/* Days with events show one dot per calendar, as the Calendar page does on
+   phones. */
+[data-mail-calendar-day] .calendar-day-dots {
+  display: flex;
+  min-height: 0.375rem;
+  justify-content: center;
+  gap: 0.1875rem;
+}
+
+@media (max-width: 1535.98px) {
+  .mail-calendar-shell {
+    position: fixed;
+    z-index: 70;
+    top: 0;
+    right: 0;
+    height: 100dvh;
+    flex: none;
+  }
+
+  .mail-calendar-grip {
+    display: none;
+  }
+
+  .mail-calendar-toggle {
+    top: 80px;
+  }
+}
+
+/* Phones show Mail one pane at a time, with Calendar a tap away, so the
+   calendar isn't shown beside it there. */
+@media (max-width: 1023.98px) {
+  .mail-calendar-shell {
+    display: none;
+  }
+}
+
 /* === RESIZE HANDLE === */
 
 .resize-handle {
@@ -4598,7 +4690,8 @@ body.mail-list-column-resizing {
   transition: background 0.15s ease;
 }
 
-.resize-handle::after {
+.resize-handle::after,
+.mail-calendar-grip::after {
   content: '';
   position: absolute;
   top: 0;
@@ -4611,7 +4704,8 @@ body.mail-list-column-resizing {
 }
 
 .resize-handle:hover::after,
-.resize-handle.active::after {
+.resize-handle.active::after,
+.mail-calendar-grip:is(:hover, :focus-visible)::after {
   width: 3px;
   background: var(--primary);
   border-radius: 2px;
@@ -8033,6 +8127,16 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   display: none;
 }
 
+.calendar-day-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+}
+
+.calendar-day-dot[hidden] {
+  display: none;
+}
+
 @media (max-width: 1023.98px) {
   #main-content:has(> [data-calendar-agenda]) {
     flex-direction: column;
@@ -8091,16 +8195,6 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
     min-height: 0.375rem;
     justify-content: center;
     gap: 0.1875rem;
-  }
-
-  .calendar-day-dot {
-    width: 0.375rem;
-    height: 0.375rem;
-    border-radius: 9999px;
-  }
-
-  .calendar-day-dot[hidden] {
-    display: none;
   }
 
   /* Month: the grid takes the height it needs and the agenda the rest. */

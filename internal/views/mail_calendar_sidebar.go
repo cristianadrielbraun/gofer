@@ -1,7 +1,13 @@
 package views
 
-import "sort"
+import (
+	"sort"
 
+	"github.com/a-h/templ"
+)
+
+// mailSidebarURL is the calendar cache's month around date, drawn for the
+// calendar beside Mail.
 func mailSidebarURL(date string) string {
 	return "/calendar?view=month&date=" + date + "&cache=1"
 }
@@ -46,15 +52,44 @@ func mailSidebarDayEvents(day CalendarDay, events []CalendarEvent) []CalendarEve
 	return result
 }
 
-func mailSidebarDayStyle(day CalendarDay, selected string) string {
-	if day.ISODate == selected {
-		return "background: var(--primary); color: var(--primary-foreground);"
+// mailSidebarLinkAttributes load date's month into the calendar beside Mail
+// without leaving Mail.
+func mailSidebarLinkAttributes(date string) templ.Attributes {
+	return templ.Attributes{
+		"hx-get":    mailSidebarURL(date),
+		"hx-target": "#mail-calendar-sidebar-content",
+		"hx-swap":   "outerHTML",
 	}
+}
+
+// mailSidebarArrowAttributes is one of the previous and next month arrows.
+func mailSidebarArrowAttributes(date, label string) templ.Attributes {
+	attributes := mailSidebarLinkAttributes(date)
+	attributes["href"] = mailSidebarURL(date)
+	attributes["aria-label"] = label
+	return attributes
+}
+
+// mailSidebarDayClass draws a day like the Calendar page does: today is
+// circled in the theme's primary color and the picked day is filled with it.
+func mailSidebarDayClass(day CalendarDay, selected string) string {
+	classes := "relative flex h-9 flex-col items-center justify-center gap-0.5 rounded-md text-xs font-semibold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+	switch {
+	case day.ISODate == selected:
+		return classes + " bg-primary text-primary-foreground shadow-sm"
+	case day.IsToday:
+		return classes + " text-primary ring-1 ring-inset ring-primary hover:bg-accent"
+	case !day.InMonth:
+		return classes + " text-muted-foreground/45 hover:bg-accent"
+	default:
+		return classes + " text-foreground hover:bg-accent"
+	}
+}
+
+// mailSidebarDayCurrent marks today for screen readers.
+func mailSidebarDayCurrent(day CalendarDay) string {
 	if day.IsToday {
-		return "outline: 1px solid var(--primary);"
+		return "date"
 	}
-	if !day.InMonth {
-		return "opacity: .45;"
-	}
-	return ""
+	return "false"
 }

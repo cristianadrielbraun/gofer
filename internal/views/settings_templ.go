@@ -35263,14 +35263,14 @@ func mailCalendarSidebarSetting(uiSettings map[string]string) templ.Component {
 			templ_7745c5c3_Var1840 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2015, "<div class=\"settings-row border-t border-border/60 pt-5 flex items-start justify-between gap-6\"><div class=\"min-w-0\"><span id=\"mail-calendar-sidebar-enabled-label\" class=\"text-sm font-medium text-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2015, "<div class=\"settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between\"><div class=\"min-w-0\"><span id=\"mail-calendar-sidebar-enabled-label\" class=\"text-sm font-medium text-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var1841 string
 		templ_7745c5c3_Var1841, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.panes.mail_calendar_sidebar_title"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 7343, Col: 162}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 7343, Col: 153}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var1841))
 		if templ_7745c5c3_Err != nil {
@@ -35283,29 +35283,44 @@ func mailCalendarSidebarSetting(uiSettings map[string]string) templ.Component {
 		var templ_7745c5c3_Var1842 string
 		templ_7745c5c3_Var1842, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "settings.panes.mail_calendar_sidebar_description"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 7344, Col: 123}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 7344, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var1842))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2017, "</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2017, "</p></div><div class=\"w-full sm:w-44 shrink-0\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = switchcomp.Switch(switchcomp.Props{
-			ID:      "mail-calendar-sidebar-enabled",
-			Name:    "mail_calendar_sidebar_enabled",
-			Checked: uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true",
-			Attributes: templ.Attributes{
-				"aria-labelledby":        "mail-calendar-sidebar-enabled-label",
-				"data-ui-setting-switch": "mail_calendar_sidebar_enabled",
-			},
-		}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Var1843 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = switchcomp.Switch(switchcomp.Props{
+				ID:         "mail-calendar-sidebar-enabled",
+				Name:       "mail_calendar_sidebar_enabled",
+				Checked:    uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true",
+				Attributes: templ.Attributes{"aria-labelledby": "mail-calendar-sidebar-enabled-label", "data-ui-setting-switch": "mail_calendar_sidebar_enabled"},
+			}).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")).Render(templ.WithChildren(ctx, templ_7745c5c3_Var1843), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2018, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2018, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

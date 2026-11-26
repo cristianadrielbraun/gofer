@@ -63,7 +63,6 @@
     );
 
     if (toggle) {
-      toggle.textContent = open ? "‹" : "›";
       toggle.setAttribute("aria-expanded", String(open));
       toggle.setAttribute(
         "aria-label",
@@ -95,7 +94,7 @@
 
     // Initialize HTMX for calendar nodes inserted by SPA navigation.
     const pending = shell.querySelector(
-      '#mail-calendar-sidebar-content[hx-trigger="load"]'
+      '#mail-calendar-sidebar-content[hx-trigger]'
     );
 
     if (pending && window.htmx && pending.dataset.htmxReady !== "yes") {

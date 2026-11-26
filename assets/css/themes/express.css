@@ -1636,7 +1636,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 
 /* Previous/next, the view menu and the week zoom buttons are separate raised
    buttons. */
-[data-theme="express"] div:has(> [data-calendar-navigate]),
+[data-theme="express"] [data-calendar-arrows],
 [data-theme="express"] div:has(> [data-calendar-week-zoom]) {
   gap: 2px;
   overflow: visible;
@@ -1646,7 +1646,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   box-shadow: none;
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger) {
+[data-theme="express"] :is([data-calendar-arrows] > a, [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger) {
   border: none;
   border-radius: 0;
   background: var(--xp-face);
@@ -1655,16 +1655,16 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   transition: none;
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):hover:not(:disabled) {
+[data-theme="express"] :is([data-calendar-arrows] > a, [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):hover:not(:disabled) {
   background: color-mix(in srgb, var(--xp-face) 92%, var(--xp-light));
   color: var(--foreground);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) {
+[data-theme="express"] :is([data-calendar-arrows] > a, [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) {
   box-shadow: var(--xp-bevel-pressed);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) > * {
+[data-theme="express"] :is([data-calendar-arrows] > a, [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):active:not(:disabled) > * {
   translate: 1px 1px;
 }
 
@@ -1682,7 +1682,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   text-shadow: 1px 1px 0 var(--xp-light);
 }
 
-[data-theme="express"] :is([data-calendar-navigate], [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):focus-visible {
+[data-theme="express"] :is([data-calendar-arrows] > a, [data-calendar-week-zoom], [data-calendar-view-nav] .select-trigger):focus-visible {
   --tw-ring-shadow: 0 0 #0000;
   outline: 1px dotted var(--foreground);
   outline-offset: -4px;
@@ -1756,6 +1756,35 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   color: var(--xp-select-foreground);
 }
 
+/* The calendar beside Mail: square days, the picked one in navy and today
+   framed in navy, with square calendar dots like the event markers. */
+[data-theme="express"] [data-mail-calendar-day] {
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
+}
+
+[data-theme="express"] [data-mail-calendar-day].bg-primary {
+  background: var(--xp-select);
+  color: var(--xp-select-foreground);
+}
+
+[data-theme="express"] [data-mail-calendar-day].ring-primary {
+  --tw-ring-color: var(--xp-select);
+  color: var(--xp-select);
+}
+
+[data-theme="express"] [data-mail-calendar-day] .calendar-day-dot {
+  border-radius: 0;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.45);
+}
+
+[data-theme="express"] :is([data-mail-calendar-day], .mail-calendar-grip):focus-visible {
+  --tw-ring-shadow: 0 0 #0000;
+  outline: 1px dotted var(--foreground);
+  outline-offset: -2px;
+}
+
 [data-theme="express"] [data-calendar-timed-column] {
   border-color: var(--xp-mid);
   background: var(--card);
@@ -1823,7 +1852,7 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 }
 
 /* Agenda: flat white panels. */
-[data-theme="express"] #calendar-agenda-list [data-calendar-event-trigger] {
+[data-theme="express"] [data-calendar-agenda-event] {
   border-color: var(--xp-mid);
   border-radius: 0;
   background: var(--card);
@@ -1831,7 +1860,7 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   transition: none;
 }
 
-[data-theme="express"] #calendar-agenda-list [data-calendar-event-trigger]:hover {
+[data-theme="express"] [data-calendar-agenda-event]:hover {
   background: var(--accent);
 }
 
@@ -2723,7 +2752,7 @@ html[data-theme="express"] #mail-list .thread-sub-item > .mail-row-check ~ a {
   box-shadow: none;
 }
 
-[data-theme="express"] .resize-handle {
+[data-theme="express"] :is(.resize-handle, .mail-calendar-grip) {
   background: var(--xp-face);
 }
 
