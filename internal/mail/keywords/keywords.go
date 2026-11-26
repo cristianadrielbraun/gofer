@@ -39,17 +39,50 @@ func Validate(keyword string) (string, error) {
 // undocumented markers, $IsTrusted and the $X-ME-* keywords. None of them
 // show as labels.
 func IsStatus(keyword string) bool {
-	switch lower := strings.ToLower(strings.TrimSpace(keyword)); lower {
+	lower := strings.ToLower(strings.TrimSpace(keyword))
+	if IsRFC9979(lower) {
+		return true
+	}
+	switch lower {
 	case "\\seen", "\\answered", "\\flagged", "\\deleted", "\\draft", "\\recent",
 		"$seen", "$answered", "$flagged", "$draft",
 		"$junk", "$notjunk", "$nonjunk", "junk", "notjunk", "nonjunk", "non-junk",
-		"$forwarded", "$mdnsent", "$phishing", "$istrusted",
-		"$hasattachment", "$hasnoattachment",
-		"$submitpending", "$submitted", "$autosent",
-		"$muted", "$followed", "$notify",
-		"$unsubscribed", "$canunsubscribe", "$imported":
+		"$forwarded", "$mdnsent", "$phishing",
+		"$submitpending", "$submitted":
 		return true
 	default:
 		return strings.HasPrefix(keyword, "\\") || strings.HasPrefix(lower, "$x-me-")
 	}
+}
+
+// IsRFC9979 reports whether a keyword is registered by RFC 9979. Keyword
+// spellings are matched case-insensitively in IMAP and JMAP.
+func IsRFC9979(keyword string) bool {
+	switch strings.ToLower(strings.TrimSpace(keyword)) {
+	case "$autosent", "$canunsubscribe", "$followed", "$hasattachment",
+		"$hasmemo", "$hasnoattachment", "$imported", "$istrusted",
+		"$mailflagbit0", "$mailflagbit1", "$mailflagbit2", "$maskedemail",
+		"$memo", "$muted", "$new", "$notify", "$unsubscribed":
+		return true
+	}
+	return false
+}
+
+// MailboxAttribute identifies a server-supplied RFC 9979 mailbox purpose.
+type MailboxAttribute string
+
+const (
+	MailboxMemos     MailboxAttribute = "memos"
+	MailboxScheduled MailboxAttribute = "scheduled"
+	MailboxSnoozed   MailboxAttribute = "snoozed"
+)
+
+// RFC9979MailboxAttribute recognizes the registered mailbox attribute or JMAP
+// role. RFC 9979 does not imply a leading backslash for these attributes.
+func RFC9979MailboxAttribute(value string) MailboxAttribute {
+	switch attr := MailboxAttribute(strings.ToLower(value)); attr {
+	case MailboxMemos, MailboxScheduled, MailboxSnoozed:
+		return attr
+	}
+	return ""
 }

@@ -197,6 +197,7 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, op
 						applySyncHeaders(&syncMsg, &dates, body)
 					}
 				case imapclient.FetchItemDataFlags:
+					syncMsg.KeywordSnapshot = keywordSnapshot(item.Flags)
 					syncMsg.Labels = labelsFromFlags(item.Flags)
 					syncMsg.LabelsKnown = true
 					syncMsg.LabelProvider = storage.LabelProviderKeyword
@@ -328,6 +329,7 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 					applySyncHeaders(&syncMsg, &dates, body)
 				}
 			case imapclient.FetchItemDataFlags:
+				syncMsg.KeywordSnapshot = keywordSnapshot(item.Flags)
 				syncMsg.Labels = labelsFromFlags(item.Flags)
 				syncMsg.LabelsKnown = true
 				syncMsg.LabelProvider = storage.LabelProviderKeyword
@@ -677,10 +679,11 @@ func (c *Client) findUIDsByHeaderFetchLocked(numMessages uint32, headerName, hea
 }
 
 type FlagUpdate struct {
-	UID       uint32
-	IsRead    bool
-	IsStarred bool
-	Labels    []storage.LabelInput
+	UID             uint32
+	IsRead          bool
+	IsStarred       bool
+	Labels          []storage.LabelInput
+	KeywordSnapshot []string
 }
 
 type FlagSyncResult struct {
@@ -810,6 +813,7 @@ func (c *Client) fetchFlagSetLocked(remoteName string, uidSet imap.UIDSet, chang
 			case imapclient.FetchItemDataUID:
 				update.UID = uint32(item.UID)
 			case imapclient.FetchItemDataFlags:
+				update.KeywordSnapshot = keywordSnapshot(item.Flags)
 				update.Labels = labelsFromFlags(item.Flags)
 				for _, flag := range item.Flags {
 					switch flag {
@@ -822,7 +826,7 @@ func (c *Client) fetchFlagSetLocked(remoteName string, uidSet imap.UIDSet, chang
 			}
 		}
 
-		if update.UID > 0 {
+		if update.UID > 0 && update.KeywordSnapshot != nil {
 			updates = append(updates, update)
 		}
 	}
@@ -830,6 +834,14 @@ func (c *Client) fetchFlagSetLocked(remoteName string, uidSet imap.UIDSet, chang
 		return nil, fmt.Errorf("fetch flags %s: %w", remoteName, err)
 	}
 	return updates, nil
+}
+
+func keywordSnapshot(flags []imap.Flag) []string {
+	snapshot := make([]string, 0, len(flags))
+	for _, flag := range flags {
+		snapshot = append(snapshot, string(flag))
+	}
+	return snapshot
 }
 
 func labelsFromFlags(flags []imap.Flag) []storage.LabelInput {

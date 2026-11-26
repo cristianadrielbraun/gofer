@@ -4,43 +4,49 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"maps"
-	"slices"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 )
 
-// forgetStatusKeywordLabels deletes the keyword labels that keywords.IsStatus
-// now counts as status, like $HasNoAttachment, which some servers add to every
-// new message. Sync already skips them, but labels saved before a keyword was
-// added to that list stayed on their messages and in the sidebar. It runs at
-// every start rather than as a schema step, so a keyword added to the list
-// later is cleared the same way. Only the local copy goes: the keywords stay
-// on the server.
+// forgetStatusKeywordLabels retires technical labels copied verbatim by the
+// offline shared-to-split storage migration before the copied store is opened.
 func forgetStatusKeywordLabels(db *sql.DB) error {
-	var tables int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'labels'`).Scan(&tables); err != nil {
-		return fmt.Errorf("look for the labels table: %w", err)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
 	}
-	if tables == 0 {
-		return nil
+	defer tx.Rollback()
+	if err := preserveStatusKeywordLabelsTx(tx); err != nil {
+		return err
 	}
-	rows, err := db.Query(`SELECT id, name, provider_id FROM labels WHERE provider_type = ?`, LabelProviderKeyword)
+	return tx.Commit()
+}
+
+func preserveStatusKeywordLabelsTx(tx *sql.Tx) error {
+	hasLabels, err := tableExistsTx(tx, "labels")
+	if err != nil || !hasLabels {
+		return err
+	}
+	rows, err := tx.Query(`SELECT id, name, provider_id FROM labels WHERE provider_type = ?`, LabelProviderKeyword)
 	if err != nil {
 		return fmt.Errorf("list keyword labels: %w", err)
 	}
-	var ids []string
-	names := map[string]bool{}
+	type statusLabel struct{ id, keyword string }
+	var labels []statusLabel
 	for rows.Next() {
 		var id, name, providerID string
 		if err := rows.Scan(&id, &name, &providerID); err != nil {
 			rows.Close()
 			return fmt.Errorf("read keyword label: %w", err)
 		}
-		if keywords.IsStatus(name) || keywords.IsStatus(providerID) {
-			ids = append(ids, id)
-			names[strings.ToLower(strings.TrimSpace(name))] = true
+		keyword := strings.TrimSpace(providerID)
+		if keyword == "" {
+			keyword = strings.TrimSpace(name)
+		}
+		if keywords.IsStatus(keyword) {
+			labels = append(labels, statusLabel{id, keyword})
 		}
 	}
 	if err := rows.Close(); err != nil {
@@ -49,30 +55,33 @@ func forgetStatusKeywordLabels(db *sql.DB) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(ids) == 0 {
+	if len(labels) == 0 {
 		return nil
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var tagged int64
-	for _, id := range ids {
-		var count int64
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM message_labels WHERE label_id = ?`, id).Scan(&count); err != nil {
-			return fmt.Errorf("count messages with status keyword label: %w", err)
+	started := time.Now()
+	for i, label := range labels {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO retired_keyword_labels (id, account_id, name, provider_id)
+			SELECT id, account_id, name, provider_id FROM labels WHERE id = ?`, label.id); err != nil {
+			return fmt.Errorf("preserve status label identity: %w", err)
 		}
-		tagged += count
-		// message_labels and message_label_copies go with the label.
-		if _, err := tx.Exec(`DELETE FROM labels WHERE id = ?`, id); err != nil {
+		// A legacy association without copy data belongs to the logical
+		// message. Assigning it to every folder or UID would invent state.
+		if _, err := tx.Exec(`INSERT INTO message_provider_keywords (message_id, remote_message_id, keywords, fetched)
+			SELECT message_id, remote_message_id, json_array(?), 0 FROM message_label_copies WHERE label_id = ?
+			UNION ALL
+			SELECT ml.message_id, '', json_array(?), 0 FROM message_labels ml WHERE ml.label_id = ?
+			AND NOT EXISTS (SELECT 1 FROM message_label_copies c WHERE c.message_id = ml.message_id AND c.label_id = ml.label_id)
+			ON CONFLICT (message_id, remote_message_id) DO UPDATE SET
+				keywords = json_insert(message_provider_keywords.keywords, '$[#]', json_extract(excluded.keywords, '$[0]'))
+			WHERE message_provider_keywords.fetched = 0`, label.keyword, label.id, label.keyword, label.id); err != nil {
+			return fmt.Errorf("preserve status keyword label: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM labels WHERE id = ?`, label.id); err != nil {
 			return fmt.Errorf("delete status keyword label: %w", err)
 		}
+		log.Printf("storage: preserved status keyword metadata for %d/%d labels", i+1, len(labels))
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	log.Printf("storage: removed %d status keyword label(s) (%s) from %d message label(s)", len(ids), strings.Join(slices.Sorted(maps.Keys(names)), ", "), tagged)
+	log.Printf("storage: status keyword metadata conversion done in %s", time.Since(started).Round(time.Millisecond))
 	return nil
 }

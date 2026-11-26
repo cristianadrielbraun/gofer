@@ -144,7 +144,7 @@ func TestUserStorageMigrationInventoryCoversActualRuntimeTablesColumnsAndForeign
 			}
 		}
 	}
-	if len(actualTables) != 119 || len(actualLinks) != 151 {
+	if len(actualTables) != 121 || len(actualLinks) != 153 {
 		t.Fatal("runtime inventory changed", len(actualTables), len(actualLinks))
 	}
 }

@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS folders (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- A role the user gave an IMAP folder by hand, which the folder sync puts
     -- before the one the server reports; '' for none.
-    role_choice TEXT NOT NULL DEFAULT ''
+    role_choice TEXT NOT NULL DEFAULT '',
+    mailbox_attributes TEXT,
+    flags_metadata_synced INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS folder_id_aliases (
@@ -184,6 +186,7 @@ CREATE TABLE IF NOT EXISTS message_folder_state (
     message_date DATETIME,
     message_has_attachments INTEGER NOT NULL DEFAULT 0,
     deleted_at DATETIME,
+    remote_keywords TEXT,
     PRIMARY KEY (message_id, folder_id)
 );
 
@@ -195,6 +198,16 @@ CREATE TABLE IF NOT EXISTS message_folder_copies (
     remote_message_id TEXT NOT NULL CHECK (remote_message_id != ''),
     PRIMARY KEY (message_id, folder_id, remote_message_id),
     FOREIGN KEY (message_id, folder_id) REFERENCES message_folder_state(message_id, folder_id) ON DELETE CASCADE
+);
+
+-- JMAP keywords belong to an Email, which may appear in multiple mailboxes.
+-- A legacy row with an empty copy ID has unknown copy provenance.
+CREATE TABLE IF NOT EXISTS message_provider_keywords (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    remote_message_id TEXT NOT NULL,
+    keywords TEXT NOT NULL,
+    fetched INTEGER NOT NULL,
+    PRIMARY KEY (message_id, remote_message_id)
 );
 
 CREATE TABLE IF NOT EXISTS folder_thread_state (
@@ -350,6 +363,14 @@ CREATE TABLE IF NOT EXISTS label_aliases (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (account_id, provider_type, provider_id)
+);
+
+-- Keep legacy identities so saved rule or filter references can be identified.
+CREATE TABLE IF NOT EXISTS retired_keyword_labels (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    provider_id TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS gmail_poll_state (
@@ -2057,4 +2078,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (153);
+INSERT OR REPLACE INTO schema_version (version) VALUES (154);
