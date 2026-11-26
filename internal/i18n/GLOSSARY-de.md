@@ -17,7 +17,10 @@ The German text addresses the reader informally using **du** ("Wähle", "dein Ko
 | Starred | Markiert |
 | Scheduled | Geplant |
 | Folder | Ordner |
-| Label / tag | Label / Bezeichnung |
+| Label | Label / Bezeichnung |
+| Tag | Tag (das Tag) |
+| Unified folders | Gemeinsame Ordner |
+| Unified tags | Gemeinsame Tags |
 | Thread / conversation | Unterhaltung |
 | Compose | Verfassen |
 | Reply / Reply all | Antworten / Allen antworten |
@@ -40,6 +43,7 @@ The German text addresses the reader informally using **du** ("Wähle", "dein Ko
 | Two-factor authentication | Zwei-Faktor-Authentifizierung |
 | Contacts / Address book | Kontakte / Adressbuch |
 | Calendar / Event | Kalender / Termin |
+| Occurrence (one date of a series) | Serientermin |
 | Rule | Regel |
 | Sync | Synchronisieren / Synchronisierung |
 
