@@ -4617,11 +4617,14 @@ body.mail-list-column-resizing {
   display: none;
 }
 
-/* The tab that hides and shows it sticks out of its left edge. */
+/* The tab that hides and shows it sticks out of its left edge at the top,
+   as far down as the sidebar's sync button (the sidebar header's top
+   padding), so it stays clear of the reading pane's scrollbar. It covers
+   the calendar's border where they meet, so it reads as part of the panel. */
 .mail-calendar-toggle {
   position: absolute;
-  top: 42%;
-  right: 100%;
+  top: 1.25rem;
+  right: calc(100% - 1px);
   z-index: 41;
 }
 
@@ -4663,10 +4666,6 @@ body.mail-list-column-resizing {
 
   .mail-calendar-grip {
     display: none;
-  }
-
-  .mail-calendar-toggle {
-    top: 80px;
   }
 }
 

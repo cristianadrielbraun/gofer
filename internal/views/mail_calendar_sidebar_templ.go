@@ -104,7 +104,7 @@ func MailCalendarSidebar() templ.Component {
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
 			Variant: button.VariantOutline,
-			Class:   "mail-calendar-toggle h-12 w-7 rounded-r-none border-r-0 bg-background px-0 text-muted-foreground hover:text-foreground",
+			Class:   "mail-calendar-toggle h-8 w-6 rounded-r-none border-r-0 bg-background px-0 text-muted-foreground shadow-none hover:bg-accent hover:text-foreground dark:border-border dark:bg-background dark:hover:bg-accent",
 			Attributes: templ.Attributes{
 				"data-mail-calendar-toggle": "",
 				"aria-label":                i18n.T(ctx, "calendar.mail_sidebar.hide"),
