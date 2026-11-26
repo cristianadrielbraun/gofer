@@ -676,6 +676,7 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 				}
 				@paneLayoutSettingRow("contacts_pane_layout", i18n.T(ctx, "settings.panes.contacts"), i18n.T(ctx, "settings.panes.contacts_description"), PaneLayout(uiSettings, "contacts"))
 				@paneLayoutSettingRow("calendar_pane_layout", i18n.T(ctx, "settings.panes.calendar"), i18n.T(ctx, "settings.panes.calendar_description"), PaneLayout(uiSettings, "calendar"))
+				@mailCalendarSidebarSetting(uiSettings)
 			</div>
 		</div>
 }
@@ -7336,3 +7337,21 @@ templ mailOperationRow(operation models.MailOperationSummary) {
 	</div>
 }
 
+templ mailCalendarSidebarSetting(uiSettings map[string]string) {
+	<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+		<div class="min-w-0">
+			<span id="mail-calendar-sidebar-enabled-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.panes.mail_calendar_sidebar_title") }</span>
+			<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.panes.mail_calendar_sidebar_description") }</p>
+		</div>
+		<div class="w-full sm:w-44 shrink-0">
+			@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
+				@switchcomp.Switch(switchcomp.Props{
+					ID:         "mail-calendar-sidebar-enabled",
+					Name:       "mail_calendar_sidebar_enabled",
+					Checked:    uiSettingGet(uiSettings, "mail_calendar_sidebar_enabled", "false") == "true",
+					Attributes: templ.Attributes{"aria-labelledby": "mail-calendar-sidebar-enabled-label", "data-ui-setting-switch": "mail_calendar_sidebar_enabled"},
+				})
+			}
+		</div>
+	</div>
+}

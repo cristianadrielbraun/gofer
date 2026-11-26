@@ -54,6 +54,8 @@ func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 				return views.CalendarPage(month, uiSettings), nil
 			case "calendar-main":
 				return views.CalendarMainPartial(month), nil
+			case "mail-calendar-sidebar-content":
+				return views.MailCalendarSidebarContent(month), nil
 			case "mail-list":
 				return views.CalendarAppPartial(accounts, month, uiSettings), nil
 			case "app-shell":

@@ -1320,7 +1320,25 @@
   document.addEventListener('change', function(e) {
     var toggle = e.target.closest('[data-ui-setting-switch]');
     if (!toggle || typeof GoferSettings === 'undefined') return;
-    GoferSettings.set(toggle.getAttribute('data-ui-setting-switch'), toggle.checked ? 'true' : 'false');
+    var key = toggle.getAttribute('data-ui-setting-switch');
+    var checked = toggle.checked;
+    var saved = GoferSettings.set(key, checked ? 'true' : 'false');
+    if (key !== 'mail_calendar_sidebar_enabled') return;
+
+    toggle.disabled = true;
+    saved.then(function(response) {
+      if (response && response.ok) return;
+      toggle.checked = !checked;
+      if (typeof showGoferToast === 'function') {
+        showGoferToast({
+          title: goferT('js.common.please_try_again'),
+          variant: 'error',
+          icon: 'error',
+        });
+      }
+    }).finally(function() {
+      toggle.disabled = false;
+    });
   });
 })();
 
