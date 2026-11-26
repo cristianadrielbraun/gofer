@@ -4638,12 +4638,26 @@ body.mail-list-column-resizing {
 /* The tab that hides and shows it sticks out of its left edge at the top,
    as far down as the sidebar's sync button (the sidebar header's top
    padding), so it stays clear of the reading pane's scrollbar. It covers
-   the calendar's border where they meet, so it reads as part of the panel. */
+   the calendar's border where they meet, so it reads as part of the panel:
+   it reaches over the border, its own top and bottom borders end there, and
+   its background, hover color included, fills the border's width. A pixel
+   in the calendar's color just past it keeps the border from showing
+   through when the page is scaled to a fraction of a pixel. */
 .mail-calendar-toggle {
   position: absolute;
   top: 1.25rem;
   right: calc(100% - 1px);
   z-index: 41;
+}
+
+.mail-calendar-toggle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  width: 1px;
+  background: var(--background);
 }
 
 /* The grip sits on the calendar's border and looks like the pane dividers. */
