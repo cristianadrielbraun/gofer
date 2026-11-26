@@ -1,4 +1,27 @@
 // Applies the saved panel sizes before the page is drawn, so it doesn't jump.
+
+// goferMailCalendarFits says whether the calendar sidebar fits beside Mail's
+// panes in a Mail area main pixels wide. The reading pane has to keep at
+// least 600px, the width most emails are laid out for; with less, the
+// calendar goes over the panes. With no reading pane, the list has to keep
+// its usual 300px. layout is Mail's pane layout ("side", "stacked" or
+// "list"), list the list's saved width ("50%" or pixels) and calendar the
+// calendar's width. Only the side by side layout has a list beside the
+// reading pane.
+function goferMailCalendarFits(main, layout, list, calendar) {
+  var readerMin = 600;
+  var listMin = 300;
+  var divider = 5;
+  var room = main - calendar;
+  if (layout === "list") return room >= listMin;
+  if (layout === "stacked") return room >= readerMin;
+  var raw = String(list || "50%").trim();
+  var listWidth = raw.slice(-1) === "%"
+    ? Math.min(Math.max(300, main * parseFloat(raw) / 100), main - 300)
+    : Math.max(300, parseInt(raw, 10) || 300);
+  return room - listWidth - divider >= readerMin;
+}
+
 (function() {
   document.documentElement.classList.add("js");
 
@@ -33,6 +56,16 @@
   }
 
   var vw = window.innerWidth || 1024;
+
+  // The calendar sidebar's place, so the page is drawn with it beside the
+  // panes or over them from the start (mail-calendar-sidebar.js keeps it up
+  // to date). The Mail area is the window less the sidebar and its divider;
+  // small screens always show the calendar over the panes.
+  var sidebarWidth = px(settings.sidebar_width, 180, Math.min(400, vw * 0.25)) || 256;
+  var calendarWidth = px(settings.mail_calendar_width, 260, 450) || 300;
+  var calendarOver = vw < 1024 || !goferMailCalendarFits(vw - sidebarWidth - 5, settings.mail_pane_layout, settings.mail_list_width, calendarWidth);
+  if (calendarOver) document.documentElement.setAttribute("data-mail-calendar-over", "");
+
   var stacked = settings[section ? section + "_pane_layout" : "mail_pane_layout"] === "stacked";
   var sidebar = px(saved("sidebar_width", "sidebar_width"), 180, Math.min(400, vw * 0.25));
   var mailList = stacked ? px(saved("mail_list_height", "list_height"), 180) : mailListWidth(saved("mail_list_width", "list_width"));

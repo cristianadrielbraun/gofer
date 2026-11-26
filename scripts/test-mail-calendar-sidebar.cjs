@@ -10,7 +10,12 @@ const source = fs.readFileSync(path.join(__dirname, '../assets/js/mail-calendar-
 // Loads the calendar sidebar with a fake page, as wide as screen says.
 // slide stands in for resize.js's slideAppPanelWidth and decides what it
 // hands back.
-function load(slide, screen = 'wide', reducedMotion = false, saved = {}) {
+// screen is 'wide' (room beside the panes), 'medium' (the calendar goes
+// over the panes) or 'small' (phones). fits stands in for
+// goferMailCalendarFits, and main for the Mail area it measures.
+function load(slide, screen = 'wide', reducedMotion = false, saved = {}, {fits = null, main = null} = {}) {
+  const bodyListeners = {}
+  let resized = null
   const fannedIn = []
   const fannedOut = []
   const fadedDays = []
@@ -19,7 +24,9 @@ function load(slide, screen = 'wide', reducedMotion = false, saved = {}) {
   const listeners = {}
   const windowListeners = {}
   const mediaListeners = {}
-  const rootAttributes = new Set()
+  // The page is drawn with the calendar over the panes when there's no room
+  // beside them (saved-panel-size.js).
+  const rootAttributes = new Set(screen === 'wide' ? [] : ['data-mail-calendar-over'])
   const observers = []
   const root = {
     hasAttribute: name => rootAttributes.has(name),
@@ -56,9 +63,11 @@ function load(slide, screen = 'wide', reducedMotion = false, saved = {}) {
       addEventListener(type, listener) { mediaListeners[query] = listener },
     }),
     MutationObserver: class { constructor(callback) { observers.push(callback) } observe() {} },
+    ResizeObserver: class { constructor(callback) { resized = callback } observe() {} unobserve() {} },
+    goferMailCalendarFits: fits || undefined,
     document: {
-      body: {style: {}},
-      getElementById: id => id === 'mail-calendar-sidebar-content' ? content : null,
+      body: {style: {}, addEventListener(type, listener) { (bodyListeners[type] ||= []).push(listener) }},
+      getElementById: id => id === 'mail-calendar-sidebar-content' ? content : id === 'main-content' ? main : null,
       documentElement: root,
       addEventListener(type, listener) { (listeners[type] ||= []).push(listener) },
       removeEventListener(type, listener) { listeners[type] = (listeners[type] || []).filter(other => other !== listener) },
@@ -101,6 +110,8 @@ function load(slide, screen = 'wide', reducedMotion = false, saved = {}) {
     goBack: () => windowListeners.popstate(),
     leaveMail() { shellOnPage = false; observers.forEach(callback => callback()) },
     fannedIn, fannedOut, fadedDays, swapped,
+    resize: () => resized && resized(),
+    changeSetting: key => (bodyListeners['gofer:settings-changed'] || []).forEach(listener => listener({detail: {key}})),
     content: () => content,
     request(xhr) { dispatch('htmx:beforeRequest', {detail: {xhr, target: content}}) },
     respond(xhr, response, ok = true) {
@@ -178,18 +189,15 @@ page = load(() => null)
 page.click()
 assert.equal(page.shell.dataset.open, 'false')
 assert.equal(page.shell.dataset.mailCalendarSliding, undefined, 'Nothing waits for a slide that never ran')
-assert.equal(page.settings.mail_calendar_open, 'false', 'Closing it beside the panes is saved with the other pane settings')
+assert.equal(page.settings.mail_calendar_open, 'false', 'Closing it is saved with the other pane settings')
 
-// Over the panes (smaller screens) it has its own choice, closed unless
-// opened, and opening it there leaves the wide screens' choice alone.
+// Over the panes it's the same choice: open unless it was closed.
 page = load(() => null, 'medium')
-assert.equal(page.shell.dataset.open, 'false', 'Over the panes it starts closed')
+assert.equal(page.shell.dataset.open, 'true', 'Over the panes it starts open too')
 page.click()
-assert.equal(page.shell.dataset.open, 'true')
-assert.equal(page.settings.mail_calendar_overlay_open, 'true', 'Opening it over the panes is saved for smaller screens')
-assert.equal(page.settings.mail_calendar_open, undefined)
-page = load(() => null, 'medium', false, {mail_calendar_overlay_open: 'true'})
-assert.equal(page.shell.dataset.open, 'true', 'It opens over the panes when it was left open there')
+assert.equal(page.settings.mail_calendar_open, 'false', 'Closing it over the panes is the same choice')
+page = load(() => null, 'medium', false, {mail_calendar_open: 'false'})
+assert.equal(page.shell.dataset.open, 'false', 'It stays closed over the panes when it was left closed')
 page = load(() => null, 'wide', false, {mail_calendar_open: 'false'})
 assert.equal(page.shell.dataset.open, 'false', 'It stays closed beside the panes when it was left closed')
 
@@ -270,9 +278,29 @@ for (const failure of [p => p.respond('xhr-bad', null, false), p => p.fail('htmx
   assert.equal(page.swapped.length, 0)
 }
 
+// The calendar goes over the panes when the reading pane would be left too
+// narrow beside it, and back beside them when there's room again, as the
+// Mail area or the saved widths change.
+let room = true
+const main = {clientWidth: 1400, dataset: {mailPaneLayout: 'side'}}
+const asked = []
+page = load(() => null, 'wide', false, {mail_list_width: '50%', mail_calendar_open: 'true'}, {main, fits: (width, layout, list, calendar) => { asked.push([width, layout, list, calendar]); return room }})
+page.resize()
+assert.equal(page.root.hasAttribute('data-mail-calendar-over'), false, 'With room it stays beside the panes')
+assert.deepEqual(asked.at(-1), [1400, 'side', '50%', 300], 'It asks with the Mail area\'s width, the layout and the saved widths')
+room = false
+page.resize()
+assert.equal(page.root.hasAttribute('data-mail-calendar-over'), true, 'Without room it goes over the panes')
+assert.equal(page.shell.dataset.open, 'true', 'Moving over the panes leaves it open')
+room = true
+page.changeSetting('mail_list_width')
+assert.equal(page.root.hasAttribute('data-mail-calendar-over'), false, 'A narrower list gives it room beside the panes again')
+assert.equal(page.shell.dataset.open, 'true')
+
 // Small screens: the top bar's button opens the calendar as a drawer. It
 // starts closed, whatever wider screens left the calendar at.
 page = load(() => null, 'small')
+const openBefore = page.shell.dataset.open
 assert.equal(page.aside.inert, true, 'A closed drawer takes no taps or focus')
 page.tapBackdrop()
 assert.equal(page.root.hasAttribute('data-mail-calendar-drawer-open'), false, 'The backdrop only closes the drawer')
@@ -280,7 +308,7 @@ page.tapTopbarButton()
 assert.equal(page.root.hasAttribute('data-mail-calendar-drawer-open'), true)
 assert.equal(page.topbarButton.attributes['aria-expanded'], 'true')
 assert.equal(page.aside.inert, false, 'The open drawer takes taps')
-assert.equal(page.shell.dataset.open, 'false', 'Opening the drawer leaves the wider screens\' choice alone')
+assert.equal(page.shell.dataset.open, openBefore, 'Opening the drawer leaves the saved open state alone')
 
 for (const [how, close] of [
   ['the button again', p => p.tapTopbarButton()],

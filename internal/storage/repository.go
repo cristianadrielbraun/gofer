@@ -8743,7 +8743,6 @@ func defaultUISettings() map[string]string {
 		"mail_calendar_sidebar_phones":      "false",
 		"mail_calendar_width":               "300",
 		"mail_calendar_open":                "true",
-		"mail_calendar_overlay_open":        "false",
 		"mail_single_click_open":            "false",
 		"calendar_view":                     "month",
 		"mail_list_width":                   "50%",

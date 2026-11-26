@@ -13,9 +13,9 @@ import (
 // which don't show it, never load it. Until then it shows this month's days,
 // as the Calendar page does while it loads, with no events yet. It's drawn at
 // its saved width, and Mail drawn again keeps it as it is (hx-preserve), so it
-// neither jumps in width nor loads twice. Wide screens draw it open or
-// closed as it was left; smaller ones show it over the panes once
-// mail-calendar-sidebar.js has applied their own choice.
+// neither jumps in width nor loads twice. It's drawn open or closed as it
+// was left, beside the panes or over them (saved-panel-size.js decides
+// which before the page is drawn).
 templ MailCalendarSidebar(uiSettings map[string]string) {
 	<div
 		id="mail-calendar-sidebar-slot"
@@ -54,7 +54,7 @@ templ MailCalendarSidebar(uiSettings map[string]string) {
 			aria-valuenow="300"
 		></div>
 		<aside
-			class="mail-calendar-aside flex min-h-0 flex-col border-l border-border bg-background surface-desk max-2xl:shadow-xl"
+			class="mail-calendar-aside flex min-h-0 flex-col border-l border-border bg-background surface-desk"
 			aria-label={ i18n.T(ctx, "calendar.mail_sidebar.label") }
 			data-mail-calendar-sidebar
 		>

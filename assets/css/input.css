@@ -4587,9 +4587,9 @@ body.mail-list-column-resizing {
 
 /* === MAIL CALENDAR SIDEBAR === */
 
-/* The calendar sidebar in Mail takes its saved width at the right edge on wide
-   screens. Smaller ones show it over the panes, from the right edge. The
-   panel keeps its width and hangs from the shell's left edge, so as the
+/* The calendar sidebar in Mail takes its saved width at the right edge,
+   beside the panes, or goes over them when they'd be left too narrow (see
+   data-mail-calendar-over below). The panel keeps its width and hangs from the shell's left edge, so as the
    shell narrows to hide it, it slides out to the right. */
 .mail-calendar-shell {
   --mail-calendar-width: 300px;
@@ -4692,36 +4692,25 @@ body.mail-list-column-resizing {
   gap: 0.1875rem;
 }
 
-@media (max-width: 1535.98px) {
-  /* The page can't know how wide the screen is, so over the panes the
-     calendar starts closed until mail-calendar-sidebar.js applies the
-     choice saved for them (controlsReady). */
-  .mail-calendar-shell:not([data-controls-ready]) {
-    width: 0;
-  }
+/* The calendar sits beside the panes while the reading pane keeps at least
+   600px. With less room it goes over the panes from the right edge instead,
+   at the same width (data-mail-calendar-over,
+   set by goferMailCalendarFits in saved-panel-size.js before the page is
+   drawn and kept up to date by mail-calendar-sidebar.js). */
+html[data-mail-calendar-over] .mail-calendar-shell {
+  position: fixed;
+  z-index: 70;
+  top: 0;
+  right: 0;
+  height: 100dvh;
+}
 
-  .mail-calendar-shell:not([data-controls-ready]) :is(.mail-calendar-aside, .mail-calendar-grip) {
-    display: none;
-  }
+html[data-mail-calendar-over] .mail-calendar-aside {
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
 
-  .mail-calendar-shell:not([data-controls-ready]) .mail-calendar-toggle-icon {
-    rotate: 180deg;
-    transition: none;
-  }
-
-  .mail-calendar-shell {
-    /* The saved width is for beside the panes; over them it's always this. */
-    --mail-calendar-width: 300px !important;
-    position: fixed;
-    z-index: 70;
-    top: 0;
-    right: 0;
-    height: 100dvh;
-  }
-
-  .mail-calendar-grip {
-    display: none;
-  }
+html[data-mail-calendar-over] .mail-calendar-grip {
+  display: none;
 }
 
 /* Small screens show Mail one pane at a time, so the calendar is only there
@@ -4741,7 +4730,9 @@ body.mail-list-column-resizing {
     display: inline-flex;
   }
 
-  .mail-calendar-shell {
+  /* Small screens always have the calendar over the panes, so this has to
+     win over the rules for that above. */
+  html[data-mail-calendar-over] .mail-calendar-shell {
     z-index: 46;
     width: min(20rem, 86vw) !important;
     background: var(--background);

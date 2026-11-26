@@ -21,9 +21,9 @@ import (
 // which don't show it, never load it. Until then it shows this month's days,
 // as the Calendar page does while it loads, with no events yet. It's drawn at
 // its saved width, and Mail drawn again keeps it as it is (hx-preserve), so it
-// neither jumps in width nor loads twice. Wide screens draw it open or
-// closed as it was left; smaller ones show it over the panes once
-// mail-calendar-sidebar.js has applied their own choice.
+// neither jumps in width nor loads twice. It's drawn open or closed as it
+// was left, beside the panes or over them (saved-panel-size.js decides
+// which before the page is drawn).
 func MailCalendarSidebar(uiSettings map[string]string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -154,7 +154,7 @@ func MailCalendarSidebar(uiSettings map[string]string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" aria-orientation=\"vertical\" aria-valuemin=\"260\" aria-valuemax=\"450\" aria-valuenow=\"300\"></div><aside class=\"mail-calendar-aside flex min-h-0 flex-col border-l border-border bg-background surface-desk max-2xl:shadow-xl\" aria-label=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" aria-orientation=\"vertical\" aria-valuemin=\"260\" aria-valuemax=\"450\" aria-valuenow=\"300\"></div><aside class=\"mail-calendar-aside flex min-h-0 flex-col border-l border-border bg-background surface-desk\" aria-label=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

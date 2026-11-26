@@ -8,8 +8,10 @@
   const MIN = 260;
   const MAX = 450;
 
-  function wide() {
-    return matchMedia("(min-width: 1536px)").matches;
+  // Whether the calendar sits beside the panes rather than over them (see
+  // place below and data-mail-calendar-over in input.css).
+  function beside() {
+    return !document.documentElement.hasAttribute("data-mail-calendar-over");
   }
 
   // Small screens show the calendar as a drawer, opened from the top bar.
@@ -36,16 +38,14 @@
     if (typeof GoferSettings !== "undefined") GoferSettings.set(WIDTH_SETTING, String(value));
   }
 
-  // Whether it's open is saved with the other pane settings, separately for
-  // beside the panes (wide screens, open unless closed) and over them
-  // (closed unless opened).
-  function openSetting() {
-    return wide() ? "mail_calendar_open" : "mail_calendar_overlay_open";
-  }
+  // Whether it's open is saved with the other pane settings. It's one choice
+  // wherever the calendar sits, so moving between beside the panes and over
+  // them never opens or closes it. It's open unless it was closed.
+  const OPEN_SETTING = "mail_calendar_open";
 
   function preferredOpen() {
-    const saved = typeof GoferSettings !== "undefined" ? GoferSettings.get(openSetting()) : null;
-    return saved === null ? wide() : saved === "true";
+    const saved = typeof GoferSettings !== "undefined" ? GoferSettings.get(OPEN_SETTING) : null;
+    return saved !== "false";
   }
 
   function apply(shell, open, size) {
@@ -53,7 +53,6 @@
 
     shell.dataset.open = String(open);
 
-    // Below 1536px the calendar opens over the panes at a fixed width (CSS).
     shell.style.setProperty("--mail-calendar-width", size + "px");
 
     const toggle = shell.querySelector(
@@ -209,6 +208,8 @@
       return;
     }
 
+    observeMain();
+
     if (shell.dataset.controlsReady !== "yes") {
       shell.dataset.controlsReady = "yes";
       apply(shell, preferredOpen(), width());
@@ -263,6 +264,7 @@
 
   matchMedia(SMALL).addEventListener("change", function () {
     setDrawer(false);
+    place();
     const shell = currentShell();
     if (shell) apply(shell, shell.dataset.open === "true", width());
   });
@@ -284,7 +286,7 @@
     const before = shell.getBoundingClientRect().width;
 
     if (shell._mailCalendarSlide) shell._mailCalendarSlide.cancel();
-    if (typeof GoferSettings !== "undefined") GoferSettings.set(openSetting(), String(open));
+    if (typeof GoferSettings !== "undefined") GoferSettings.set(OPEN_SETTING, String(open));
     apply(shell, open, width());
     slide(shell, before);
   });
@@ -320,7 +322,7 @@
       "[data-mail-calendar-grip]"
     );
 
-    if (!grip || !wide() || event.button !== 0) return;
+    if (!grip || !beside() || event.button !== 0) return;
 
     const shell = grip.closest(
       "[data-mail-calendar-shell]"
@@ -364,7 +366,7 @@
     const grip = event.target.closest &&
       event.target.closest("[data-mail-calendar-grip]");
 
-    if (!grip || !wide()) return;
+    if (!grip || !beside()) return;
 
     if (
       event.key !== "ArrowLeft" &&
@@ -385,14 +387,40 @@
     apply(shell, true, next);
   });
 
-  matchMedia("(min-width: 1536px)")
-    .addEventListener("change", function () {
-      document.querySelectorAll(
-        "#main-content [data-mail-calendar-shell]"
-      ).forEach(function (shell) {
-        apply(shell, preferredOpen(), width());
-      });
-    });
+  // Puts the calendar beside the panes or over them, by the same rule the
+  // page was first drawn with (goferMailCalendarFits in saved-panel-size.js),
+  // from the Mail area's width now and the saved list and calendar widths.
+  // Small screens always have it over the panes.
+  function place() {
+    const main = document.getElementById("main-content");
+    if (!main || !currentShell() || typeof goferMailCalendarFits !== "function") return;
+
+    const list = typeof GoferSettings !== "undefined" ? GoferSettings.get("mail_list_width") : null;
+    const over = small() || !goferMailCalendarFits(main.clientWidth, main.dataset.mailPaneLayout || "side", list, width());
+    if (over === !beside()) return;
+
+    document.documentElement.toggleAttribute("data-mail-calendar-over", over);
+    const shell = currentShell();
+    apply(shell, shell.dataset.open === "true", width());
+  }
+
+  // The Mail area changes width with the window and the sidebar, and the
+  // calendar's room with the list's and its own saved widths.
+  const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
+  let observedMain = null;
+
+  function observeMain() {
+    const main = document.getElementById("main-content");
+    if (!resizeObserver || !main || main === observedMain) return;
+    if (observedMain) resizeObserver.unobserve(observedMain);
+    resizeObserver.observe(main);
+    observedMain = main;
+  }
+
+  document.body.addEventListener("gofer:settings-changed", function (event) {
+    const key = event.detail && event.detail.key;
+    if (key === "mail_list_width" || key === "mail_pane_layout" || key === WIDTH_SETTING) place();
+  });
 
   const observer = new MutationObserver(initialize);
   observer.observe(document.body, {

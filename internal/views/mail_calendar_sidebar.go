@@ -119,8 +119,8 @@ func mailCalendarWidthStyle(uiSettings map[string]string) templ.SafeCSS {
 	return templ.SafeCSS("--mail-calendar-width: " + strconv.Itoa(width) + "px;")
 }
 
-// mailCalendarOpen is whether the calendar sidebar was left open beside the
-// panes on wide screens. It's open unless it was closed.
+// mailCalendarOpen is whether the calendar sidebar was left open, beside the
+// panes or over them. It's open unless it was closed.
 func mailCalendarOpen(uiSettings map[string]string) bool {
 	return uiSettings["mail_calendar_open"] != "false"
 }
