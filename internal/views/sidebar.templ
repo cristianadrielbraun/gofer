@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 
 	"github.com/cristianadrielbraun/gofer/components/collapsible"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
@@ -1004,7 +1006,8 @@ templ SidebarScheduledFolder(activeFolder string, scheduledCount int, uiSettings
 templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
 	{{ folders := unifiedFolders(accounts, uiSettings) }}
 	{{ labels := sidebarLabels(unifiedSidebarLabels(accounts, uiSettings)) }}
-	if len(folders) > 0 || len(labels) > 0 {
+	{{ flagColors := hasFlagColorAccounts(accounts) }}
+	if len(folders) > 0 || len(labels) > 0 || flagColors {
 		{{ active := unifiedHasActiveFolder(activeFolder, uiSettings, filters) }}
 		{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
 		<div class="mb-1.5" data-sidebar-account="__unified__" data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
@@ -1025,7 +1028,7 @@ templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSe
 					for _, folder := range folders {
 						@SidebarFolderItem(folder, activeFolder, "", uiSettings)
 					}
-					@SidebarTagGroup(labels, activeFolder, filters, "", uiSettings)
+					@SidebarTagGroup(labels, activeFolder, filters, "", uiSettings, flagColors)
 				</div>
 			</div>
 		</div>
@@ -1054,14 +1057,14 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 				for _, folder := range sidebarFoldersForAccount(account) {
 					@SidebarFolderItem(folder, activeFolder, account.ID, uiSettings)
 				}
-				@SidebarTagGroup(sidebarLabels(account.Labels), activeFolder, filters, account.ID, uiSettings)
+				@SidebarTagGroup(sidebarLabels(account.Labels), activeFolder, filters, account.ID, uiSettings, storage.SupportsFlagColors(account.Provider))
 			</div>
 		</div>
 	</div>
 }
 
-templ SidebarTagGroup(labels []models.Label, activeFolder string, filters models.EmailFilters, accountID string, uiSettings map[string]string) {
-	if len(labels) > 0 {
+templ SidebarTagGroup(labels []models.Label, activeFolder string, filters models.EmailFilters, accountID string, uiSettings map[string]string, flagColors bool) {
+	if len(labels) > 0 || flagColors {
 		{{ folderID := sidebarTagBaseFolder(activeFolder) }}
 		{{ active := sidebarTagGroupActive(filters, accountID) }}
 		{{ collapsed := sidebarTagGroupCollapsed(uiSettings, accountID, active) }}
@@ -1087,6 +1090,22 @@ templ SidebarTagGroup(labels []models.Label, activeFolder string, filters models
 				<div class="sidebar-tag-children-inner pl-5 space-y-px">
 					for _, label := range labels {
 						@SidebarTagFilterLink(label, folderID, activeFolder, filters, accountID)
+					}
+					if flagColors {
+						<div role="group" aria-label={ i18n.T(ctx, "mail.flag_color.title") }>
+							<p class="px-2.5 py-1.5 text-xs font-medium text-sidebar-foreground">{ i18n.T(ctx, "mail.flag_color.title") }</p>
+							for _, color := range keywords.FlagColors() {
+								{{ selected := color == filters.FlagColor && sidebarFlagColorMatch(filters, accountID) }}
+								<a href={ sidebarFlagColorURL(folderID, color, accountID) } data-sidebar-tag-filter
+									class={
+										"flex items-center gap-2.5 w-full rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+										templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", selected),
+										templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", !selected),
+									}>
+									@MailFlagColorBadge(color)
+								</a>
+							}
+						</div>
 					}
 				</div>
 			</div>

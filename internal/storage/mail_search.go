@@ -103,7 +103,7 @@ func (db *DB) mailSearchStatesSQL(ctx context.Context, userID string, scope mode
 		SELECT s.message_id, s.folder_id,
 			MIN(s.is_read) OVER (PARTITION BY s.message_id) AS is_read,
 			MAX(s.is_starred) OVER (PARTITION BY s.message_id) AS is_starred,
-			ROW_NUMBER() OVER (PARTITION BY s.message_id ORDER BY `+folderPlaceOrderSQL("f")+`) AS copy_rank
+			ROW_NUMBER() OVER (PARTITION BY s.message_id ORDER BY ` + folderPlaceOrderSQL("f") + `) AS copy_rank
 		FROM message_folder_state s JOIN search_folders sf ON sf.id=s.folder_id
 		JOIN folders f ON f.id=sf.id JOIN accounts owner ON owner.id=f.account_id
 		JOIN messages original ON original.id=s.message_id AND original.account_id=f.account_id
@@ -138,11 +138,12 @@ func (db *DB) mailSearchVisibleSQL(ctx context.Context, userID string, scope mod
 			mfs.folder_id, m.thread_id,
 			ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
 			COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count,
-			MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
-			MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,
+			MIN(ss.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
+			MAX(ss.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,
 			MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
 			SUM(COALESCE(m.size_bytes, 0)) OVER (PARTITION BY ` + key + `) AS thread_size_bytes
-		FROM search_states mfs JOIN messages m ON m.id=mfs.message_id
+		FROM search_states ss JOIN messages m ON m.id=ss.message_id
+		JOIN message_folder_state mfs ON mfs.message_id=ss.message_id AND mfs.folder_id=ss.folder_id
 		JOIN accounts a ON a.id=m.account_id ` + parts.joinClause + `
 		WHERE 1=1` + parts.cteClause + `
 	), results AS (SELECT * FROM visible WHERE rn=1` + parts.outerClause + `) `

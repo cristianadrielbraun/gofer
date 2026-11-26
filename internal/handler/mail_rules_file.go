@@ -137,7 +137,9 @@ func mailRulesImportView(ctx context.Context, file *mailrules.File, content stri
 			Index: plan.Index, Rule: plan.Rule, MissingAccounts: plan.MissingAccounts, MissingFolders: plan.MissingFolders,
 			TurnsOn: plan.TurnsOn, SameName: plan.SameName != "", Same: plan.Same,
 		}
-		if plan.Err != nil {
+		if errors.Is(plan.Err, mailrules.ErrFlagColor) {
+			rule.Problem = i18n.T(ctx, "mail.flag_color.choose")
+		} else if plan.Err != nil {
 			rule.Problem = serverText(ctx, sentence(plan.Err.Error()))
 		}
 		if rule.SameName {

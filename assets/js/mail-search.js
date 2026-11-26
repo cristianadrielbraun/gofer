@@ -34,7 +34,8 @@
   function rowData(id) {
     id = String(id)
     var controller = list()
-    var position = controller && controller.indexById.get(id)
+    if (!controller) return null
+    var position = controller.indexById.get(id)
     var item = position !== undefined && controller.cache.get(position)
     if (item && item.html) {
       var template = document.createElement("template")

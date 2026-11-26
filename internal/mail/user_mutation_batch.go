@@ -36,16 +36,7 @@ func (s *UserIMAP) applyMutationBatch(ctx context.Context, scope *userIMAPScope,
 		}
 		batch = append(batch, more...)
 		for _, m := range batch {
-			// Looked up as applyMutation does for each kind.
-			var info *storage.MessageMutationInfo
-			switch {
-			case deleting:
-				info, err = db.GetMessageMutationInfoIncludingDeletedInFolder(ctx, m.MessageID, m.FolderID)
-			case m.FolderID == "":
-				info, err = db.GetMessageMutationInfoInternal(ctx, m.MessageID)
-			default:
-				info, err = db.GetMessageMutationInfoInFolder(ctx, m.MessageID, m.FolderID)
-			}
+			info, err := db.GetMessageMutationInfoForReplay(ctx, m)
 			if err != nil {
 				return err
 			}
@@ -110,13 +101,16 @@ func (s *UserIMAP) applyMutationBatch(ctx context.Context, scope *userIMAPScope,
 		emails := make([]JMAPBatchEmail, len(groupedInfos))
 		for i, info := range groupedInfos {
 			emails[i] = JMAPBatchEmail{EmailID: info.RemoteMessageID, FolderCopyIDs: info.FolderCopyIDs}
+			if lead.IsScopedFlagColor() {
+				emails[i].FolderCopyIDs = nil
+			}
 		}
 		var sendErr error
 		var jmapGone []bool
-		groupFailures, jmapGone, sendErr = ApplyJMAPBatch(ctx, scope.config, scope.password, lead.Kind, lead.TargetValue, emails)
+		groupFailures, jmapGone, sendErr = ApplyJMAPBatch(ctx, scope.config, scope.password, lead, emails)
 		if sendErr != nil {
 			groupFailures = sameError(len(grouped), sendErr)
-		} else if deleting {
+		} else if deleting || lead.IsScopedFlagColor() {
 			gone = jmapGone
 		}
 	case storage.MessageMutationProviderGmail, storage.MessageMutationProviderOutlook:
@@ -156,6 +150,8 @@ func (s *UserIMAP) applyMutationBatch(ctx context.Context, scope *userIMAPScope,
 			m := grouped[i]
 			var err error
 			switch {
+			case gone[i] && m.TargetFlagCopy != "":
+				err = db.DiscardMessageMutation(ctx, m.ID)
 			case deleting:
 				// As applyMutation records a delete, confirming one already gone.
 				err = db.CompleteMessageDeleteMutation(ctx, m.ID)
@@ -223,6 +219,8 @@ func (s *UserIMAP) sendIMAPBatch(ctx context.Context, scope *userIMAPScope, lead
 			if err == nil && changed {
 				err = imap.ErrMutationUIDValidityChanged
 			}
+		} else if bits, color := lead.FlagBitsTarget(); color {
+			err = client.StoreFlagColorBatchIfUIDValidity(ctx, infos[0].FolderRemoteID, uids, lead.TargetValue, bits, validity)
 		} else {
 			op, flag := goimap.StoreFlagsDel, goimap.FlagSeen
 			if lead.TargetValue {

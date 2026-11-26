@@ -104,6 +104,28 @@ func TestExportNamesAccountsAndFoldersByAddressAndPath(t *testing.T) {
 	}
 }
 
+func TestFlagColorRuleSurvivesPortableExportAndImport(t *testing.T) {
+	rules := []models.MailRule{{
+		Name: "Replace a blue flag", MatchAll: true, AccountsChosen: true, AccountIDs: []string{"acc-robin"},
+		Conditions: []models.MailRuleCondition{{Field: models.MailRuleFieldFlagColor, Operator: models.MailRuleOpIs, Value: "blue"}},
+		Actions: []models.MailRuleAction{
+			{Kind: models.MailRuleActionRemoveFlagColor, FlagColor: "blue"},
+			{Kind: models.MailRuleActionSetFlagColor, FlagColor: "green"},
+		},
+	}}
+	file := exportAndRead(t, rules, homeAccounts)
+	plan := PlanImport(file, workAccounts, nil)
+	if len(plan) != 1 || plan[0].Err != nil {
+		t.Fatalf("import plan: %+v", plan)
+	}
+	got := plan[0].Rule
+	if !slices.Equal(got.AccountIDs, []string{"w-robin"}) ||
+		!slices.Equal(got.Conditions, rules[0].Conditions) ||
+		!slices.Equal(got.Actions, rules[0].Actions) {
+		t.Fatalf("round-tripped rule = %+v", got)
+	}
+}
+
 func TestImportFindsAccountsAndFoldersElsewhere(t *testing.T) {
 	plans := PlanImport(exportAndRead(t, homeRules(), homeAccounts), workAccounts, nil)
 	if len(plans) != 4 {

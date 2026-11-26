@@ -16,6 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 // mailRuleFields are the parts of a message a condition can test, in the
@@ -29,6 +30,7 @@ var mailRuleFields = []string{
 	models.MailRuleFieldSubject,
 	models.MailRuleFieldListID,
 	models.MailRuleFieldFolder,
+	models.MailRuleFieldFlagColor,
 }
 
 // MailRuleTextOperators are the comparisons a condition on text can make.
@@ -47,6 +49,8 @@ var mailRuleActionKinds = []string{
 	models.MailRuleActionMarkRead,
 	models.MailRuleActionStar,
 	models.MailRuleActionLabel,
+	models.MailRuleActionSetFlagColor,
+	models.MailRuleActionRemoveFlagColor,
 }
 
 // mailRuleRoleLabels holds the message naming each folder every account
@@ -63,6 +67,9 @@ func mailRuleRoleLabel(ctx context.Context, role string) string {
 }
 
 func mailRuleFieldLabel(ctx context.Context, field string) string {
+	if field == models.MailRuleFieldFlagColor {
+		return i18n.T(ctx, "mail.flag_color.title")
+	}
 	if slices.Contains(mailRuleFields, field) {
 		return i18n.T(ctx, "rules.field."+field)
 	}
@@ -83,10 +90,25 @@ func MailRuleActionKnown(kind string) bool {
 }
 
 func mailRuleActionLabel(ctx context.Context, kind string) string {
+	switch kind {
+	case models.MailRuleActionSetFlagColor:
+		return i18n.T(ctx, "mail.flag_color.set")
+	case models.MailRuleActionRemoveFlagColor:
+		return i18n.T(ctx, "mail.flag_color.remove")
+	}
 	if slices.Contains(mailRuleActionKinds, kind) {
 		return i18n.T(ctx, "rules.action."+kind)
 	}
 	return kind
+}
+
+func mailRuleOffersFlagColors(rule models.MailRule, accounts []models.MailRuleAccount) bool {
+	for _, account := range accounts {
+		if rule.WatchesAccount(account.ID) && storage.SupportsFlagColors(account.Provider) {
+			return true
+		}
+	}
+	return false
 }
 
 // mailRuleFolderValue is how the form names a folder choice.
@@ -322,6 +344,8 @@ func mailRuleActionText(ctx context.Context, action models.MailRuleAction, accou
 		return i18n.T(ctx, "rules.action_text.move", "folder", mailRuleFolderName(ctx, action.Folder, accounts))
 	case models.MailRuleActionLabel:
 		return i18n.T(ctx, "rules.action_text.label", "label", action.Label)
+	case models.MailRuleActionSetFlagColor, models.MailRuleActionRemoveFlagColor:
+		return mailRuleActionLabel(ctx, action.Kind) + " · " + i18n.T(ctx, "mail.flag_color."+action.FlagColor)
 	}
 	return mailRuleActionLabel(ctx, action.Kind)
 }

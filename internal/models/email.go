@@ -3,6 +3,8 @@ package models
 import (
 	"html/template"
 	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 )
 
 type Account struct {
@@ -170,6 +172,7 @@ type Email struct {
 	DateFull          string
 	IsRead            bool
 	IsStarred         bool
+	FlagColor         keywords.FlagColor
 	HasAttachment     bool
 	// AttachmentCount counts this message's attachments, not inline images.
 	AttachmentCount   int
@@ -426,6 +429,7 @@ type EmailFilters struct {
 	SearchScope     *MailSearchScope
 	Unread          bool
 	Starred         bool
+	FlagColor       keywords.FlagColor
 	Attachments     bool
 	Read            bool
 	NoAttach        bool
@@ -463,6 +467,8 @@ type EmailFilters struct {
 	// stay in that list until the filters change, so a message opened there
 	// is marked read without leaving the list under the reader.
 	KeepRead []int64
+	// RetiredFlagLabel identifies an old keyword filter that needs a replacement.
+	RetiredFlagLabel string
 }
 
 type ThreadItem struct {

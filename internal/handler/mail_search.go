@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -108,6 +109,9 @@ func (h *Handler) handleMailSearch(w http.ResponseWriter, r *http.Request) {
 		settings := local.db.GetUISettings(ctx, userID)
 		ctx = storage.WithTimezone(ctx, settings["timezone"])
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, local.db, userID, scope.AccountID, "", &filters); err != nil {
+			return nil, err
+		}
 		filters.SearchScope = &scope
 		// A search reopened with a message open starts at that message's page.
 		selected := strings.TrimSpace(r.URL.Query().Get("selected"))
@@ -139,6 +143,27 @@ func (h *Handler) handleMailSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func setRetiredFlagLabelWarning(ctx context.Context, db *storage.DB, userID, accountID, folderID string, filters *models.EmailFilters) error {
+	if filters.Tag == "" && filters.TagProviderID == "" {
+		return nil
+	}
+	if accountID == "" {
+		accountID = cmp.Or(filters.TagAccountID, filters.AccountID)
+	}
+	if accountID == "" && folderID != "" {
+		var err error
+		accountID, err = db.GetFolderAccountID(ctx, folderID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	retired, err := db.RetiredFlagLabelReference(ctx, userID, accountID, filters.Tag, filters.TagProviderID, filters.TagProviderType)
+	if retired {
+		filters.RetiredFlagLabel = cmp.Or(filters.Tag, filters.TagProviderID)
+	}
+	return err
+}
+
 func (h *Handler) handleMailSearchItems(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
@@ -158,6 +183,9 @@ func (h *Handler) handleMailSearchItems(w http.ResponseWriter, r *http.Request) 
 		settings := local.db.GetUISettings(ctx, userID)
 		ctx = storage.WithTimezone(ctx, settings["timezone"])
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, local.db, userID, scope.AccountID, "", &filters); err != nil {
+			return nil, err
+		}
 		page, err := local.db.GetMailSearchPageForUser(ctx, userID, scope, start, limit, filters)
 		if err != nil {
 			return nil, err
@@ -187,6 +215,9 @@ func (h *Handler) handleMailSearchIDs(w http.ResponseWriter, r *http.Request) {
 		settings := db.GetUISettings(r.Context(), userID)
 		ctx := storage.WithTimezone(r.Context(), settings["timezone"])
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, db, userID, scope.AccountID, "", &filters); err != nil {
+			return err
+		}
 		ids, total, err := db.GetMailSearchRowIDsForUser(ctx, userID, scope, filters, mailItemIDsLimit+1)
 		if err != nil {
 			return err

@@ -14,6 +14,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 
 	goimap "github.com/emersion/go-imap/v2"
 )
@@ -25,10 +26,43 @@ type labelMutationResult struct {
 	RemoteFailed int
 }
 
+func flagColorOptions(targets []ownedMessageTarget) ([]views.MailLabelOption, bool) {
+	counts := map[keywords.FlagColor]int{}
+	eligible, total := 0, 0
+	for _, target := range targets {
+		for _, info := range target.Infos {
+			total++
+			if storage.SupportsFlagColors(info.AccountProvider) {
+				eligible++
+				counts[info.FlagColor]++
+			}
+		}
+	}
+	if eligible != total || eligible == 0 {
+		return nil, eligible > 0
+	}
+	var options []views.MailLabelOption
+	for _, color := range keywords.FlagColors() {
+		state := views.MailLabelOnNone
+		switch count := counts[color]; {
+		case count == total:
+			state = views.MailLabelOnAll
+		case count > 0:
+			state = views.MailLabelOnSome
+		}
+		options = append(options, views.MailLabelOption{FlagColor: color, State: state})
+	}
+	return options, false
+}
+
 func (h *Handler) handleLabelMessages(w http.ResponseWriter, r *http.Request) {
 	payload, err := decodeMessageBulkRequest(r)
 	if err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)
+		return
+	}
+	if payload.FlagColor != "" {
+		h.handleFlagColorLabel(w, r, payload, true)
 		return
 	}
 	labelName := strings.TrimSpace(payload.Label)
@@ -65,6 +99,10 @@ func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)
 		return
 	}
+	if payload.FlagColor != "" {
+		h.handleFlagColorLabel(w, r, payload, false)
+		return
+	}
 	labelName := strings.TrimSpace(payload.Label)
 	if labelName == "" {
 		http.Error(w, i18n.T(r.Context(), "server.error.label_required"), http.StatusBadRequest)
@@ -91,6 +129,48 @@ func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) 
 		"failed":        result.Failed,
 		"remote_failed": result.RemoteFailed,
 	})
+}
+
+func (h *Handler) handleFlagColorLabel(w http.ResponseWriter, r *http.Request, payload messageBulkRequest, add bool) {
+	color := keywords.ParseFlagColor(payload.FlagColor)
+	if !color.Valid() {
+		http.Error(w, i18n.T(r.Context(), "mail.flag_color.choose"), http.StatusBadRequest)
+		return
+	}
+	if payload.Label != "" {
+		writeMessageTargetError(w, r, errInvalidMessageTarget)
+		return
+	}
+	ctx := h.messageMutationContext(r.Context())
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), false)
+	if err != nil {
+		writeMessageTargetError(w, r, err)
+		return
+	}
+	var infos []storage.ThreadMessageMutationInfo
+	for _, target := range targets {
+		for _, info := range target.Infos {
+			if !storage.SupportsFlagColors(info.AccountProvider) {
+				http.Error(w, i18n.T(ctx, "mail.flag_color.unavailable_selection"), http.StatusBadRequest)
+				return
+			}
+			infos = append(infos, info)
+		}
+	}
+	action := storage.MailActionLabelRemove
+	if add {
+		action = storage.MailActionLabelAdd
+	}
+	ctx = storage.WithUserMailAction(ctx, action)
+	if err := h.db.SetMessageFlagColorForUser(ctx, h.userID(ctx), infos, color, add); err != nil {
+		log.Printf("queue flag color: %v", err)
+		http.Error(w, i18n.T(ctx, "mail.flag_color.change_failed"), http.StatusInternalServerError)
+		return
+	}
+	h.signalMessageMutationWorker()
+	h.publishThreadMutation(infos)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]int{"updated": len(targets), "messages": len(infos)})
 }
 
 func (h *Handler) handleLabelMessage(w http.ResponseWriter, r *http.Request) {

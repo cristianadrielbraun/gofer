@@ -115,13 +115,7 @@ func (s *UserIMAP) applyMutation(ctx context.Context, scope *userIMAPScope, muta
 	var validity uint32
 	if err := scope.call(ctx, func(db *storage.DB) error {
 		var err error
-		if mutation.Kind == storage.MessageMutationMove || mutation.Kind == storage.MessageMutationDelete {
-			info, err = db.GetMessageMutationInfoIncludingDeletedInFolder(ctx, mutation.MessageID, mutation.FolderID)
-		} else if mutation.FolderID == "" {
-			info, err = db.GetMessageMutationInfoInternal(ctx, mutation.MessageID)
-		} else {
-			info, err = db.GetMessageMutationInfoInFolder(ctx, mutation.MessageID, mutation.FolderID)
-		}
+		info, err = db.GetMessageMutationInfoForReplay(ctx, mutation)
 		if err != nil || info == nil {
 			return err
 		}
@@ -158,6 +152,9 @@ func (s *UserIMAP) applyMutation(ctx context.Context, scope *userIMAPScope, muta
 	defer client.Close()
 	uid := info.RemoteUID
 	if uid == 0 {
+		if mutation.IsScopedFlagColor() {
+			return errors.New("message has no remote IMAP identity; waiting for folder sync")
+		}
 		uid, validity, err = client.FindUIDByMessageIDWithValidity(ctx, info.FolderRemoteID, info.InternetMessageID)
 		if err != nil {
 			return err
@@ -176,7 +173,14 @@ func (s *UserIMAP) applyMutation(ctx context.Context, scope *userIMAPScope, muta
 		if mutation.Kind == storage.MessageMutationStarred {
 			flag = goimap.FlagFlagged
 		}
-		err = client.StoreFlagsIfUIDValidity(ctx, info.FolderRemoteID, uid, op, []goimap.Flag{flag}, validity)
+		if bits, color := mutation.FlagBitsTarget(); color {
+			if mutation.SourceUIDValidity != 0 {
+				validity = mutation.SourceUIDValidity
+			}
+			err = client.StoreFlagColorBatchIfUIDValidity(ctx, info.FolderRemoteID, []uint32{uid}, mutation.TargetValue, bits, validity)
+		} else {
+			err = client.StoreFlagsIfUIDValidity(ctx, info.FolderRemoteID, uid, op, []goimap.Flag{flag}, validity)
+		}
 	case storage.MessageMutationDelete:
 		if uid == 0 {
 			alreadyGone = true

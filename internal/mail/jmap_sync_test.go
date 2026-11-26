@@ -1652,6 +1652,76 @@ func TestSyncSendsAFolderMarkedReadToJMAPInOneRequest(t *testing.T) {
 	}
 }
 
+func TestJMAPFlagColorsBatchTargetsExactEmailsAndPreservesOtherKeywords(t *testing.T) {
+	f := newUserGmailFixture(t)
+	server := newFakeJMAPServer(t)
+	server.emailState = "c0"
+	server.setMailboxes(
+		jmap.Mailbox{ID: "mb-in", Name: "Inbox", Role: "inbox", MyRights: readable()},
+		jmap.Mailbox{ID: "mb-sent", Name: "Sent", Role: "sent", MyRights: readable()},
+	)
+	for i, id := range []string{"copy-a", "copy-b", "sent-copy"} {
+		folder := "mb-in"
+		if i == 2 {
+			folder = "mb-sent"
+		}
+		email := testJMAPEmail(id, "Garden notes", i+1, folder)
+		if i != 1 {
+			email.MessageID = []string{"garden-notes@example.test"}
+		}
+		email.Keywords = map[string]bool{"$flagged": true, "$mailflagbit0": true, "$hasmemo": true, "$vendor": true}
+		server.emails = append(server.emails, email)
+	}
+	useFakeJMAPAccount(t, f, server)
+	ctx := t.Context()
+	account := f.ids["alice"]
+	if err := f.worker.Sync(ctx, "alice", account); err != nil {
+		t.Fatal(err)
+	}
+	inbox := jmapLocalFolderID(account, "mb-in")
+	f.local(t, "alice", func(db *storage.DB) error {
+		page, err := db.GetEmailsRangeFilteredForUser(ctx, "alice", inbox, 0, 10, models.EmailFilters{ByMessage: true})
+		if err != nil || len(page.Emails) != 2 {
+			return fmt.Errorf("inbox before edit: %+v (%v)", page, err)
+		}
+		for _, email := range page.Emails {
+			var messageID int64
+			if err := db.Read().QueryRow(`SELECT id FROM messages WHERE id=?`, email.ID).Scan(&messageID); err != nil {
+				return err
+			}
+			info, err := db.GetMessageMutationInfoInFolder(ctx, messageID, inbox)
+			if err != nil || info == nil {
+				return fmt.Errorf("look up %s before edit: %v", email.ID, err)
+			}
+			if err := db.SetMessageFlagColorForUser(ctx, "alice", []storage.ThreadMessageMutationInfo{{MessageID: messageID, MessageMutationInfo: *info}}, keywords.FlagColorBlue, true); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err := f.worker.Sync(ctx, "alice", account); err != nil {
+		t.Fatal(err)
+	}
+	server.mu.Lock()
+	sets := server.emailSets
+	server.mu.Unlock()
+	if sets != 1 {
+		t.Fatalf("JMAP set requests = %d, want a single color batch", sets)
+	}
+	for _, id := range []string{"copy-a", "copy-b", "sent-copy"} {
+		email, _ := server.email(id)
+		want := map[string]bool{"$flagged": true, "$hasmemo": true, "$vendor": true}
+		if id == "sent-copy" {
+			want["$mailflagbit0"] = true
+		} else {
+			want["$mailflagbit2"] = true
+		}
+		if !maps.Equal(email.Keywords, want) {
+			t.Fatalf("%s keywords = %v, want %v", id, email.Keywords, want)
+		}
+	}
+}
+
 // Emptying a Trash mailbox reaches the server as one Email/set destroying
 // every email, not one request per email.
 func TestSyncSendsAnEmptiedJMAPTrashInOneRequest(t *testing.T) {

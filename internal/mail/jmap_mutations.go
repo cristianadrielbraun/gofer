@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -19,6 +20,7 @@ import (
 type JMAPMutation struct {
 	Kind          string
 	TargetValue   bool
+	FlagColor     keywords.FlagColor
 	EmailID       string
 	FolderCopyIDs []string
 	FromMailboxID string
@@ -26,7 +28,7 @@ type JMAPMutation struct {
 }
 
 // ApplyJMAPMutation sends one queued change to the JMAP server as a single
-// Email/set. Read and starred set or clear one keyword; a move swaps one
+// Email/set. Read and starred patch their keywords; a move swaps one
 // mailbox for another, leaving others the email is in; a delete destroys the
 // email for good, as Gofer's delete does for Gmail and Outlook. It reports
 // gone when the server has none of the emails any more, which needs no retry.
@@ -44,7 +46,7 @@ func ApplyJMAPMutation(ctx context.Context, cfg *models.AccountConfig, password 
 	case storage.MessageMutationRead:
 		patch = jmap.KeywordPatch(jmap.KeywordSeen, m.TargetValue)
 	case storage.MessageMutationStarred:
-		patch = jmap.KeywordPatch(jmap.KeywordFlagged, m.TargetValue)
+		patch = jmapStarredPatch(m.TargetValue, m.FlagColor)
 	case storage.MessageMutationMove:
 		if m.ToMailboxID == "" {
 			return false, errors.New("JMAP move destination has no mailbox identity")
@@ -96,17 +98,18 @@ const jmapDefaultObjectsInSet = 500
 
 // ApplyJMAPBatch sends one read, starred or delete change for many
 // messages' emails, in as few Email/set requests as the server's
-// maxObjectsInSet allows: read and starred set or clear a keyword, and a
+// maxObjectsInSet allows: read and starred patch their keywords, and a
 // delete destroys the emails for good, as single changes do. failures[i] is
 // nil when emails[i] changed or the server no longer has it, and gone[i]
 // tells the latter apart. err is set when no request could be sent at all.
-func ApplyJMAPBatch(ctx context.Context, cfg *models.AccountConfig, password, kind string, target bool, emails []JMAPBatchEmail) (failures []error, gone []bool, err error) {
+func ApplyJMAPBatch(ctx context.Context, cfg *models.AccountConfig, password string, mutation storage.MessageMutation, emails []JMAPBatchEmail) (failures []error, gone []bool, err error) {
+	kind, target := mutation.Kind, mutation.TargetValue
 	var patch jmap.PatchObject
 	switch kind {
 	case storage.MessageMutationRead:
 		patch = jmap.KeywordPatch(jmap.KeywordSeen, target)
 	case storage.MessageMutationStarred:
-		patch = jmap.KeywordPatch(jmap.KeywordFlagged, target)
+		patch = jmapStarredPatch(target, mutation.TargetFlagColor)
 	case storage.MessageMutationDelete:
 	default:
 		return nil, nil, fmt.Errorf("unsupported JMAP batch mutation %q", kind)
@@ -170,6 +173,18 @@ func ApplyJMAPBatch(ctx context.Context, cfg *models.AccountConfig, password, ki
 		send(len(emails))
 	}
 	return failures, gone, nil
+}
+
+func jmapStarredPatch(starred bool, color keywords.FlagColor) jmap.PatchObject {
+	patch := jmap.KeywordPatch(jmap.KeywordFlagged, starred)
+	if starred && color == 0 {
+		return patch
+	}
+	for i, name := range keywords.FlagBitKeywords() {
+		on := starred && color.Valid() && int(color)&(1<<i) != 0
+		maps.Copy(patch, jmap.KeywordPatch(strings.ToLower(name), on))
+	}
+	return patch
 }
 
 // openJMAPMail opens the account's JMAP session and gives its mail account.
@@ -265,7 +280,10 @@ func (s *UserIMAP) applyJMAPMutation(ctx context.Context, scope *userIMAPScope, 
 	if mutation.AccountID != scope.id || info.AccountID != scope.id || mutation.ProviderType != storage.MessageMutationProviderJMAP || info.AccountProvider != "jmap" {
 		return errors.New("queued mutation account or provider changed")
 	}
-	request := JMAPMutation{Kind: mutation.Kind, TargetValue: mutation.TargetValue, EmailID: info.RemoteMessageID, FolderCopyIDs: info.FolderCopyIDs}
+	request := JMAPMutation{Kind: mutation.Kind, TargetValue: mutation.TargetValue, FlagColor: mutation.TargetFlagColor, EmailID: info.RemoteMessageID, FolderCopyIDs: info.FolderCopyIDs}
+	if mutation.IsScopedFlagColor() {
+		request.FolderCopyIDs = nil
+	}
 	if mutation.Kind == storage.MessageMutationMove {
 		if err := scope.call(ctx, func(db *storage.DB) error {
 			var err error
@@ -284,6 +302,8 @@ func (s *UserIMAP) applyJMAPMutation(ctx context.Context, scope *userIMAPScope, 
 	}
 	return scope.call(ctx, func(db *storage.DB) error {
 		switch {
+		case gone && mutation.TargetFlagCopy != "":
+			return db.DiscardMessageMutation(ctx, mutation.ID)
 		case mutation.Kind == storage.MessageMutationDelete:
 			if err := db.CompleteMessageDeleteMutation(ctx, mutation.ID); err != nil {
 				return err

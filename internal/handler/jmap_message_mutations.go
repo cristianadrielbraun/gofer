@@ -20,7 +20,10 @@ func (h *Handler) applyJMAPMessageMutation(ctx context.Context, mutation storage
 	if err != nil {
 		return err
 	}
-	request := mail.JMAPMutation{Kind: mutation.Kind, TargetValue: mutation.TargetValue, EmailID: info.RemoteMessageID, FolderCopyIDs: info.FolderCopyIDs}
+	request := mail.JMAPMutation{Kind: mutation.Kind, TargetValue: mutation.TargetValue, FlagColor: mutation.TargetFlagColor, EmailID: info.RemoteMessageID, FolderCopyIDs: info.FolderCopyIDs}
+	if mutation.IsScopedFlagColor() {
+		request.FolderCopyIDs = nil
+	}
 	if mutation.Kind == storage.MessageMutationMove {
 		if request.FromMailboxID, err = h.db.GetFolderProviderRemoteID(ctx, mutation.FolderID); err != nil {
 			return fmt.Errorf("load JMAP source mailbox: %w", err)
@@ -33,6 +36,8 @@ func (h *Handler) applyJMAPMessageMutation(ctx context.Context, mutation storage
 	switch {
 	case err != nil:
 		return err
+	case gone && mutation.TargetFlagCopy != "":
+		return h.db.DiscardMessageMutation(ctx, mutation.ID)
 	case gone && mutation.Kind == storage.MessageMutationDelete:
 		return errProviderDeleteAlreadyGone
 	case mutation.Kind == storage.MessageMutationMove && !gone:

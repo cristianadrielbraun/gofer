@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/emersion/go-imap/v2"
 )
 
@@ -41,6 +42,40 @@ func (c *Client) StoreFlagsBatchIfUIDValidity(ctx context.Context, folder string
 const storeFlagsChunk = 500
 
 func (c *Client) storeFlagsBatch(ctx context.Context, folderRemoteName string, uids []uint32, op imap.StoreFlagsOp, flags []imap.Flag, validity uint32) error {
+	return c.storeFlagChanges(ctx, folderRemoteName, uids, validity, nil, []imap.StoreFlags{{Op: op, Silent: true, Flags: flags}})
+}
+
+// StoreFlagColorBatchIfUIDValidity updates only Flagged and the three managed
+// keywords under one checked mailbox selection. Each STORE is idempotent.
+func (c *Client) StoreFlagColorBatchIfUIDValidity(ctx context.Context, folder string, uids []uint32, starred bool, bits int, validity uint32) error {
+	if validity == 0 {
+		return fmt.Errorf("IMAP UIDVALIDITY is unavailable")
+	}
+	if bits < 0 || bits > int(keywords.FlagColorGray) {
+		return fmt.Errorf("invalid flag color")
+	}
+	var add, remove, permanent []imap.Flag
+	if starred {
+		add = append(add, imap.FlagFlagged)
+	} else {
+		remove = append(remove, imap.FlagFlagged)
+	}
+	for i, keyword := range keywords.FlagBitKeywords() {
+		flag := imap.Flag(keyword)
+		if starred && bits&(1<<i) != 0 {
+			add = append(add, flag)
+			permanent = append(permanent, flag)
+		} else {
+			remove = append(remove, flag)
+		}
+	}
+	return c.storeFlagChanges(ctx, folder, uids, validity, permanent, []imap.StoreFlags{
+		{Op: imap.StoreFlagsAdd, Silent: true, Flags: add},
+		{Op: imap.StoreFlagsDel, Silent: true, Flags: remove},
+	})
+}
+
+func (c *Client) storeFlagChanges(ctx context.Context, folderRemoteName string, uids []uint32, validity uint32, permanent []imap.Flag, changes []imap.StoreFlags) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -59,6 +94,11 @@ func (c *Client) storeFlagsBatch(ctx context.Context, folderRemoteName string, u
 	if validity > 0 && validity != uint32(selected.UIDValidity) {
 		return ErrMutationUIDValidityChanged
 	}
+	for _, keyword := range permanent {
+		if !supportsPermanentKeyword(selected.PermanentFlags, keyword) {
+			return fmt.Errorf("mailbox does not allow persistent keyword %q", keyword)
+		}
+	}
 
 	for start := 0; start < len(uids); start += storeFlagsChunk {
 		if err := ctx.Err(); err != nil {
@@ -68,13 +108,13 @@ func (c *Client) storeFlagsBatch(ctx context.Context, folderRemoteName string, u
 		for _, uid := range uids[start:min(start+storeFlagsChunk, len(uids))] {
 			uidSet.AddNum(imap.UID(uid))
 		}
-		storeCmd := c.client.Store(uidSet, &imap.StoreFlags{
-			Op:     op,
-			Silent: true,
-			Flags:  flags,
-		}, nil)
-		if err := storeCmd.Close(); err != nil {
-			return err
+		for _, change := range changes {
+			if len(change.Flags) == 0 {
+				continue
+			}
+			if err := c.client.Store(uidSet, &change, nil).Close(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

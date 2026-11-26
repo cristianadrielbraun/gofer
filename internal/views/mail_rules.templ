@@ -527,6 +527,9 @@ templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
 						}
 					</ul>
 				}
+				for _, label := range data.RetiredFlagLabels[rule.ID] {
+					<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.flag_color.retired_rule", "label", label) }</p>
+				}
 			</div>
 			<div class="flex shrink-0 items-center gap-1">
 				@switchcomp.Switch(switchcomp.Props{
@@ -852,8 +855,10 @@ templ mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, inde
 				}
 				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 					for _, field := range mailRuleFields {
-						@selectbox.Item(selectbox.ItemProps{Value: field, Selected: field == condition.Field}) {
-							{ mailRuleFieldLabel(ctx, field) }
+						if field != models.MailRuleFieldFlagColor || field == condition.Field || mailRuleOffersFlagColors(rule, data.Accounts) {
+							@selectbox.Item(selectbox.ItemProps{Value: field, Selected: field == condition.Field}) {
+								{ mailRuleFieldLabel(ctx, field) }
+							}
 						}
 					}
 				}
@@ -865,7 +870,7 @@ templ mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, inde
 					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "rules.op.contains")})
 				}
 				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-					if condition.Field == models.MailRuleFieldFolder {
+					if condition.Field == models.MailRuleFieldFolder || condition.Field == models.MailRuleFieldFlagColor {
 						@selectbox.Item(selectbox.ItemProps{Value: models.MailRuleOpIs, Selected: condition.Operator == models.MailRuleOpIs}) {
 							{ i18n.T(ctx, "rules.op.is") }
 						}
@@ -886,6 +891,9 @@ templ mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, inde
 			if condition.Field == models.MailRuleFieldFolder {
 				<input type="hidden" name="cond_value" value=""/>
 				@folderFieldView(mailRuleConditionFolders(ctx, index, rule, condition.Folder, data.Accounts))
+			} else if condition.Field == models.MailRuleFieldFlagColor {
+				<input type="hidden" name="cond_folder" value=""/>
+				@MailFlagColorSelect("cond_value", condition.Value, nil)
 			} else {
 				<input type="hidden" name="cond_folder" value=""/>
 				@input.Input(input.Props{Name: "cond_value", Type: input.TypeText, Class: mailRuleCompactControl, Value: condition.Value, Placeholder: mailRuleValuePlaceholder(ctx, condition), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": i18n.T(ctx, "rules.compare_with")}})
@@ -922,7 +930,7 @@ templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index i
 				}
 				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 					for _, kind := range mailRuleActionKinds {
-						if MailRuleActionOffered(rule.Actions, index, kind) {
+						if MailRuleActionOffered(rule.Actions, index, kind) && (kind == action.Kind || kind != models.MailRuleActionSetFlagColor && kind != models.MailRuleActionRemoveFlagColor || mailRuleOffersFlagColors(rule, data.Accounts)) {
 							@selectbox.Item(selectbox.ItemProps{Value: kind, Selected: kind == action.Kind}) {
 								{ mailRuleActionLabel(ctx, kind) }
 							}
@@ -959,6 +967,13 @@ templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index i
 					<input type="hidden" name="act_folder" value=""/>
 					<input type="hidden" name="act_for_good" value=""/>
 					@input.Input(input.Props{Name: "act_label", Type: input.TypeText, Class: mailRuleCompactControl, Value: action.Label, Placeholder: i18n.T(ctx, "rules.label_placeholder"), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": i18n.T(ctx, "rules.label")}})
+					if slices.Contains(data.RetiredFlagLabels[rule.ID], action.Label) {
+						<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.flag_color.retired_rule", "label", action.Label) }</p>
+					}
+				case models.MailRuleActionSetFlagColor, models.MailRuleActionRemoveFlagColor:
+					<input type="hidden" name="act_folder" value=""/>
+					<input type="hidden" name="act_for_good" value=""/>
+					@MailFlagColorSelect("act_label", action.FlagColor, nil)
 				default:
 					<input type="hidden" name="act_folder" value=""/>
 					<input type="hidden" name="act_label" value=""/>
