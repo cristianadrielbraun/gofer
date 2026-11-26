@@ -41,6 +41,8 @@
   var style = document.createElement("style");
   style.setAttribute("data-saved-panel-size-style", "");
   // Saved panel sizes are desktop-only; small screens show one pane at a time.
-  style.textContent = "@media (min-width:1024px){" + (sidebar ? "aside{width:" + sidebar + "px!important}" : "") + (stacked ? "#main-content{flex-direction:column}#mail-list{width:100%!important" + (mailList ? ";height:" + mailList + "px!important" : "") + "}" : (mailList ? "#mail-list{width:" + mailList + "!important}" : "")) + "}";
+  // Only the app's sidebar takes its width: Mail's calendar sidebar is an
+  // aside too, and has a width of its own.
+  style.textContent = "@media (min-width:1024px){" + (sidebar ? "#app-shell>aside{width:" + sidebar + "px!important}" : "") + (stacked ? "#main-content{flex-direction:column}#mail-list{width:100%!important" + (mailList ? ";height:" + mailList + "px!important" : "") + "}" : (mailList ? "#mail-list{width:" + mailList + "!important}" : "")) + "}";
   document.head.appendChild(style);
 })();
