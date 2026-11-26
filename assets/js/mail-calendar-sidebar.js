@@ -3,7 +3,8 @@
   if (window.__goferMailCalendarControlsReady) return;
   window.__goferMailCalendarControlsReady = true;
 
-  const WIDTH_KEY = "gofer.mailCalendar.width.v2";
+  // The width is saved with the other pane sizes, so the page is drawn at it.
+  const WIDTH_SETTING = "mail_calendar_width";
   const WIDE_KEY = "gofer.mailCalendar.open.wide.v2";
   const NARROW_KEY = "gofer.mailCalendar.open.narrow.v2";
   const MIN = 260;
@@ -39,8 +40,12 @@
   }
 
   function width() {
-    const saved = Number(read(WIDTH_KEY));
+    const saved = Number(typeof GoferSettings !== "undefined" ? GoferSettings.get(WIDTH_SETTING) : null);
     return saved >= MIN && saved <= MAX ? saved : 300;
+  }
+
+  function saveWidth(value) {
+    if (typeof GoferSettings !== "undefined") GoferSettings.set(WIDTH_SETTING, String(value));
   }
 
   function stateKey() {
@@ -57,11 +62,8 @@
 
     shell.dataset.open = String(open);
 
-    if (wide()) {
-      shell.style.setProperty("--mail-calendar-width", size + "px");
-    } else {
-      shell.style.removeProperty("--mail-calendar-width");
-    }
+    // Below 1536px the calendar opens over the panes at a fixed width (CSS).
+    shell.style.setProperty("--mail-calendar-width", size + "px");
 
     const toggle = shell.querySelector(
       "[data-mail-calendar-toggle]"
@@ -174,6 +176,19 @@
     if (event.key === "Escape" && drawerOpen()) setDrawer(false);
   });
 
+  // The calendar keeps itself (hx-preserve) when Mail is drawn again, so it
+  // doesn't load a second time. The empty placeholder of a Mail drawn with the
+  // calendar off has the same id, though, and htmx would keep that instead of
+  // the calendar coming in to replace it.
+  document.addEventListener("htmx:oobBeforeSwap", function (event) {
+    const target = event.detail && event.detail.target;
+    if (!target || target.id !== "mail-calendar-sidebar-slot" || target.hasAttribute("data-mail-calendar-shell")) return;
+
+    event.detail.fragment.querySelectorAll("[data-mail-calendar-shell][hx-preserve]").forEach(function (shell) {
+      shell.removeAttribute("hx-preserve");
+    });
+  });
+
   window.addEventListener("popstate", function () {
     setDrawer(false);
   });
@@ -262,7 +277,7 @@
       document.removeEventListener("pointercancel", end);
       window.removeEventListener("blur", end);
 
-      write(WIDTH_KEY, clamp(last));
+      saveWidth(clamp(last));
       grip.removeAttribute("data-dragging");
       document.body.style.userSelect = "";
     }
@@ -298,7 +313,7 @@
       width() + (event.key === "ArrowLeft" ? 10 : -10)
     );
 
-    write(WIDTH_KEY, next);
+    saveWidth(next);
     apply(shell, true, next);
   });
 

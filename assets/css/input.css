@@ -4694,6 +4694,8 @@ body.mail-list-column-resizing {
 
 @media (max-width: 1535.98px) {
   .mail-calendar-shell {
+    /* The saved width is for beside the panes; over them it's always this. */
+    --mail-calendar-width: 300px !important;
     position: fixed;
     z-index: 70;
     top: 0;

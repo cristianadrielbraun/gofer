@@ -41,3 +41,26 @@ func TestMailCalendarSidebarContentDoesNotLoadAgain(t *testing.T) {
 		t.Fatal("a loaded calendar shouldn't load again")
 	}
 }
+
+func TestMailCalendarSidebarIsDrawnAtItsSavedWidth(t *testing.T) {
+	for _, tc := range []struct{ saved, want string }{
+		{"", "300px"},
+		{"360", "360px"},
+		{"120", "260px"},
+		{"900", "450px"},
+		{"wide", "300px"},
+	} {
+		var out bytes.Buffer
+		settings := map[string]string{"mail_calendar_sidebar_enabled": "true", "mail_calendar_width": tc.saved}
+		if err := MailCalendarSidebar(settings).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		html := out.String()
+		if !strings.Contains(html, "--mail-calendar-width: "+tc.want) {
+			t.Errorf("saved width %q should be drawn at %s", tc.saved, tc.want)
+		}
+		if !strings.Contains(html, `hx-preserve="true"`) {
+			t.Fatal("the calendar should keep itself when Mail is drawn again, so it doesn't load twice")
+		}
+	}
+}

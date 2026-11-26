@@ -11,11 +11,15 @@ import (
 // MailCalendarSidebar is the calendar sidebar in Mail. It loads the month from the
 // calendar cache once it is on screen, so Mail never waits for it and phones,
 // which don't show it, never load it. Until then it shows this month's days,
-// as the Calendar page does while it loads, with no events yet.
+// as the Calendar page does while it loads, with no events yet. It's drawn at
+// its saved width, and Mail drawn again keeps it as it is (hx-preserve), so it
+// neither jumps in width nor loads twice.
 templ MailCalendarSidebar(uiSettings map[string]string) {
 	<div
 		id="mail-calendar-sidebar-slot"
 		class="mail-calendar-shell"
+		style={ mailCalendarWidthStyle(uiSettings) }
+		hx-preserve="true"
 		data-mail-calendar-shell
 		data-open="true"
 		data-mail-calendar-hide-label={ i18n.T(ctx, "calendar.mail_sidebar.hide") }

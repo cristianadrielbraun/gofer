@@ -42,6 +42,7 @@ function load(slide, screen = 'wide', reducedMotion = false) {
   grip.closest = toggle.closest
   grip.removeAttribute = name => { delete grip.attributes[name] }
   const storage = {}
+  const settings = {}
   const context = vm.createContext({
     window: {addEventListener(type, listener) { windowListeners[type] = listener }, removeEventListener() {}},
     localStorage: {getItem: key => storage[key] ?? null, setItem: (key, value) => { storage[key] = value }},
@@ -59,6 +60,7 @@ function load(slide, screen = 'wide', reducedMotion = false) {
       querySelectorAll: selector => selector === '[data-mobile-mail-calendar]' ? [topbarButton] : [],
     },
     fanInElements(nodes, delay) { fannedIn.push({nodes, delay}) },
+    GoferSettings: {get: key => settings[key] ?? null, set(key, value) { settings[key] = value }},
     slideAppPanelWidth(target, from, to) {
       slides.push({target, from, to})
       return slide()
@@ -68,7 +70,8 @@ function load(slide, screen = 'wide', reducedMotion = false) {
   const dispatch = (type, event) => (listeners[type] || []).forEach(listener => listener(event))
   const clickOn = attribute => dispatch('click', {target: {closest: selector => selector === '[' + attribute + ']' ? (attribute === 'data-mail-calendar-toggle' ? toggle : {}) : null}})
   return {
-    shell, aside, slides, storage, root, topbarButton,
+    shell, aside, slides, storage, settings, root, topbarButton,
+    oobSwap(target, incoming) { dispatch('htmx:oobBeforeSwap', {detail: {target, fragment: {querySelectorAll: () => [incoming]}}}) },
     click: () => clickOn('data-mail-calendar-toggle'),
     tapTopbarButton: () => clickOn('data-mobile-mail-calendar'),
     tapBackdrop: () => clickOn('data-mobile-nav-close'),
@@ -148,7 +151,18 @@ assert('data-dragging' in page.grip.attributes, 'The grip is marked while it is 
 page.moveTo(860)
 page.releaseGrip()
 assert(!('data-dragging' in page.grip.attributes), 'Letting go clears the mark')
-assert.equal(page.storage['gofer.mailCalendar.width.v2'], '340', 'The dragged width is kept')
+assert.equal(page.settings.mail_calendar_width, '340', 'The dragged width is saved with the other pane sizes')
+
+// The calendar keeps itself when Mail is drawn again, but it replaces the
+// empty placeholder of a Mail drawn with it turned off.
+const attributes = names => ({names: new Set(names), hasAttribute(name) { return this.names.has(name) }, removeAttribute(name) { this.names.delete(name) }})
+const incoming = () => attributes(['data-mail-calendar-shell', 'hx-preserve'])
+let arriving = incoming()
+page.oobSwap(Object.assign(attributes([]), {id: 'mail-calendar-sidebar-slot'}), arriving)
+assert.equal(arriving.hasAttribute('hx-preserve'), false, 'The calendar replaces the placeholder')
+arriving = incoming()
+page.oobSwap(Object.assign(attributes(['data-mail-calendar-shell']), {id: 'mail-calendar-sidebar-slot'}), arriving)
+assert.equal(arriving.hasAttribute('hx-preserve'), true, 'The calendar on screen keeps itself')
 
 // Events come in like a new mail list's rows, once for each day or month
 // that arrives, but not while the calendar is still loading.

@@ -2,6 +2,7 @@ package views
 
 import (
 	"sort"
+	"strconv"
 
 	"github.com/a-h/templ"
 )
@@ -92,4 +93,23 @@ func mailSidebarDayCurrent(day CalendarDay) string {
 		return "date"
 	}
 	return "false"
+}
+
+// Bounds of the calendar sidebar's width, as its resize grip allows.
+const (
+	mailCalendarMinWidth     = 260
+	mailCalendarMaxWidth     = 450
+	mailCalendarDefaultWidth = 300
+)
+
+// mailCalendarWidthStyle draws the calendar sidebar at its saved width. A
+// missing or unreadable width is the default; one outside the grip's bounds
+// is brought inside them.
+func mailCalendarWidthStyle(uiSettings map[string]string) templ.SafeCSS {
+	width, err := strconv.Atoi(uiSettings["mail_calendar_width"])
+	if err != nil {
+		width = mailCalendarDefaultWidth
+	}
+	width = max(mailCalendarMinWidth, min(mailCalendarMaxWidth, width))
+	return templ.SafeCSS("--mail-calendar-width: " + strconv.Itoa(width) + "px;")
 }
