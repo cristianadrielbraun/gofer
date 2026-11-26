@@ -132,6 +132,9 @@ type Folder struct {
 	Role         string
 	Unread       int
 	IsSystem     bool
+	// Hidden is set for a folder without a role that the user took out of
+	// the sidebar. It still syncs, and every other place still offers it.
+	Hidden       bool
 	IsVirtual    bool
 	IsTag        bool
 	IsUnifiedTag bool
@@ -388,6 +391,9 @@ type Label struct {
 	AppearanceColor string
 	IconStyle       string
 	IsUnified       bool
+	// Hidden is set for a tag the user took out of the sidebar's tags. Mail
+	// keeps it, and every other place still offers it.
+	Hidden bool
 }
 
 type Attachment struct {

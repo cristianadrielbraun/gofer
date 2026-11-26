@@ -241,6 +241,32 @@ func TestOwnedRemoteContentPublicationAssetsAndRepeatedConsent(t *testing.T) {
 	}
 }
 
+// An image that can't be downloaded when remote content is saved for good
+// must still load through Gofer afterwards, instead of disappearing.
+func TestOwnedRemoteContentKeepsImagesItCouldNotSave(t *testing.T) {
+	f := newOwnedMessageContentFixture(t)
+	f.h.remoteResourceDownloader = func(ctx context.Context, url string) ([]byte, error) {
+		return nil, fmt.Errorf("HTTP 403")
+	}
+	r := httptest.NewRecorder()
+	f.h.handleUserAllowRemoteContent(r, ownedContentRequest("alice", "/api/remote-content/1/allow", `{"mode":"email"}`))
+	if r.Code != http.StatusOK {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	rec := httptest.NewRecorder()
+	f.h.handleUserEmailBody(rec, ownedContentRequest("alice", "/email/1/body?theme=light", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	shown := rec.Body.String()
+	if !strings.Contains(shown, messageFileRoute+messageFileWeb+"/1/"+messageFileWebName("https://images.example/private.png")+"?") {
+		t.Fatalf("image that could not be saved does not load through Gofer: %s", shown)
+	}
+	if strings.Contains(shown, "data-removed-src") {
+		t.Fatalf("image still marked removed: %s", shown)
+	}
+}
+
 func TestOwnedRemoteContentDeniedPublicationDiscardsCandidate(t *testing.T) {
 	for _, mode := range []string{"body-change", "owner-disable", "rollback", "late-principal"} {
 		t.Run(mode, func(t *testing.T) {

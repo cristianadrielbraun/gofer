@@ -62,10 +62,10 @@ templ SidebarContextMenu() {
 		@popover.Content(popover.ContentProps{
 			Placement:  popover.PlacementBottomStart,
 			Offset:     2,
-			Class:      "z-50 w-52 rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
+			Class:      "z-50 " + fitMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
 			Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "mail.folder_menu.label")},
 		}) {
-			@dropdown.Label(dropdown.LabelProps{Class: "truncate text-xs font-medium text-muted-foreground", Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
+			@dropdown.Label(dropdown.LabelProps{Class: sidebarContextTitleClass, Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
 			@sidebarContextItem("mark-read", i18n.T(ctx, "mail.folder_menu.mark_read"), "") {
 				@icon.CheckCheck(icon.Props{Class: "size-4"})
 			}
@@ -81,6 +81,7 @@ templ SidebarContextMenu() {
 			@sidebarContextItem("mailbox-size", i18n.T(ctx, "mail.folder_menu.mailbox_size"), "") {
 				@icon.ChartPie(icon.Props{Class: "size-4"})
 			}
+			@sidebarContextRulesItem()
 			@sidebarContextItem("new-folder", i18n.T(ctx, "mail.folder_menu.new_folder"), "") {
 				@icon.FolderPlus(icon.Props{Class: "size-4"})
 			}
@@ -92,6 +93,12 @@ templ SidebarContextMenu() {
 			}
 			@sidebarContextItem("folder-appearance", i18n.T(ctx, "mail.folder_menu.appearance"), "") {
 				@icon.Palette(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("hide-folder", i18n.T(ctx, "mail.folder_menu.hide_from_sidebar"), "") {
+				@icon.EyeOff(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("hide-tag", i18n.T(ctx, "mail.folder_menu.hide_from_sidebar"), "") {
+				@icon.EyeOff(icon.Props{Class: "size-4"})
 			}
 			@sidebarContextItem("rename-folder", i18n.T(ctx, "mail.folder_menu.rename_folder"), "") {
 				@icon.FolderPen(icon.Props{Class: "size-4"})
@@ -115,13 +122,55 @@ templ SidebarContextMenu() {
 	}
 }
 
+// fitMenuWidth makes a menu as wide as its longest item, so no item wraps,
+// from a least width up to what fits the window; an item longer than that
+// is cut short. On phones a menu that opens as a sheet takes the screen's
+// width instead (mobile-sheet).
+const fitMenuWidth = "w-max min-w-52 max-w-[min(22rem,calc(100vw-1rem))]"
+
+// sidebarContextTitleClass is a sidebar menu's title, the folder's or the
+// account's name: it takes the width the items give the menu, cut short,
+// rather than widening it.
+const sidebarContextTitleClass = "w-0 min-w-full truncate text-xs font-medium text-muted-foreground"
+
 templ sidebarContextItem(action string, label string, class string) {
 	@dropdown.Item(dropdown.ItemProps{Class: class, Attributes: templ.Attributes{"role": "menuitem", "data-sidebar-context-action": action}}) {
-		<span class="flex items-center gap-2">
+		@sidebarContextItemText(label) {
 			{ children... }
-			{ label }
-		</span>
+		}
 	}
+}
+
+// sidebarContextItemText is a sidebar menu item's icon (children) and words,
+// on one line.
+templ sidebarContextItemText(label string) {
+	<span class="flex min-w-0 items-center gap-2 whitespace-nowrap">
+		{ children... }
+		<span class="truncate">{ label }</span>
+	</span>
+}
+
+// sidebarContextRulesItem opens the rules that move mail into the folder,
+// with how many there are beside it.
+templ sidebarContextRulesItem() {
+	@dropdown.Item(dropdown.ItemProps{Class: "gap-3", Attributes: templ.Attributes{"role": "menuitem", "data-sidebar-context-action": "folder-rules"}}) {
+		@sidebarContextItemText(i18n.T(ctx, "mail.folder_menu.rules")) {
+			@icon.ListFilter(icon.Props{Class: "size-4"})
+		}
+		@folderRulesCount()
+	}
+}
+
+// folderRulesCount is how many rules move mail into a folder, beside the
+// Rules item of the folder's menus, as the unread count is beside a folder.
+// app.js loads it only when the menu opens (loadFolderRulesCount). Until
+// the number comes it is a blank pill, there from the start so the menu is
+// placed with its room and doesn't widen once open. It sits closer to the
+// item's right edge than text does, as far from it as from the top and
+// bottom. Its corners follow the theme's, as the unread count's do, and
+// Express shows it as its counts (express.css).
+templ folderRulesCount() {
+	<span data-loading class="-mr-0.5 ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md bg-foreground/10 px-1.5 text-[11px] font-semibold tabular-nums text-foreground data-[loading]:animate-pulse" data-folder-rules-count></span>
 }
 
 templ ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.ContactFilters) {
@@ -301,7 +350,7 @@ templ ContactsSidebarUnresolvedItem() {
 // none when nothing waits. It is solid to stand out on every theme.
 templ ContactsUnresolvedCount(count int) {
 	if count > 0 {
-		<span class="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-600 px-1.5 text-[11px] font-semibold tabular-nums text-white dark:bg-amber-400 dark:text-amber-950" data-contacts-unresolved-number>{ fmt.Sprint(count) }</span>
+		<span class="flex h-5 min-w-5 items-center justify-center rounded-md bg-amber-600 px-1.5 text-[11px] font-semibold tabular-nums text-white dark:bg-amber-400 dark:text-amber-950" data-contacts-unresolved-number>{ fmt.Sprint(count) }</span>
 	}
 }
 
@@ -534,7 +583,18 @@ templ SettingsSidebarItem(activeTab string, value string, label string) {
 			@SettingsSidebarItemIcon(value)
 		</span>
 		<span class="flex-1 truncate">{ label }</span>
+		if value == "operations" {
+			<span hidden class="shrink-0 rounded-md border border-amber-500/25 bg-amber-500/15 px-1.5 text-[10px] font-semibold tabular-nums text-amber-800 dark:text-amber-200" aria-hidden="true" data-mail-operations-attention-count></span>
+			<span class="sr-only" data-mail-operations-attention-label></span>
+		}
 	</a>
+}
+
+// mailOperationsAttentionDot marks a way into Settings while background mail
+// work needs attention. It starts hidden; app.js asks the server and shows it.
+templ mailOperationsAttentionDot() {
+	<span hidden class="ml-auto size-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true" data-mail-operations-attention-dot></span>
+	<span class="sr-only" data-mail-operations-attention-label></span>
 }
 
 templ SettingsSidebarItemIcon(value string) {
@@ -943,7 +1003,7 @@ templ SidebarScheduledFolder(activeFolder string, scheduledCount int, uiSettings
 
 templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
 	{{ folders := unifiedFolders(accounts, uiSettings) }}
-	{{ labels := unifiedSidebarLabels(accounts, uiSettings) }}
+	{{ labels := sidebarLabels(unifiedSidebarLabels(accounts, uiSettings)) }}
 	if len(folders) > 0 || len(labels) > 0 {
 		{{ active := unifiedHasActiveFolder(activeFolder, uiSettings, filters) }}
 		{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
@@ -991,10 +1051,10 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 		</button>
 		<div class="sidebar-account-folders" data-sidebar-account-folders={ account.ID }>
 			<div class="sidebar-account-folders-inner space-y-px mt-0.5">
-				for _, folder := range account.Folders {
+				for _, folder := range sidebarFoldersForAccount(account) {
 					@SidebarFolderItem(folder, activeFolder, account.ID, uiSettings)
 				}
-				@SidebarTagGroup(account.Labels, activeFolder, filters, account.ID, uiSettings)
+				@SidebarTagGroup(sidebarLabels(account.Labels), activeFolder, filters, account.ID, uiSettings)
 			</div>
 		</div>
 	</div>
@@ -1096,7 +1156,7 @@ templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID str
 					<span
 						data-folder-unread={ folder.ID }
 						class={
-							"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+							"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums",
 							templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
 							templ.KV("bg-sidebar-accent text-sidebar-foreground", activeFolder != folder.ID),
 						}
@@ -1109,7 +1169,7 @@ templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID str
 				<span
 					hidden
 					data-folder-unread-rollup={ folder.ID }
-					class="min-w-5 h-5 px-1.5 items-center justify-center rounded-full border border-sidebar-foreground/40 text-[11px] font-semibold tabular-nums text-sidebar-foreground"
+					class="min-w-5 h-5 px-1.5 items-center justify-center rounded-md border border-sidebar-foreground/40 text-[11px] font-semibold tabular-nums text-sidebar-foreground"
 				></span>
 				@icon.ChevronDown(icon.Props{Class: "sidebar-folder-chevron size-3.5 shrink-0 text-sidebar-foreground transition-transform duration-200"})
 			</a>
@@ -1151,7 +1211,7 @@ templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID str
 			<span
 				data-folder-unread={ folder.ID }
 				class={
-					"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+					"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums",
 					templ.KV("bg-sidebar-primary/20 text-sidebar-primary", activeFolder == folder.ID),
 					templ.KV("bg-sidebar-accent text-sidebar-foreground", activeFolder != folder.ID),
 				}
@@ -1232,6 +1292,8 @@ templ SidebarFooter() {
 					@icon.Settings(icon.Props{Class: "size-4"})
 				</span>
 				<span class="truncate">{ i18n.T(ctx, "settings.section.default.title") }</span>
+				// Background mail work that needs attention; app.js shows it.
+				@mailOperationsAttentionDot()
 			</a>
 			@popover.Root(popover.RootProps{ID: "sidebar-shortcuts", Class: "hidden shrink-0 lg:block"}) {
 				@popover.Trigger() {
@@ -1317,7 +1379,7 @@ templ MobileTopBar() {
 			</button>
 			<button type="button" class="mobile-topbar-button relative" data-mobile-mail-action="filter" aria-label={ i18n.T(ctx, "mail.filters.title") }>
 				@icon.SlidersHorizontal(icon.Props{Class: "size-5"})
-				<span data-mail-filter-count-mirror class="absolute right-0.5 top-0.5 hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
+				<span data-mail-filter-count-mirror class="absolute right-0.5 top-0.5 hidden min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
 			</button>
 			<div class="mobile-topbar-contacts-more">
 				@dropdown.Dropdown() {
@@ -1383,10 +1445,10 @@ templ ContactsSidebarContextMenu() {
 		@popover.Content(popover.ContentProps{
 			Placement:  popover.PlacementBottomStart,
 			Offset:     2,
-			Class:      "z-50 w-56 rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
+			Class:      "z-50 " + fitMenuWidth + " rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
 			Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "contacts.sidebar_menu.label")},
 		}) {
-			@dropdown.Label(dropdown.LabelProps{Class: "truncate text-xs font-medium text-muted-foreground", Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
+			@dropdown.Label(dropdown.LabelProps{Class: sidebarContextTitleClass, Attributes: templ.Attributes{"data-sidebar-context-title": ""}})
 			@sidebarContextItem("new-here", i18n.T(ctx, "contacts.sidebar_menu.new_here"), "") {
 				@icon.UserPlus(icon.Props{Class: "size-4"})
 			}

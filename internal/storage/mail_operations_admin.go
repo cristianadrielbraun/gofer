@@ -152,11 +152,17 @@ func (db *DB) listMailOperationsAdminHealth(ctx context.Context, userID string) 
 		return models.MailOperationAdminHealth{}, err
 	}
 
+	// Work that can't be completed is failed work no worker will try
+	// again; it is counted on its own, as the Mail operations list shows it.
+	parkedArgs := append([]any{parkedRetryAt}, accountArgs...)
 	rows, err = db.Read().QueryContext(ctx, `
-		SELECT kind, status, COUNT(*)
-		FROM message_mutations`+accountWhere+`
-		GROUP BY kind, status
-		ORDER BY kind, status`, accountArgs...)
+		SELECT kind, state, COUNT(*)
+		FROM (
+			SELECT kind, CASE WHEN status = 'failed' AND next_attempt_at = ? THEN 'parked' ELSE status END AS state
+			FROM message_mutations`+accountWhere+`
+		)
+		GROUP BY kind, state
+		ORDER BY kind, state`, parkedArgs...)
 	if err != nil {
 		return models.MailOperationAdminHealth{}, err
 	}
@@ -177,10 +183,16 @@ func (db *DB) listMailOperationsAdminHealth(ctx context.Context, userID string) 
 	}
 
 	rows, err = db.Read().QueryContext(ctx, `
-		SELECT CASE WHEN attempts > 0 OR COALESCE(last_error, '') != '' THEN 'failed' ELSE 'pending' END, COUNT(*)
-		FROM label_mutation_queue`+accountWhere+`
-		GROUP BY CASE WHEN attempts > 0 OR COALESCE(last_error, '') != '' THEN 'failed' ELSE 'pending' END
-		ORDER BY 1`, accountArgs...)
+		SELECT state, COUNT(*)
+		FROM (
+			SELECT CASE
+				WHEN next_attempt_at = ? THEN 'parked'
+				WHEN attempts > 0 OR COALESCE(last_error, '') != '' THEN 'failed'
+				ELSE 'pending' END AS state
+			FROM label_mutation_queue`+accountWhere+`
+		)
+		GROUP BY state
+		ORDER BY state`, parkedArgs...)
 	if err != nil {
 		return models.MailOperationAdminHealth{}, err
 	}
@@ -201,10 +213,13 @@ func (db *DB) listMailOperationsAdminHealth(ctx context.Context, userID string) 
 	}
 
 	rows, err = db.Read().QueryContext(ctx, `
-		SELECT status, COUNT(*)
-		FROM imap_draft_operations`+accountWhere+`
-		GROUP BY status
-		ORDER BY status`, accountArgs...)
+		SELECT state, COUNT(*)
+		FROM (
+			SELECT CASE WHEN status = 'failed' AND next_attempt_at = ? THEN 'parked' ELSE status END AS state
+			FROM imap_draft_operations`+accountWhere+`
+		)
+		GROUP BY state
+		ORDER BY state`, parkedArgs...)
 	if err != nil {
 		return models.MailOperationAdminHealth{}, err
 	}
@@ -225,25 +240,30 @@ func (db *DB) listMailOperationsAdminHealth(ctx context.Context, userID string) 
 	}
 
 	var oldestPending, nextRetry sqliteNullTime
-	pendingArgs := make([]any, 0, 5)
+	// Work that can't be completed isn't waiting for anything, so it
+	// doesn't count as pending, and its next retry, far in the future, isn't
+	// shown.
+	pendingArgs := make([]any, 0, 6)
 	if userID != "" {
 		for range 5 {
 			pendingArgs = append(pendingArgs, userID)
 		}
 	}
+	pendingArgs = append(pendingArgs, parkedRetryAt)
 	if err := db.Read().QueryRowContext(ctx, `
 		SELECT MIN(created_at)
 		FROM (
-			SELECT created_at FROM outgoing_sends WHERE status IN ('pending', 'sending', 'failed', 'ambiguous')`+accountAnd+`
+			SELECT created_at, next_attempt_at FROM outgoing_sends WHERE status IN ('pending', 'sending', 'failed', 'ambiguous')`+accountAnd+`
 			UNION ALL
-			SELECT created_at FROM outgoing_sends WHERE status = 'sent' AND sent_copy_status IN ('pending', 'copying', 'failed', 'ambiguous')`+accountAnd+`
+			SELECT created_at, sent_copy_next_attempt_at FROM outgoing_sends WHERE status = 'sent' AND sent_copy_status IN ('pending', 'copying', 'failed', 'ambiguous')`+accountAnd+`
 			UNION ALL
-			SELECT created_at FROM message_mutations WHERE status IN ('pending', 'processing', 'failed')`+accountAnd+`
+			SELECT created_at, next_attempt_at FROM message_mutations WHERE status IN ('pending', 'processing', 'failed')`+accountAnd+`
 			UNION ALL
-			SELECT created_at FROM label_mutation_queue`+accountWhere+`
+			SELECT created_at, next_attempt_at FROM label_mutation_queue`+accountWhere+`
 			UNION ALL
-			SELECT created_at FROM imap_draft_operations WHERE status IN ('pending', 'syncing', 'failed', 'ambiguous')`+accountAnd+`
-		)`, pendingArgs...).Scan(&oldestPending); err != nil {
+			SELECT created_at, next_attempt_at FROM imap_draft_operations WHERE status IN ('pending', 'syncing', 'failed', 'ambiguous')`+accountAnd+`
+		)
+		WHERE COALESCE(next_attempt_at, '') != ?`, pendingArgs...).Scan(&oldestPending); err != nil {
 		return models.MailOperationAdminHealth{}, err
 	}
 	if oldestPending.Valid {
@@ -261,7 +281,8 @@ func (db *DB) listMailOperationsAdminHealth(ctx context.Context, userID string) 
 			SELECT next_attempt_at FROM label_mutation_queue`+accountWhere+`
 			UNION ALL
 			SELECT next_attempt_at FROM imap_draft_operations WHERE status IN ('pending', 'failed')`+accountAnd+`
-		)`, pendingArgs...).Scan(&nextRetry); err != nil {
+		)
+		WHERE next_retry_at != ?`, pendingArgs...).Scan(&nextRetry); err != nil {
 		return models.MailOperationAdminHealth{}, err
 	}
 	if nextRetry.Valid {

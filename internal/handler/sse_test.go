@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
@@ -112,6 +113,61 @@ func TestSSEStreamCarriesOnlyTheUsersEvents(t *testing.T) {
 		got = append(got, next())
 	}
 	want := []string{string(mail.EventMutation), string(mail.EventCalendarChanged), string(mail.EventSendResult)}
+	if !slices.Equal(got, want) {
+		t.Fatalf("stream carried %v, want %v", got, want)
+	}
+}
+
+// Background mail work that changes reaches only its owner's pages, with
+// nothing about the work itself.
+func TestSSEStreamTellsOnlyTheOwnerThatMailOperationsChanged(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	h.syncer = mail.NewSyncOrchestrator(h.db, h.accountStore, nil, nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.handleSSE(w, attackerRequest(r))
+	}))
+	defer server.Close()
+	response, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	// An event that never comes ends the stream instead of the test run.
+	stop := time.AfterFunc(10*time.Second, func() { response.Body.Close() })
+	defer stop.Stop()
+	lines := bufio.NewScanner(response.Body)
+	next := func() (string, string) {
+		name := ""
+		for lines.Scan() {
+			if value, ok := strings.CutPrefix(lines.Text(), "event: "); ok {
+				name = value
+			} else if data, ok := strings.CutPrefix(lines.Text(), "data: "); ok && name != "" {
+				return name, data
+			}
+		}
+		t.Fatalf("stream ended: %v", lines.Err())
+		return "", ""
+	}
+	if got, _ := next(); got != "connected" {
+		t.Fatalf("first event %q", got)
+	}
+	// The owner's work changes first, then the attacker's own.
+	for _, account := range []string{"victim-account", "attacker-account"} {
+		if _, err := db.Write().Exec(`INSERT INTO outgoing_sends (id, account_id, transport, envelope_from, send_after) VALUES (?, ?, 'smtp', 'someone@example.com', CURRENT_TIMESTAMP)`, "send-"+account, account); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second)
+	}
+	h.syncer.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: "attacker"})
+	var got []string
+	for len(got) < 2 {
+		name, data := next()
+		if name == string(mail.EventMailOperationsChanged) && strings.Contains(data, "someone@example.com") {
+			t.Fatalf("event carried the work: %s", data)
+		}
+		got = append(got, name)
+	}
+	want := []string{string(mail.EventMailOperationsChanged), string(mail.EventCalendarChanged)}
 	if !slices.Equal(got, want) {
 		t.Fatalf("stream carried %v, want %v", got, want)
 	}

@@ -133,19 +133,21 @@ func (db *DB) permanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs 
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO message_mutations (
 					id, account_id, message_id, folder_id, provider_type, kind, target_value,
-					source_uid_validity, status, attempt_count, last_error, locked_at, next_attempt_at
-				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP)`,
-				mutationID, accountID, messageID, folderID, providerType, MessageMutationDelete,
-				sourceUIDValidity, MessageMutationPending); err != nil {
+					source_uid_validity, status, attempt_count, last_error, locked_at, next_attempt_at,
+					action_id, action_kind, action_source, action_rule_id
+				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+				append([]any{mutationID, accountID, messageID, folderID, providerType, MessageMutationDelete,
+					sourceUIDValidity, MessageMutationPending}, mailActionArgs(ctx)...)...); err != nil {
 				return fmt.Errorf("queue permanent delete for message %d: %w", messageID, err)
 			}
 		} else if _, err := tx.ExecContext(ctx, `
 			UPDATE message_mutations
 			SET account_id = ?, folder_id = ?, provider_type = ?, source_uid_validity = ?,
 			    status = ?, attempt_count = 0, last_error = '', locked_at = NULL,
-			    next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ?`, accountID, folderID, providerType, sourceUIDValidity,
-			MessageMutationPending, mutationID); err != nil {
+			    next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
+			    action_id = ?, action_kind = ?, action_source = ?, action_rule_id = ?
+			WHERE id = ?`, append(append([]any{accountID, folderID, providerType, sourceUIDValidity,
+			MessageMutationPending}, mailActionArgs(ctx)...), mutationID)...); err != nil {
 			return fmt.Errorf("update permanent delete for message %d: %w", messageID, err)
 		}
 
@@ -311,10 +313,11 @@ func moveMessagesAndQueueTx(ctx context.Context, tx *sql.Tx, messageIDs []int64,
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO message_mutations (
 					id, account_id, message_id, folder_id, provider_type, kind, target_value,
-					destination_folder_id, status, attempt_count, last_error, locked_at, next_attempt_at
-				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP)`,
-				mutationID, accountID, messageID, remoteFolderID, providerType, MessageMutationMove,
-				destinationFolderID, MessageMutationPending); err != nil {
+					destination_folder_id, status, attempt_count, last_error, locked_at, next_attempt_at,
+					action_id, action_kind, action_source, action_rule_id
+				) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP, ?, ?, ?, ?)`,
+				append([]any{mutationID, accountID, messageID, remoteFolderID, providerType, MessageMutationMove,
+					destinationFolderID, MessageMutationPending}, mailActionArgs(ctx)...)...); err != nil {
 				return nil, fmt.Errorf("queue move for message %d: %w", messageID, err)
 			}
 		} else if remoteFolderID == destinationFolderID && status != MessageMutationProcessing {
@@ -326,8 +329,9 @@ func moveMessagesAndQueueTx(ctx context.Context, tx *sql.Tx, messageIDs []int64,
 				UPDATE message_mutations
 				SET account_id = ?, provider_type = ?, destination_folder_id = ?, status = ?,
 				    attempt_count = 0, last_error = '', locked_at = NULL,
-				    next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-				WHERE id = ?`, accountID, providerType, destinationFolderID, MessageMutationPending, mutationID); err != nil {
+				    next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
+				    action_id = ?, action_kind = ?, action_source = ?, action_rule_id = ?
+				WHERE id = ?`, append(append([]any{accountID, providerType, destinationFolderID, MessageMutationPending}, mailActionArgs(ctx)...), mutationID)...); err != nil {
 				return nil, fmt.Errorf("update queued move for message %d: %w", messageID, err)
 			}
 		}
@@ -470,8 +474,9 @@ func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, k
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO message_mutations (
 					id, account_id, message_id, folder_id, provider_type, kind, target_value,
-					status, attempt_count, last_error, locked_at, next_attempt_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP)
+					status, attempt_count, last_error, locked_at, next_attempt_at,
+					action_id, action_kind, action_source, action_rule_id
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP, ?, ?, ?, ?)
 				ON CONFLICT(message_id, kind, folder_id) DO UPDATE SET
 					account_id = excluded.account_id,
 					provider_type = excluded.provider_type,
@@ -481,8 +486,12 @@ func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, k
 					last_error = '',
 					locked_at = NULL,
 					next_attempt_at = CURRENT_TIMESTAMP,
-					updated_at = CURRENT_TIMESTAMP`,
-				uuid.NewString(), accountID, messageID, folderID, providerType, kind, boolInt(target), MessageMutationPending); err != nil {
+					updated_at = CURRENT_TIMESTAMP,
+					action_id = excluded.action_id,
+					action_kind = excluded.action_kind,
+					action_source = excluded.action_source,
+					action_rule_id = excluded.action_rule_id`,
+				append([]any{uuid.NewString(), accountID, messageID, folderID, providerType, kind, boolInt(target), MessageMutationPending}, mailActionArgs(ctx)...)...); err != nil {
 				return fmt.Errorf("queue %s mutation for message %d: %w", kind, messageID, err)
 			}
 		}

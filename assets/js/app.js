@@ -257,6 +257,17 @@ document.addEventListener("click", function (e) {
 document.addEventListener("DOMContentLoaded", syncContactHeaderOverflow)
 document.addEventListener("htmx:afterSettle", function () { syncContactHeaderOverflow() })
 
+// A tooltip that repeats a label in full (tooltip.TriggerProps.WhenCut)
+// opens only while the label is cut short: otherwise its trigger is
+// switched to "manual". This runs before the tooltip's own hover handling,
+// which opens only "hover" triggers.
+document.addEventListener("pointerover", function (event) {
+  var trigger = event.target.closest && event.target.closest("[data-tooltip-when-cut]")
+  if (!trigger) return
+  var cut = Array.prototype.some.call(trigger.querySelectorAll(".truncate"), function (text) { return text.scrollWidth > text.clientWidth })
+  trigger.setAttribute("data-tui-popover-type", cut ? "hover" : "manual")
+}, true)
+
 // collapseContactSection closes part of a contact form, padding and divider
 // included, and hides it once closed; the dialog follows as it shrinks.
 function collapseContactSection(section, done) {
@@ -513,6 +524,7 @@ document.addEventListener("DOMContentLoaded", function () {
   })
   setupOutgoingSendStatus()
   setupMailOperationActions()
+  setupMailOperationsAttention()
   setupContactAvatarImages()
   setupAvatarWarmup()
   setupMailListActions()
@@ -582,25 +594,24 @@ document.addEventListener("DOMContentLoaded", function () {
       var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
       button.dataset.active = count > 0 ? "true" : "false"
-      // The count is the pill after the icon; the first span is the "Filters" label.
-      var badge = button.querySelector("span.rounded-full")
+      // The count after the icon; the first span is the "Filters" label.
+      var badge = button.querySelector("[data-contact-filter-count]")
       if (count === 0) {
         if (badge) badge.remove()
         return
       }
       if (!badge) {
         badge = document.createElement("span")
-        badge.className = "min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"
+        badge.className = "min-w-4 rounded-md bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"
+        badge.setAttribute("data-contact-filter-count", "")
         button.appendChild(badge)
       }
       badge.textContent = String(count)
     }
 
     // The strip under the search with a pill for each active filter, the mail
-    // list's own (styles and open/close transition included). A pill's text is
-    // the label of the matching entry in the filter form, which the server
-    // draws with the same names.
-    var contactPillClearTimer = null
+    // list's own (syncFilterPills). A pill's text is the label of the matching
+    // entry in the filter form, which the server draws with the same names.
 
     function activeFilterPills(filters) {
       var pills = []
@@ -628,44 +639,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function syncActiveFilterChips(filters) {
-      var strip = document.querySelector("[data-contact-active-filter-pills]")
-      if (!strip) return
-      if (contactPillClearTimer) { clearTimeout(contactPillClearTimer); contactPillClearTimer = null }
-      var pills = activeFilterPills(filters)
-      if (pills.length === 0) {
-        // The pills stay while the strip closes, then go.
-        strip.classList.add("hidden")
-        contactPillClearTimer = setTimeout(function () {
-          contactPillClearTimer = null
-          if (strip.classList.contains("hidden")) strip.innerHTML = ""
-        }, 190)
-        return
-      }
-      var existing = Object.create(null)
-      strip.querySelectorAll("[data-contact-active-filter-key]").forEach(function (pill) {
-        existing[pill.getAttribute("data-contact-active-filter-key")] = true
+      var pills = activeFilterPills(filters).map(function (pill) {
+        return { name: pill.name, text: pill.text, label: goferT("js.contacts.filter.remove", { filter: pill.text }) }
       })
-      // Each pill is the server's own, tooltip included, from its template.
-      var template = document.querySelector("[data-contact-active-filter-pill-template]")
-      var visible = document.createElement("div")
-      visible.className = "mail-active-filter-visible"
-      pills.forEach(function (pill) {
-        var key = pill.name + ":" + pill.text
-        var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
-        var button = node && node.querySelector("[data-contact-active-filter-remove]")
-        if (!button) return
-        button.setAttribute("data-contact-active-filter-remove", pill.name)
-        button.setAttribute("data-contact-active-filter-key", key)
-        button.setAttribute("aria-label", goferT("js.contacts.filter.remove", { filter: pill.text }))
-        button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
-        var label = button.querySelector(".mail-active-filter-pill-label")
-        if (label) label.textContent = pill.text
-        var tip = node.querySelector("[data-contact-active-filter-tooltip]")
-        if (tip) tip.textContent = pill.text
-        visible.appendChild(node)
+      syncFilterPills(document.querySelector("[data-contact-active-filter-pills]"), document.querySelector("[data-contact-active-filter-pill-template]"), pills, {
+        remove: "data-contact-active-filter-remove", key: "data-contact-active-filter-key", tooltip: "data-contact-active-filter-tooltip",
       })
-      strip.replaceChildren(visible)
-      strip.classList.remove("hidden")
     }
 
     // The sidebar item that stands for the filters, as the server picks it.
@@ -1977,6 +1956,9 @@ document.addEventListener("DOMContentLoaded", function () {
     syncTranslationControls(document)
 
     document.body.addEventListener("htmx:afterSwap", function (event) {
+      syncTranslationControls(event.target || document)
+    })
+    document.body.addEventListener("gofer:thread-body-added", function (event) {
       syncTranslationControls(event.target || document)
     })
     document.body.addEventListener("htmx:oobAfterSwap", function (event) {
@@ -3317,6 +3299,10 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         e.preventDefault()
         window.tui.popover.close("sidebar-context-menu")
+        // How many rules move mail into the folder loads now, only when its
+        // Rules item shows.
+        var rules = root.querySelector('[data-sidebar-context-action="folder-rules"]')
+        if (rules && !rules.hidden) loadFolderRulesCount(rules.querySelector("[data-folder-rules-count]"), target.folderID)
         placePointPopover(root, e.clientX, e.clientY)
         window.tui.popover.open("sidebar-context-menu")
         // Sizes load while the menu is open, so the dialog opens filled.
@@ -4471,11 +4457,22 @@ document.addEventListener("DOMContentLoaded", function () {
         // A paused account has no sync button to press.
         "sync-account": target.kind === "account" && !!sidebarAccountSyncButton(target.accountID),
         "mailbox-size": target.kind !== "tag" && !!target.accountID,
+        // Rules move mail into an account's folders, but never into Sent or
+        // Drafts, nor into a view such as Starred.
+        "folder-rules": target.kind === "folder" && !!target.accountID && !target.virtual && ["sent", "drafts", "starred", "scheduled"].indexOf(target.role) < 0 && !/^starred(-|$)/.test(target.folderID),
         // Gmail has labels rather than folders, so its items say so.
         "new-folder": target.kind === "account" && target.provider !== "gmail",
         "new-label": target.kind === "account" && target.provider === "gmail",
         "new-subfolder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role !== "starred",
         "folder-appearance": document.documentElement.getAttribute("data-theme") !== "express" && ((target.kind === "tag" && !!target.labelID) || (target.kind === "folder" && (target.virtual || (!!target.accountID && target.role !== "starred" && !/^starred(-|$)/.test(target.folderID))))),
+        // Only folders without a role can be hidden, so Inbox and the other
+        // special folders always show. Hidden ones aren't in the sidebar to
+        // show again: the Folders dialog does that.
+        "hide-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
+        // Any tag can be hidden, of an account or of all accounts, as any
+        // can be given a color. The account's Folders dialog shows an
+        // account's again, and Settings → Sync the unified ones.
+        "hide-tag": target.kind === "tag" && !!target.labelID,
         "rename-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "delete-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "restore-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom" && target.inTrash,
@@ -4511,9 +4508,12 @@ document.addEventListener("DOMContentLoaded", function () {
         var button = sidebarAccountSyncButton(target.accountID)
         if (button) button.click()
       } else if (action === "mailbox-size") window.goferOpenMailboxSize(target.accountID, target.kind === "folder" ? target.folderID : "")
+      else if (action === "folder-rules") openFolderRules(target)
       else if (action === "new-folder") createMailFolder(target.accountID, "", "")
       else if (action === "new-subfolder") createMailFolder(target.accountID, target.folderID, target.name)
       else if (action === "folder-appearance") window.goferOpenFolderAppearance(target)
+      else if (action === "hide-folder") setSidebarVisibility(target, false)
+      else if (action === "hide-tag") setSidebarVisibility(target, false)
       else if (action === "rename-folder") renameMailFolder(target)
       else if (action === "delete-folder") deleteMailFolder(target)
       else if (action === "restore-folder") restoreMailFolder(target)
@@ -4562,18 +4562,53 @@ document.addEventListener("DOMContentLoaded", function () {
         .finally(function () { folderChangeBusy = false })
     }
 
-    function folderChangeDone(id, title, accountID, refreshList) {
+    // description, when given, goes under the toast's title.
+    function folderChangeDone(id, title, accountID, refreshList, description) {
       if (accountID && window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(accountID)
       document.dispatchEvent(new CustomEvent("gofer:folders-changed", { detail: { accountID: accountID } }))
       if (refreshList && virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
         virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
       }
-      showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+      showGoferToast({ id: id, title: title, description: description || "", variant: "success", icon: "success", position: "bottom-right", duration: description ? 6000 : 3000, dismissible: true })
     }
 
-    // The account settings' folders dialog runs these too.
+    // The rules that move mail into a folder, in Settings → Rules.
+    function openFolderRules(target) {
+      window.location.assign("/settings/rules?folder=" + encodeURIComponent(target.folderID))
+    }
+
+    // Hiding a folder or a tag only takes it out of the sidebar, so the
+    // toast says where to show it again: the account's Folders dialog, or
+    // Settings → Sync for a tag of all accounts, unless that's where it was
+    // hidden (quiet). It resolves true once saved.
+    function setSidebarVisibility(target, visible, quiet) {
+      var tag = !!target.tag
+      var url = tag
+        ? (target.unifiedTag ? "/api/unified-tags/" : "/api/tags/") + encodeURIComponent(target.labelID)
+        : "/api/folders/" + encodeURIComponent(target.folderID)
+      return runFolderChange("mail-folder-visibility", goferT(tag ? "js.folders.tag_visibility_failed" : "js.folders.visibility_failed"), function () {
+        return postFolderChange(url + "/visibility", { visible: visible ? "true" : "false" }).then(function () {
+          var title = goferT(visible ? "js.folders.shown" : "js.folders.hidden", { name: target.name })
+          var where = !tag ? "js.folders.hidden_where" : target.unifiedTag ? "js.folders.hidden_unified_tag_where" : target.provider === "gmail" ? "js.folders.hidden_label_where" : "js.folders.hidden_tag_where"
+          var description = visible || quiet ? "" : goferT(where)
+          folderChangeDone("mail-folder-visibility", title, target.accountID, false, description)
+          // A tag of all accounts is in no account's part of the sidebar.
+          if (tag && !target.accountID && window.goferRefreshMailSidebarBody) window.goferRefreshMailSidebarBody()
+          return true
+        })
+      })
+    }
+    window.goferSetSidebarVisibility = setSidebarVisibility
+
+    // The account settings' folders dialog runs these too. It's where a
+    // hidden folder or tag is shown again, so hiding there needn't say so.
     window.goferFolderActions = {
+      "hide-folder": function (t) { setSidebarVisibility(t, false, true) },
+      "show-folder": function (t) { setSidebarVisibility(t, true) },
+      "hide-tag": function (t) { setSidebarVisibility(t, false, true) },
+      "show-tag": function (t) { setSidebarVisibility(t, true) },
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
+      "folder-rules": openFolderRules,
       "new-subfolder": function (t) { createMailFolder(t.accountID, t.folderID, t.name) },
       "folder-appearance": function (t) { window.goferOpenFolderAppearance(t) },
       "rename-folder": renameMailFolder,
@@ -8688,6 +8723,15 @@ document.addEventListener("DOMContentLoaded", function () {
       showComposeSendResult(data)
     })
 
+    // The person's background mail work changed: the attention mark and an
+    // open Mail operations list (settings.js) read it again. After a
+    // reconnect they do so once, since changes may have been missed.
+    source.addEventListener("mail-operations-changed", mailOperationsChanged)
+    source.addEventListener("connected", function () {
+      if (setupSSE.reconnecting) mailOperationsChanged()
+      setupSSE.reconnecting = false
+    })
+
     source.addEventListener("mutation", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { data = null }
@@ -8846,6 +8890,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     source.onerror = function () {
       // Updates sent while reconnecting are lost.
+      setupSSE.reconnecting = true
       markKeptStale("mail", "all")
       markKeptStale("calendar", "all")
       markKeptStale("contacts", "sidebar")
@@ -9895,7 +9940,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (span) {
               var badge = document.createElement("span")
               badge.dataset.folderUnread = id
-              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
+              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-md text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
               badge.textContent = String(counts[id])
               link.appendChild(badge)
             }
@@ -10295,7 +10340,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-title-row flex items-center justify-between">' +
       '<div class="mail-list-title flex items-center gap-2 min-w-0">' +
       '<h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + escapeHTML(folderName) + '</h2>' +
-      (count ? '<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
+      (count ? '<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">' + escapeHTML(count) + '</span>' : '') +
       '</div>' +
       '<div class="h-8 w-8 rounded-md bg-muted/50"></div>' +
       '</div>' +
@@ -10336,8 +10381,29 @@ document.addEventListener("DOMContentLoaded", function () {
           evt.detail.pathInfo.requestPath.match(/^\/email\/[^/?]+(?:\?.*)?$/)
       ) {
         showMailViewLoading(evt.detail.elt)
+        selectOpeningEmail(evt)
       }
     })
+
+    // The list marks the message as soon as it starts loading, together with
+    // the reader's loading sheet. Marking it once the reader arrived left the
+    // previous message marked for as long as a long conversation took.
+    function selectOpeningEmail(evt) {
+      if (!virtualMailList) return
+      var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
+      var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
+      if (preserveMailListSelectionFor === emailId) {
+        preserveMailListSelectionFor = null
+        virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+      } else if (suppressEmailUrlPushFor === emailId) {
+        suppressEmailUrlPushFor = null
+        virtualMailList.selectedEmailId = emailId
+        virtualMailList.selectedInThread = inThread
+        virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
+      } else {
+        virtualMailList.onEmailSelected(emailId, { inThread: inThread })
+      }
+    }
 
 	document.body.addEventListener("htmx:afterRequest", function (evt) {
 	  if (
@@ -10346,20 +10412,6 @@ document.addEventListener("DOMContentLoaded", function () {
 		evt.detail.pathInfo.requestPath.startsWith("/email/")
 	  ) {
 		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
-		var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
-		if (virtualMailList) {
-		  if (preserveMailListSelectionFor === emailId) {
-		    preserveMailListSelectionFor = null
-		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
-		  } else if (suppressEmailUrlPushFor === emailId) {
-		    suppressEmailUrlPushFor = null
-		    virtualMailList.selectedEmailId = emailId
-		    virtualMailList.selectedInThread = inThread
-		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
-		  } else {
-		    virtualMailList.onEmailSelected(emailId, { inThread: inThread })
-		  }
-		}
 		scheduleAutoMarkRead(emailId, evt.detail.elt)
 	  }
 	})
@@ -10798,7 +10850,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mailPendingHeaderHTML() {
     return '<div class="mail-list-header px-4 py-4 space-y-3">' +
-      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
+      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="mail-list-search-section"><div class="mail-list-search-primary">' + pendingMailSearchHTML() +
         '<div class="mail-list-search-actions">' + pendingFiltersButtonHTML() + '</div></div></div>' +
     '</div>'
@@ -12318,10 +12370,10 @@ function setupMailOperationActions() {
     if (!button) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    var operationID = button.getAttribute("data-mail-operation-id") || ""
-    if (!operationID) return
+    var url = button.getAttribute("data-mail-operation-retry-url") || ""
+    if (!url) return
     button.disabled = true
-    fetch("/api/mail-operations/" + encodeURIComponent(operationID) + "/retry", {
+    fetch(url, {
       method: "POST",
       headers: { "Accept": "application/json" },
     }).then(function (response) {
@@ -12335,6 +12387,7 @@ function setupMailOperationActions() {
       } else {
         window.location.reload()
       }
+      refreshMailOperationsAttention(true)
       if (typeof showGoferToast === "function") {
         showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.queued"), description: goferT("js.operations.queued_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
       }
@@ -12344,6 +12397,202 @@ function setupMailOperationActions() {
       }
       button.disabled = false
     })
+  })
+  // Retry all failed needs no confirmation: retrying loses nothing. The toast
+  // says how many went, and how many couldn't.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-mail-operations-retry-all]") : null
+    if (!button) return
+    event.preventDefault()
+    button.disabled = true
+    fetch("/api/mail-operations/retry-failed", {
+      method: "POST",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || goferT("js.operations.retry_failed"))
+        return data
+      })
+    }).then(function (data) {
+      if (window.htmx && typeof window.htmx.ajax === "function") {
+        window.htmx.ajax("GET", "/settings/operations/content", { target: "#mail-operations-content", swap: "outerHTML" })
+      } else {
+        window.location.reload()
+      }
+      refreshMailOperationsAttention(true)
+      var retried = data.retried || 0
+      var skipped = data.skipped || 0
+      var title = retried > 0 ? goferTn("js.operations.retry_all.retrying", retried) : goferT("js.operations.retry_all.none")
+      var description = retried > 0 ? goferT("js.operations.retry_all.help") : ""
+      if (skipped > 0) description = (description ? description + " " : "") + goferTn("js.operations.retry_all.skipped", skipped)
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: title, description: description, variant: skipped > 0 ? "warning" : "success", icon: skipped > 0 ? "warning" : "success", position: "bottom-right", duration: 5000, dismissible: true })
+      }
+    }).catch(function (error) {
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.retry_failed_title"), description: error && error.message ? error.message : goferT("js.operations.unchanged"), variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+      }
+      button.disabled = false
+    })
+  })
+  // Undo asks first. The dialog lives outside the list, which reloads itself,
+  // and remembers where the Undo that opened it posts: one change, or every
+  // change of a group that can't be completed.
+  document.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-mail-operation-undo]") : null
+    if (!button) return
+    event.preventDefault()
+    var dialog = document.getElementById("mail-operation-undo-dialog")
+    if (!dialog || !window.tui || !window.tui.dialog) return
+    dialog.setAttribute("data-mail-operation-undo-url", button.getAttribute("data-mail-operation-undo-url") || "")
+    var text = dialog.querySelector("[data-mail-operation-undo-text]")
+    if (text) text.textContent = button.getAttribute("data-mail-operation-undo-text") || ""
+    var confirm = dialog.querySelector("[data-mail-operation-undo-confirm]")
+    if (confirm) confirm.disabled = false
+    window.tui.dialog.open("mail-operation-undo-dialog")
+  })
+  document.addEventListener("click", function (event) {
+    var confirm = event.target && event.target.closest ? event.target.closest("[data-mail-operation-undo-confirm]") : null
+    if (!confirm) return
+    event.preventDefault()
+    var dialog = document.getElementById("mail-operation-undo-dialog")
+    var url = dialog ? dialog.getAttribute("data-mail-operation-undo-url") || "" : ""
+    if (!url) return
+    confirm.disabled = true
+    fetch(url, {
+      method: "POST",
+      headers: { "Accept": "application/json" },
+    }).then(function (response) {
+      return response.json().catch(function () { return {} }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || goferT("js.operations.unchanged"))
+        return data
+      })
+    }).then(function () {
+      if (window.tui && window.tui.dialog) window.tui.dialog.close("mail-operation-undo-dialog")
+      if (window.htmx && typeof window.htmx.ajax === "function") {
+        window.htmx.ajax("GET", "/settings/operations/content", { target: "#mail-operations-content", swap: "outerHTML" })
+      } else {
+        window.location.reload()
+      }
+      refreshMailOperationsAttention(true)
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.undone"), description: goferT("js.operations.undone_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
+      }
+    }).catch(function (error) {
+      if (typeof showGoferToast === "function") {
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.undo_failed_title"), description: error && error.message ? error.message : goferT("js.operations.unchanged"), variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+      }
+      confirm.disabled = false
+    })
+  })
+}
+
+// Background mail work that needs attention shows as a dot on the way into
+// Settings and a count on Mail operations, and once as a toast outside
+// Settings. The page asks when it loads, after live events about mail, when
+// it is shown again, and after a Retry or Undo; nothing polls. State lives on
+// the function, since startup calls it before later vars are assigned.
+function mailOperationsAttentionState() {
+  var fn = mailOperationsAttentionState
+  if (!fn.state) fn.state = { data: null, last: 0, timer: null, loading: false }
+  return fn.state
+}
+
+function setupMailOperationsAttention() {
+  var state = mailOperationsAttentionState()
+  if (state.setup) return
+  state.setup = true
+  refreshMailOperationsAttention(true)
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) refreshMailOperationsAttention(false)
+  })
+  // Sidebars arrive with the dot hidden; show what is already known.
+  document.addEventListener("htmx:afterSettle", function () {
+    applyMailOperationsAttention(document, mailOperationsAttentionState().data)
+  })
+  if (typeof window.goferOnContent === "function") {
+    window.goferOnContent("[data-mail-operations-attention-dot], [data-mail-operations-attention-count]", function () {
+      applyMailOperationsAttention(document, mailOperationsAttentionState().data)
+    })
+  }
+}
+
+// refreshMailOperationsAttention asks again, at most once every few seconds
+// unless now is set; a request held back runs when the wait is over.
+// mailOperationsChanged tells what follows background mail work that it
+// changed.
+function mailOperationsChanged() {
+  refreshMailOperationsAttention(false)
+  document.dispatchEvent(new CustomEvent("gofer:mail-operations-changed"))
+}
+
+function refreshMailOperationsAttention(now) {
+  var state = mailOperationsAttentionState()
+  var wait = 5000 - (Date.now() - state.last)
+  if (!now && wait > 0) {
+    if (!state.timer) state.timer = setTimeout(function () { state.timer = null; refreshMailOperationsAttention(true) }, wait)
+    return
+  }
+  if (state.loading) return
+  state.loading = true
+  state.last = Date.now()
+  fetch("/api/mail-operations/attention", { headers: { "Accept": "application/json" } }).then(function (response) {
+    return response.ok ? response.json() : null
+  }).then(function (data) {
+    state.loading = false
+    if (!data) return
+    state.data = data
+    applyMailOperationsAttention(document, data)
+    showMailOperationsAttentionToast(data)
+  }).catch(function () {
+    state.loading = false
+  })
+}
+
+function applyMailOperationsAttention(root, data) {
+  var count = data && data.count > 0 ? data.count : 0
+  var label = count > 0 ? goferTn("js.operations.attention.title", count, { count: goferNumber(count) }) : ""
+  root.querySelectorAll("[data-mail-operations-attention-dot]").forEach(function (dot) { dot.hidden = count === 0 })
+  root.querySelectorAll("[data-mail-operations-attention-count]").forEach(function (badge) {
+    badge.hidden = count === 0
+    badge.textContent = count > 0 ? goferNumber(count) : ""
+  })
+  root.querySelectorAll("[data-mail-operations-attention-label]").forEach(function (text) { text.textContent = label })
+}
+
+// mailOperationsAttentionToastWanted reports whether the toast should show:
+// something needs attention that wasn't shown before, and the person isn't in
+// Settings, Contacts, Calendar or the admin pages.
+function mailOperationsAttentionToastWanted(data, pathname, seen) {
+  if (!data || !(data.count > 0) || !data.fingerprint || data.fingerprint === seen) return false
+  return !/^\/(settings|contacts|calendar|admin)(\/|$)/.test(pathname || "")
+}
+
+function showMailOperationsAttentionToast(data) {
+  var key = "gofer.mailOperations.attentionSeen"
+  var seen = ""
+  try { seen = window.localStorage.getItem(key) || "" } catch (_) {}
+  if (!mailOperationsAttentionToastWanted(data, window.location.pathname, seen)) return
+  try { window.localStorage.setItem(key, data.fingerprint) } catch (_) {}
+  if (typeof showGoferToast !== "function") return
+  showGoferToast({
+    id: "mail-operations-attention-toast",
+    title: goferTn("js.operations.attention.title", data.count, { count: goferNumber(data.count) }),
+    description: goferT("js.operations.attention.help"),
+    variant: "warning",
+    icon: "warning",
+    position: "bottom-right",
+    duration: 10000,
+    dismissible: true,
+    actions: [{
+      label: goferT("js.operations.attention.open"),
+      onClick: function () {
+        var toast = document.getElementById("mail-operations-attention-toast")
+        if (toast && typeof dismissGoferToast === "function") dismissGoferToast(toast)
+        if (typeof window.goferNavigate === "function") window.goferNavigate("/settings/operations")
+        else window.location.href = "/settings/operations"
+      },
+    }],
   })
 }
 
@@ -16182,6 +16431,18 @@ function promptForLink() {
   }).then(_normalizeLinkAddress)
 }
 
+// _safeLinkHref answers the link to keep for a link written in a signature or
+// in compose, or "" for one to drop. It keeps the same links the server keeps
+// (safeLinkURL in sanitize.go): web, mail and phone links and places in the
+// message. Like browsers and mail apps, it ignores spaces around the address
+// and line breaks inside it, which some signature generators leave there.
+function _safeLinkHref(value) {
+  value = String(value || "").replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "")
+  if (value.charAt(0) === "#") return value
+  if (value.indexOf("//") === 0) return "https:" + value
+  return /^(https?:\/\/|mailto:|tel:)/i.test(value) ? value : ""
+}
+
 // _normalizeLinkAddress turns what was typed as an address into a web or
 // mail link, or nothing.
 function _normalizeLinkAddress(value) {
@@ -19532,6 +19793,30 @@ function applyDefaultComposeSignatureWhenReady(form, refresh) {
   })
 }
 
+// The compose window's small menus (the signature picker and an attachment's
+// actions) open as popovers inside the compose window: the compose dialog is
+// modal, so a menu outside it would sit under it and take no clicks. Only a
+// press outside the menu closes it, so the press that starts picking one of
+// its items doesn't remove it before the click; a menu that is already gone
+// leaves a newer one alone.
+function _openComposeMenu(menu, anchor, close) {
+  var host = (anchor && anchor.closest && anchor.closest("dialog")) || document.body
+  menu.popover = "manual"
+  host.appendChild(menu)
+  if (menu.showPopover) {
+    try { menu.showPopover() } catch (_) {}
+  }
+  var rect = anchor.getBoundingClientRect()
+  menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
+  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
+  function outside(event) {
+    if (menu.isConnected && event.target && menu.contains(event.target)) return
+    document.removeEventListener("mousedown", outside)
+    if (menu.isConnected) close()
+  }
+  setTimeout(function () { document.addEventListener("mousedown", outside) }, 0)
+}
+
 function closeComposeSignatureMenu() {
   if (_composeSignatureMenu) _composeSignatureMenu.remove()
   _composeSignatureMenu = null
@@ -19563,15 +19848,11 @@ function showComposeSignaturePicker(el) {
         menu.appendChild(btn)
       })(signatures[i])
     }
-    document.body.appendChild(menu)
     _composeSignatureMenu = menu
     // From the ⋯ menu, which closes, the picker opens by the ⋯ button.
     var overflow = el.closest && el.closest("[data-compose-overflow-menu]")
     var anchor = (overflow && overflow.querySelector("[data-compose-overflow-trigger]")) || el
-    var rect = anchor.getBoundingClientRect()
-    menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
-    menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
-    setTimeout(function () { document.addEventListener("mousedown", closeComposeSignatureMenu, { once: true }) }, 0)
+    _openComposeMenu(menu, anchor, closeComposeSignatureMenu)
   })
 }
 
@@ -20297,8 +20578,9 @@ function _sanitizeComposeHTML(html, allowDataImages) {
       }
     }
     if (tag === "A") {
-      var href = node.getAttribute("href") || ""
-      if (!/^(https?:|mailto:|#)/i.test(href)) node.removeAttribute("href")
+      var href = _safeLinkHref(node.getAttribute("href"))
+      if (href) node.setAttribute("href", href)
+      else node.removeAttribute("href")
       node.setAttribute("rel", "noopener noreferrer")
       if (href && href.charAt(0) !== "#") node.setAttribute("target", "_blank")
     } else if (tag === "IMG") {
@@ -22666,12 +22948,8 @@ function showComposeAttachmentActions(item) {
     convertComposeAttachmentToInline(item)
   }
   menu.appendChild(convert)
-  document.body.appendChild(menu)
   _composeAttachmentMenu = menu
-  var rect = item.getBoundingClientRect()
-  menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
-  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
-  setTimeout(function () { document.addEventListener("mousedown", closeComposeAttachmentActions, { once: true }) }, 0)
+  _openComposeMenu(menu, item, closeComposeAttachmentActions)
 }
 
 function convertComposeAttachmentToInline(item) {
@@ -25431,6 +25709,99 @@ function confirmMoveDialog(emailId, thread) {
   moveMessage(emailId, selected.getAttribute("data-mail-move-folder"), thread)
 }
 
+// loadFolderRulesCount shows in badge how many rules move mail into a
+// folder: the rules its menu's Rules item opens. It loads only when the
+// menu opens. Until the number comes the badge is a blank pill; a count
+// that comes after the menu opened again, for this folder or another, is
+// dropped, and a failure leaves no badge.
+function loadFolderRulesCount(badge, folderID) {
+  if (!badge) return Promise.resolve()
+  var load = {}
+  badge._folderRulesLoad = load
+  badge.textContent = ""
+  badge.setAttribute("data-loading", "")
+  badge.hidden = !folderID
+  if (!folderID) return Promise.resolve()
+  return fetch("/api/settings/rules/folder-count?folder=" + encodeURIComponent(folderID), { headers: { Accept: "application/json" } })
+    .then(function (response) {
+      if (!response.ok) throw new Error("rules for folder: " + response.status)
+      return response.json()
+    })
+    .then(function (data) {
+      if (badge._folderRulesLoad !== load) return
+      badge.removeAttribute("data-loading")
+      badge.textContent = String(data && typeof data.count === "number" ? data.count : 0)
+    })
+    .catch(function (err) {
+      if (badge._folderRulesLoad !== load) return
+      console.warn(err)
+      badge.hidden = true
+    })
+}
+
+// Opening a folder's menu in the account settings' folders dialog loads
+// how many rules move mail into it. The menu toggles on the same click, so
+// whether it opened is read once that click is done.
+document.addEventListener("click", function (e) {
+  var trigger = e.target && e.target.closest && e.target.closest("[data-folder-actions-trigger]")
+  var root = trigger && trigger.closest("[data-tui-popover-root]")
+  if (!root) return
+  setTimeout(function () {
+    var content = Array.prototype.find.call(root.children, function (child) { return child.matches("[data-tui-popover-content]") })
+    var badge = content && content.matches(":popover-open") && content.querySelector("[data-folder-rules-count]")
+    var item = badge && badge.closest("[data-folder-id]")
+    if (item) loadFolderRulesCount(badge, item.getAttribute("data-folder-id"))
+  }, 0)
+})
+
+// syncFilterPills draws a list's active filters as pills in strip, the mail
+// list's strip under its search (styles and open/close transition
+// included), each a copy of template's pill, the server's own, tooltip and
+// all. pills are { name, text, label }; attrs names the pill's attributes
+// for its filter's name (remove) and its key (key), and its tooltip's text
+// (tooltip). A pill already shown stays still and a new one drops in. With
+// none, the pills stay while the strip closes, then go. The contacts list
+// and the rules list in Settings use it.
+function syncFilterPills(strip, template, pills, attrs) {
+  if (!strip) return
+  if (strip._goferPillsClearing) {
+    clearTimeout(strip._goferPillsClearing)
+    strip._goferPillsClearing = null
+  }
+  if (pills.length === 0) {
+    strip.classList.add("hidden")
+    strip._goferPillsClearing = setTimeout(function () {
+      strip._goferPillsClearing = null
+      if (strip.classList.contains("hidden")) strip.innerHTML = ""
+    }, 190)
+    return
+  }
+  var existing = Object.create(null)
+  strip.querySelectorAll("[" + attrs.key + "]").forEach(function (pill) {
+    existing[pill.getAttribute(attrs.key)] = true
+  })
+  var visible = document.createElement("div")
+  visible.className = "mail-active-filter-visible"
+  pills.forEach(function (pill) {
+    var key = pill.name + ":" + pill.text
+    var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
+    var button = node && node.querySelector("[" + attrs.remove + "]")
+    if (!button) return
+    button.setAttribute(attrs.remove, pill.name)
+    button.setAttribute(attrs.key, key)
+    button.setAttribute("aria-label", pill.label)
+    button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
+    var label = button.querySelector(".mail-active-filter-pill-label")
+    if (label) label.textContent = pill.text
+    var tip = node.querySelector("[" + attrs.tooltip + "]")
+    if (tip) tip.textContent = pill.text
+    visible.appendChild(node)
+  })
+  strip.replaceChildren(visible)
+  strip.classList.remove("hidden")
+}
+window.goferSyncFilterPills = syncFilterPills
+
 // A button in the account settings' folders dialog runs the folder action
 // it names, as the sidebar's menu does.
 function manageFolderAction(button) {
@@ -25446,6 +25817,23 @@ function manageFolderAction(button) {
     virtual: button.hasAttribute("data-folder-appearance-virtual"),
     tag: button.hasAttribute("data-tag-appearance"),
     unifiedTag: button.hasAttribute("data-tag-appearance-unified"),
+  })
+}
+
+// A unified tag's switch in Settings → Sync shows it in the sidebar, or
+// hides it; it turns back when that fails.
+function toggleTagSidebarVisibility(input) {
+  if (!input || !window.goferSetSidebarVisibility) return
+  var visible = input.checked
+  var target = {
+    tag: true,
+    unifiedTag: input.hasAttribute("data-tag-visibility-unified"),
+    labelID: input.getAttribute("data-tag-visibility") || "",
+    accountID: input.getAttribute("data-tag-visibility-account") || "",
+    name: input.getAttribute("data-tag-visibility-name") || "",
+  }
+  Promise.resolve(window.goferSetSidebarVisibility(target, visible, true)).then(function (saved) {
+    if (!saved && input.isConnected) input.checked = !visible
   })
 }
 
@@ -26233,7 +26621,11 @@ function applyEmailBodyTheme(targetFrame) {
   var fg = palette.fg
   var link = palette.link
   if (original) {
-    iframe.style.backgroundColor = ""
+    // Messages shown as sent assume the browser's white page. A frame's own
+    // page is transparent, so without this a message that sets no background
+    // shows its default black text over a dark Gofer theme. The message's own
+    // backgrounds still paint over this one.
+    iframe.style.backgroundColor = "#ffffff"
   } else if (bg) {
     iframe.style.backgroundColor = bg
   }
@@ -26904,6 +27296,17 @@ function collapseComposeFullWidth() {
     return el.querySelector('.thread-details-content')
   }
 
+  // A collapsed message's body waits in a template (see MailViewThreadContent)
+  // and is filled in when the message first opens.
+  function fillThreadBody(el) {
+    var ct = contentOf(el)
+    var template = ct && ct.querySelector(':scope > template[data-thread-body]')
+    if (!template) return
+    template.replaceWith(template.content.cloneNode(true))
+    if (window.htmx) htmx.process(ct)
+    ct.dispatchEvent(new CustomEvent('gofer:thread-body-added', { bubbles: true }))
+  }
+
   function measure(cards) {
     return cards.map(function (card) {
       var rect = card.getBoundingClientRect()
@@ -26923,6 +27326,7 @@ function collapseComposeFullWidth() {
     var waiting = 0
     var finished = false
     var timer = null
+    var loading = false
     function finish() {
       if (finished) return
       finished = true
@@ -26932,6 +27336,7 @@ function collapseComposeFullWidth() {
     cts.forEach(function (ct) {
       var iframe = ct.querySelector('[data-email-body-frame]')
       if (!iframe || iframe._bodyMeasuredWidth === iframe.clientWidth) return
+      if (!iframe._bodyReported) loading = true
       waiting++
       function onMeasured() {
         if (iframe._bodyMeasuredWidth !== iframe.clientWidth) return
@@ -26944,7 +27349,10 @@ function collapseComposeFullWidth() {
       finish()
       return
     }
-    timer = setTimeout(finish, 150)
+    // A body opened for the first time still has to load. It gets longer, so
+    // it usually opens at its real height, but a slow one opens on its loading
+    // lines rather than holding the click up.
+    timer = setTimeout(finish, loading ? 500 : 150)
   }
 
   // clipSlot makes a slot clip its sheet for the animation. The clip reaches
@@ -26982,6 +27390,7 @@ function collapseComposeFullWidth() {
     list._threadBusy = true
     opening.forEach(function (el, i) {
       var ct = openingContent[i]
+      fillThreadBody(el)
       ct.style.height = '1px'
       ct.style.overflow = 'hidden'
       el.open = true

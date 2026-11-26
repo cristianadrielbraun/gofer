@@ -35,6 +35,10 @@ const (
 	// EventConversationRegroup tells how regrouping a person's mail by the
 	// subject grouping settings is going.
 	EventConversationRegroup EventType = "conversation-regroup"
+	// EventMailOperationsChanged tells a person's pages that their
+	// background mail work changed: queued, tried, finished, failed or
+	// undone. It carries nothing else; pages read what they show again.
+	EventMailOperationsChanged EventType = "mail-operations-changed"
 )
 
 type Event struct {

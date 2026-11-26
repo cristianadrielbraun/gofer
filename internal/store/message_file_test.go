@@ -85,3 +85,46 @@ func TestDamagedCompressedMessageFileFailsToRead(t *testing.T) {
 		t.Fatal("a cut-off compressed file was read without an error")
 	}
 }
+
+func TestRewriteMessageFileKeepsFilesCompressedAndLeavesUnchangedOnes(t *testing.T) {
+	blobs := NewBlobStore(t.TempDir())
+	body := []byte(strings.Repeat("<p>Lunch on Friday?</p>\n", 100))
+	path, err := blobs.StoreRemoteBodyHTML("acc", 7, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := RewriteMessageFile(path, func(data []byte) ([]byte, bool) { return data, false })
+	if err != nil || changed {
+		t.Fatalf("unchanged rewrite = %t, %v", changed, err)
+	}
+	if after, err := os.Stat(path); err != nil || !os.SameFile(before, after) || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("unchanged file was written again: %v", err)
+	}
+
+	changed, err = RewriteMessageFile(path, func(data []byte) ([]byte, bool) {
+		return bytes.ReplaceAll(data, []byte("Friday"), []byte("Monday")), true
+	})
+	if err != nil || !changed {
+		t.Fatalf("rewrite = %t, %v", changed, err)
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil || !bytes.HasPrefix(stored, zstdMagic) {
+		t.Fatalf("rewritten file is not compressed: %v", err)
+	}
+	read, err := ReadMessageFile(path)
+	if err != nil || !bytes.Equal(read, bytes.ReplaceAll(body, []byte("Friday"), []byte("Monday"))) {
+		t.Fatalf("read back %q, %v", read, err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(filepath.Dir(path), compressTempPrefix+"*"))
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("temporary files left: %v %v", leftovers, err)
+	}
+
+	if _, err := RewriteMessageFile(filepath.Join(filepath.Dir(path), "missing.html"), func(data []byte) ([]byte, bool) { return data, true }); !os.IsNotExist(err) {
+		t.Fatalf("missing file error = %v", err)
+	}
+}

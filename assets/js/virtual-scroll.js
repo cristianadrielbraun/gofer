@@ -477,10 +477,29 @@ class VirtualMailList {
     this.expandedThreads.forEach(function (thread) { thread.measuredHeight = 0 })
   }
 
+  // threadShellHeight is the height an open thread's shell needs: its row,
+  // its messages and the gap before the next row. The messages are measured
+  // by their content, which their opening animation doesn't cut short, and
+  // not through the shell: that is drawn at the guessed height, and
+  // scrollHeight never reads less than it, so a guess that was too tall
+  // stayed. Each message is a little shorter than the guess, so the space
+  // under an open thread grew with every message in it.
+  threadShellHeight(shell) {
+    var main = shell.firstElementChild
+    var sub = shell.querySelector(":scope > .thread-sub-items")
+    if (!main || !sub) return Math.ceil(shell.scrollHeight || 0)
+    var style = window.getComputedStyle(sub)
+    var subHeight = sub.scrollHeight +
+      (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0) +
+      (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0)
+    var gap = this.viewMode === "table" ? 0 : this.expandedThreadGap
+    return Math.ceil(main.getBoundingClientRect().height + subHeight + gap)
+  }
+
   updateExpandedThreadMeasuredHeight(emailId, shell) {
     var expanded = this.expandedThreads.get(emailId)
     if (!expanded || !shell) return
-    var measured = Math.ceil(shell.scrollHeight || 0)
+    var measured = this.threadShellHeight(shell)
     if (measured <= 0) return
     if (Math.abs((expanded.measuredHeight || 0) - measured) <= 1) return
     expanded.measuredHeight = measured
@@ -907,11 +926,15 @@ class VirtualMailList {
     return rows
   }
 
+  // A shell back in the pool is hidden but still holds the row it last
+  // showed. It isn't on screen, so it has no place to move from: taking its
+  // empty box for one dropped that row in from the top of the list.
   captureRenderedLayout() {
     var layout = new Map()
     if (!this.itemsContainer) return layout
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
+      if (node.hidden) continue
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.emailId) continue
       layout.set(row.dataset.emailId, node.getBoundingClientRect())
@@ -925,6 +948,8 @@ class VirtualMailList {
     if (!this.itemsContainer) return { rows: rows }
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
+      // Pooled shells aren't on screen (see captureRenderedLayout).
+      if (node.hidden) continue
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.emailId) continue
       var anchor = row.querySelector("a")
@@ -1214,6 +1239,8 @@ class VirtualMailList {
     var moving = []
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
+      // A pooled shell's row has left the screen, so it leaves like one.
+      if (node.hidden) continue
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.emailId) continue
       var id = row.dataset.emailId
@@ -1294,18 +1321,44 @@ class VirtualMailList {
   // then the page laid out once before they slide. Measuring and moving each
   // row in turn laid out the whole list twice per row, which on a phone held
   // a thread's expansion for over a second, as animateListTransition once did.
-  animateLayoutShift(previousLayout) {
+  //
+  // threadId names the thread that opened or closed. The rows under it that
+  // weren't on screen before slide from where they were then too: off
+  // screen, as far from their place as the thread grew or shrank. Closing a
+  // long thread brings them up from the bottom, as opening it pushed the rows
+  // under it down, instead of showing them in place at once. They start just
+  // under the list's bottom edge at most: from further down they spent the
+  // whole slide out of sight and only snapped in at its end.
+  animateLayoutShift(previousLayout, threadId) {
     if (!previousLayout || previousLayout.size === 0) return
-    var moving = []
+    var current = []
+    var threadShift = 0
+    var threadBottom = Infinity
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
+      if (node.hidden) continue
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.emailId) continue
-      var oldRect = previousLayout.get(row.dataset.emailId)
-      if (!oldRect) continue
-      var dy = oldRect.top - node.getBoundingClientRect().top
+      var rect = node.getBoundingClientRect()
+      current.push({ node: node, id: row.dataset.emailId, rect: rect })
+      var threadRect = row.dataset.emailId === threadId ? previousLayout.get(threadId) : null
+      if (threadRect) {
+        threadShift = threadRect.bottom - rect.bottom
+        threadBottom = rect.bottom
+      }
+    }
+    if (threadShift > 0) {
+      threadShift = Math.min(threadShift, Math.max(0, this.container.getBoundingClientRect().bottom - threadBottom))
+    }
+    var moving = []
+    for (var c = 0; c < current.length; c++) {
+      var oldRect = previousLayout.get(current[c].id)
+      var dy
+      if (oldRect) dy = oldRect.top - current[c].rect.top
+      else if (current[c].rect.top >= threadBottom - 1) dy = threadShift
+      else continue
       if (Math.abs(dy) < 1) continue
-      moving.push({ node: node, dy: dy, base: node.style.transform || "" })
+      moving.push({ node: current[c].node, dy: dy, base: current[c].node.style.transform || "" })
     }
     if (!moving.length) return
     for (var m = 0; m < moving.length; m++) {
@@ -3232,7 +3285,7 @@ class VirtualMailList {
     if (this.expandedThreads.has(emailId)) {
       this.threadFetches.delete(emailId)
       this.expandedThreads.delete(emailId)
-      this.redrawThreads(previousLayout)
+      this.redrawThreads(previousLayout, emailId)
       return
     }
 
@@ -3250,7 +3303,7 @@ class VirtualMailList {
       if (!quickSub) return
       var quickLayout = this.captureRenderedLayout()
       this.expandedThreads.set(emailId, { subCount: quickSub.count, html: quickSub.html, entering: true })
-      this.redrawThreads(quickLayout)
+      this.redrawThreads(quickLayout, emailId)
       var quickSelf = this
       if (this.viewMode === "table") requestAnimationFrame(function () { quickSelf.finishThreadEnter(emailId) })
       else setTimeout(function () { quickSelf.finishThreadEnter(emailId) }, 130)
@@ -3266,7 +3319,7 @@ class VirtualMailList {
     }
     expanded.html = this.threadPlaceholderHTML(expanded.subCount)
     this.expandedThreads.set(emailId, expanded)
-    this.redrawThreads(previousLayout)
+    this.redrawThreads(previousLayout, emailId)
     var self = this
     if (this.viewMode === "table") requestAnimationFrame(function () { self.finishThreadEnter(emailId) })
     else setTimeout(function () { self.finishThreadEnter(emailId) }, 130)
@@ -3285,14 +3338,14 @@ class VirtualMailList {
     var arrivedLayout = this.captureRenderedLayout()
     if (!sub) {
       this.expandedThreads.delete(emailId)
-      this.redrawThreads(arrivedLayout)
+      this.redrawThreads(arrivedLayout, emailId)
       return
     }
     expanded.html = sub.html
     expanded.subCount = sub.count
     expanded.placeholder = false
     expanded.measuredHeight = 0
-    this.redrawThreads(arrivedLayout)
+    this.redrawThreads(arrivedLayout, emailId)
   }
 
   // threadSubItemsHTML is the whole thread from the server's answer, in the
@@ -3314,14 +3367,14 @@ class VirtualMailList {
     return others ? { html: out, count: subItems.length } : null
   }
 
-  // redrawThreads draws the list after a thread opened, closed or filled in,
-  // and slides the rows that moved from where they were.
-  redrawThreads(previousLayout) {
+  // redrawThreads draws the list after the thread threadId opened, closed or
+  // filled in, and slides the rows that moved from where they were.
+  redrawThreads(previousLayout, threadId) {
     this.invalidateOffsets()
     this.prevFirst = null
     this.prevLast = null
     this.render()
-    this.animateLayoutShift(previousLayout)
+    this.animateLayoutShift(previousLayout, threadId)
   }
 
   // prefetchThreadSubItems starts fetching a thread's messages, or returns
@@ -4199,6 +4252,8 @@ class VirtualContactsList {
     var rows = new Map()
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
+      // Pooled shells aren't on screen (see VirtualMailList.captureRenderedLayout).
+      if (node.hidden) continue
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.contactId) continue
       var anchor = row.querySelector("a")
@@ -4302,6 +4357,8 @@ class VirtualContactsList {
     var shiftX = viewNow.left - (snapshot.viewLeft !== undefined ? snapshot.viewLeft : viewNow.left)
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
+      // A pooled shell's row has left the screen, so it leaves like one.
+      if (node.hidden) continue
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.contactId) continue
       var id = row.dataset.contactId

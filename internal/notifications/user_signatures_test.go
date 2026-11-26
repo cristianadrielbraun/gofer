@@ -250,3 +250,40 @@ func TestUserSignaturesGuardFailureRollsBackBodyAndDefaults(t *testing.T) {
 		})
 	}
 }
+
+// The Signatures dialog sends only the chosen signature for new messages,
+// replies and forwards: picking one turns it on, "No signature" turns it off.
+func TestUserSignaturesHTTPChoiceTurnsSignatureOnAndOff(t *testing.T) {
+	f := newUserSignatureFixture(t)
+	account := f.accounts["alice"].ID
+	load := func() models.AccountSignatureSettings {
+		t.Helper()
+		var settings models.AccountSignatureSettings
+		if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+			var err error
+			settings, err = db.GetAccountSignatureSettings(t.Context(), "alice", account)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return settings
+	}
+
+	form := url.Values{"new_signature_id": {"same-signature"}, "reply_signature_id": {"same-signature"}, "reply_placement": {"after"}, "forward_signature_id": {""}, "forward_placement": {"before"}}
+	if response := f.request("alice", "POST", "/api/accounts/"+account+"/signature-settings", form.Encode()); response.Code != 200 {
+		t.Fatal("save choices", response.Code, response.Body.String())
+	}
+	settings := load()
+	if !settings.NewEnabled || settings.NewSignatureID != "same-signature" || !settings.ReplyEnabled || settings.ReplySignatureID != "same-signature" || settings.ReplyPlacement != "after" || settings.ForwardEnabled {
+		t.Fatalf("picked signatures not turned on: %+v", settings)
+	}
+
+	form.Set("reply_signature_id", "")
+	if response := f.request("alice", "POST", "/api/accounts/"+account+"/signature-settings", form.Encode()); response.Code != 200 {
+		t.Fatal("clear reply", response.Code, response.Body.String())
+	}
+	settings = load()
+	if !settings.NewEnabled || settings.ReplyEnabled || settings.ReplySignatureID != "" {
+		t.Fatalf("No signature did not turn replies off: %+v", settings)
+	}
+}

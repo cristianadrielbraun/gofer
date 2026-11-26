@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 )
@@ -23,6 +24,8 @@ type userDraftAPI struct {
 	provider                      string
 	entries                       map[string]map[string]UserProviderDraft
 	raw                           map[string]map[string][]byte
+	keys                          map[string]map[string]string
+	saved                         map[string]map[string]time.Time
 	created, versions             map[string]int
 	loseAck, badReply, repeatPage bool
 }
@@ -79,11 +82,19 @@ func (a *userDraftAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			msgID = fmt.Sprintf("message-%d", a.versions[owner])
 		}
 		d := UserProviderDraft{ID: id, MessageID: msgID, InternetMessageID: mime.Header.Get("Message-ID"), RevisionToken: mime.Header.Get("X-Gofer-Draft-Revision")}
+		if a.provider == "gmail" {
+			// Gmail replaces the Message-ID of a draft uploaded through its API
+			// and keeps the other headers.
+			d.InternetMessageID = fmt.Sprintf("<gmail-%d@mail.gmail.test>", a.versions[owner])
+		}
 		if a.entries[owner] == nil {
 			a.entries[owner] = map[string]UserProviderDraft{}
 			a.raw[owner] = map[string][]byte{}
+			a.keys[owner] = map[string]string{}
+			a.saved[owner] = map[string]time.Time{}
 		}
 		a.entries[owner][id], a.raw[owner][id] = d, raw
+		a.keys[owner][id], a.saved[owner][id] = mime.Header.Get("X-Gofer-Draft-Key"), time.Now()
 		if a.loseAck {
 			conn, _, err := w.(http.Hijacker).Hijack()
 			if err == nil {
@@ -95,17 +106,20 @@ func (a *userDraftAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprint(w, `{`)
 			return
 		}
-		a.reply(w, d)
+		a.reply(w, owner, d)
 		return
 	}
 	if r.Method == "GET" && (r.URL.Path == base || r.URL.Path == "/me/mailFolders/drafts/messages") {
-		if (a.provider == "gmail" && r.URL.Query().Get("q") != "rfc822msgid:<same-draft@mail.test>") || (a.provider == "outlook" && r.URL.Query().Get("$filter") != "internetMessageId eq '<same-draft@mail.test>' and isDraft eq true") {
+		matches, ok := a.draftQuery(r)
+		if !ok {
 			http.Error(w, "wrong draft identity filter", 400)
 			return
 		}
 		var ids []map[string]string
-		for id := range a.entries[owner] {
-			ids = append(ids, map[string]string{"id": id})
+		for id, d := range a.entries[owner] {
+			if matches(d, a.saved[owner][id]) {
+				ids = append(ids, map[string]string{"id": id})
+			}
 		}
 		key := "drafts"
 		if a.provider == "outlook" {
@@ -131,7 +145,7 @@ func (a *userDraftAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" {
-		a.reply(w, d)
+		a.reply(w, owner, d)
 		return
 	}
 	if r.Method == "DELETE" {
@@ -143,8 +157,28 @@ func (a *userDraftAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func (a *userDraftAPI) reply(w http.ResponseWriter, d UserProviderDraft) {
+// draftQuery reads a draft search the way the provider does: Gmail by its
+// Message-ID or by date, Outlook by Message-ID.
+func (a *userDraftAPI) draftQuery(r *http.Request) (func(UserProviderDraft, time.Time) bool, bool) {
+	if a.provider == "outlook" {
+		return func(UserProviderDraft, time.Time) bool { return true }, r.URL.Query().Get("$filter") == "internetMessageId eq '<same-draft@mail.test>' and isDraft eq true"
+	}
+	q := r.URL.Query().Get("q")
+	if id, ok := strings.CutPrefix(q, "rfc822msgid:"); ok {
+		return func(d UserProviderDraft, _ time.Time) bool { return d.InternetMessageID == id }, id == "<same-draft@mail.test>"
+	}
+	var after, before int64
+	if _, err := fmt.Sscanf(q, "after:%d before:%d", &after, &before); err != nil {
+		return nil, false
+	}
+	return func(_ UserProviderDraft, saved time.Time) bool { return saved.Unix() >= after && saved.Unix() < before }, true
+}
+
+func (a *userDraftAPI) reply(w http.ResponseWriter, owner string, d UserProviderDraft) {
 	headers := []map[string]string{{"name": "Message-ID", "value": d.InternetMessageID}, {"name": "x-gofer-draft-revision", "value": d.RevisionToken}}
+	if key := a.keys[owner][d.ID]; key != "" {
+		headers = append(headers, map[string]string{"name": "X-Gofer-Draft-Key", "value": key})
+	}
 	if a.provider == "gmail" {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": d.ID, "message": map[string]any{"id": d.MessageID, "payload": map[string]any{"headers": headers}}})
 		return
@@ -160,7 +194,7 @@ type userDraftFixture struct {
 
 func newUserDraftFixture(t *testing.T, provider string) *userDraftFixture {
 	t.Helper()
-	f := &userDraftFixture{api: &userDraftAPI{provider: provider, entries: map[string]map[string]UserProviderDraft{}, raw: map[string]map[string][]byte{}, created: map[string]int{}, versions: map[string]int{}}}
+	f := &userDraftFixture{api: &userDraftAPI{provider: provider, entries: map[string]map[string]UserProviderDraft{}, raw: map[string]map[string][]byte{}, keys: map[string]map[string]string{}, saved: map[string]map[string]time.Time{}, created: map[string]int{}, versions: map[string]int{}}}
 	if provider == "gmail" {
 		prior := newUserGmailFixture(t)
 		f.worker, f.ids = prior.worker, prior.ids
@@ -223,7 +257,7 @@ func TestUserProviderDraftOwnedRevisionsFindAndDelete(t *testing.T) {
 					if provider == "gmail" && (first.ID != second.ID || first.MessageID == second.MessageID) {
 						return errors.New("Gmail container/message identities conflated")
 					}
-					found, err := p.FindDrafts(ctx, second.InternetMessageID)
+					found, err := p.FindDrafts(ctx, second.InternetMessageID, time.Now())
 					if err != nil {
 						return err
 					}
@@ -270,7 +304,7 @@ func TestUserProviderDraftUncertainCreateReconcilesRevision(t *testing.T) {
 					if !errors.Is(err, ErrUserProviderDraftUncertain) {
 						return fmt.Errorf("expected uncertain creation, got %v", err)
 					}
-					found, err := p.FindDrafts(ctx, "<same-draft@mail.test>")
+					found, err := p.FindDrafts(ctx, "<same-draft@mail.test>", time.Now())
 					if err != nil {
 						return err
 					}
@@ -295,7 +329,7 @@ func TestUserProviderDraftSearchAndSessionBoundaries(t *testing.T) {
 			f := newUserDraftFixture(t, provider)
 			f.api.repeatPage = true
 			if err := f.run(t, "alice", func(ctx context.Context, p *UserProviderMail) error {
-				if _, err := p.FindDrafts(ctx, "<same-draft@mail.test>"); err == nil {
+				if _, err := p.FindDrafts(ctx, "<same-draft@mail.test>", time.Now()); err == nil {
 					return errors.New("incomplete search accepted")
 				}
 				life, cancel := context.WithCancel(ctx)
@@ -313,5 +347,68 @@ func TestUserProviderDraftSearchAndSessionBoundaries(t *testing.T) {
 				t.Fatal("expired session made a provider request")
 			}
 		})
+	}
+}
+
+// Gmail replaces the Message-ID of drafts uploaded through its API. Gofer's
+// saves, searches and deletes must still recognize its own drafts, including
+// ones saved before Gofer tagged them with X-Gofer-Draft-Key, and must still
+// refuse a draft that was changed elsewhere.
+func TestUserProviderDraftGmailReplacedMessageID(t *testing.T) {
+	f := newUserDraftFixture(t, "gmail")
+	key := "<same-draft@mail.test>"
+	if err := f.run(t, "alice", func(ctx context.Context, p *UserProviderMail) error {
+		first, err := p.SaveDraft(ctx, "", draftMIME(t, "alice", "first"))
+		if err != nil {
+			return err
+		}
+		if got := f.api.keys["alice"][first.ID]; got != key {
+			return fmt.Errorf("uploaded draft key %q want %q", got, key)
+		}
+		current, err := p.GetDraft(ctx, first.ID)
+		if err != nil {
+			return err
+		}
+		if !current.BelongsTo(key, "") {
+			return errors.New("tagged draft not recognized after Gmail replaced its Message-ID")
+		}
+		second, err := p.SaveDraft(ctx, first.ID, draftMIME(t, "alice", "second"))
+		if err != nil {
+			return err
+		}
+		if err := p.DeleteDraft(ctx, UserProviderDraft{ID: second.ID, InternetMessageID: key, RevisionToken: "first"}); err == nil {
+			return errors.New("deleted a draft holding a newer revision than recorded")
+		}
+		return p.DeleteDraft(ctx, UserProviderDraft{ID: second.ID, InternetMessageID: key, RevisionToken: "second"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.api.entries["alice"]) != 0 {
+		t.Fatal("tagged draft was not deleted")
+	}
+
+	// Drafts saved before the key header carry only Gmail's Message-ID.
+	f.api.mu.Lock()
+	f.api.entries["alice"] = map[string]UserProviderDraft{
+		"legacy":    {ID: "legacy", MessageID: "legacy-message", InternetMessageID: "<gmail-legacy@mail.gmail.test>", RevisionToken: "recorded"},
+		"elsewhere": {ID: "elsewhere", MessageID: "elsewhere-message", InternetMessageID: "<gmail-elsewhere@mail.gmail.test>"},
+	}
+	f.api.mu.Unlock()
+	if err := f.run(t, "alice", func(ctx context.Context, p *UserProviderMail) error {
+		if err := p.DeleteDraft(ctx, UserProviderDraft{ID: "legacy", InternetMessageID: key, RevisionToken: "other"}); err == nil {
+			return errors.New("deleted an older draft by a revision Gofer did not record")
+		}
+		if err := p.DeleteDraft(ctx, UserProviderDraft{ID: "elsewhere", InternetMessageID: key, RevisionToken: "recorded"}); err == nil {
+			return errors.New("deleted a draft that was changed elsewhere")
+		}
+		return p.DeleteDraft(ctx, UserProviderDraft{ID: "legacy", InternetMessageID: key, RevisionToken: "recorded"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.api.entries["alice"]["legacy"]; ok {
+		t.Fatal("older Gofer draft was not deleted")
+	}
+	if _, ok := f.api.entries["alice"]["elsewhere"]; !ok {
+		t.Fatal("draft changed elsewhere was deleted")
 	}
 }

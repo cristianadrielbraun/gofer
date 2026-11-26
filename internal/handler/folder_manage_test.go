@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -236,9 +237,28 @@ func TestCleanFolderName(t *testing.T) {
 	}
 }
 
-// The folders dialog lists the owner's folders, with rename and delete only
-// on folders without a role and Move out of Trash only inside Trash. On
-// Gmail it lists labels.
+// folderMenuActions are the actions the folders dialog's menus offer, as
+// "action folder-id". The New folder button above them is for no folder.
+func folderMenuActions(body string) map[string]bool {
+	actions := map[string]bool{}
+	attr := func(tag, name string) string {
+		if m := regexp.MustCompile(` ` + name + `="([^"]*)"`).FindStringSubmatch(tag); m != nil {
+			return m[1]
+		}
+		return ""
+	}
+	for _, tag := range regexp.MustCompile(`<button[^>]*data-folder-action="[^"]*"[^>]*>`).FindAllString(body, -1) {
+		if id := attr(tag, "data-folder-id"); id != "" {
+			actions[attr(tag, "data-folder-action")+" "+id] = true
+		}
+	}
+	return actions
+}
+
+// The folders dialog lists the owner's folders, each with a menu: rename and
+// delete only on folders without a role, Move out of Trash only inside
+// Trash, and the rules that move mail there on any folder but Sent and
+// Drafts. On Gmail it lists labels.
 func TestManageFoldersDialog(t *testing.T) {
 	h, db := newAccountOwnershipTestHandler(t)
 	ctx := t.Context()
@@ -247,7 +267,8 @@ func TestManageFoldersDialog(t *testing.T) {
 		('f-inbox', 'victim-account', NULL, 'INBOX', 'Inbox', 'inbox', 1, 0),
 		('f-trash', 'victim-account', NULL, 'Trash', 'Trash', 'trash', 1, 1),
 		('f-old', 'victim-account', 'f-trash', 'Trash/Old plans', 'Old plans', 'custom', 1, 2),
-		('f-trips', 'victim-account', NULL, 'Trips', 'Trips', 'custom', 1, 3)`); err != nil {
+		('f-trips', 'victim-account', NULL, 'Trips', 'Trips', 'custom', 1, 3),
+		('f-sent', 'victim-account', NULL, 'Sent', 'Sent', 'sent', 1, 4)`); err != nil {
 		t.Fatalf("insert folders: %v", err)
 	}
 	account := map[string]string{"id": "victim-account"}
@@ -256,14 +277,18 @@ func TestManageFoldersDialog(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(body, `id="folders-dialog"`) || !strings.Contains(body, "Old plans") {
 		t.Fatalf("dialog = %d %q", rec.Code, body)
 	}
-	for _, want := range []string{`aria-label="Rename Trips"`, `aria-label="Delete Trips"`, `aria-label="Move Old plans out of Trash"`, `aria-label="New folder in Inbox"`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dialog lacks %s", want)
+	if !strings.Contains(body, `aria-label="More actions for Trips"`) || !strings.Contains(body, `aria-label="More actions for Inbox"`) {
+		t.Errorf("dialog lacks the folders' menus: %q", body)
+	}
+	actions := folderMenuActions(body)
+	for _, want := range []string{"rename-folder f-trips", "delete-folder f-trips", "restore-folder f-old", "new-subfolder f-inbox", "folder-appearance f-inbox", "folder-rules f-inbox", "folder-rules f-trips", "folder-rules f-trash"} {
+		if !actions[want] {
+			t.Errorf("menus lack %s: %v", want, actions)
 		}
 	}
-	for _, unwanted := range []string{`aria-label="Rename Inbox"`, `aria-label="Delete Trash"`, `aria-label="Move Trips out of Trash"`} {
-		if strings.Contains(body, unwanted) {
-			t.Errorf("dialog has %s", unwanted)
+	for _, unwanted := range []string{"rename-folder f-inbox", "delete-folder f-trash", "restore-folder f-trips", "move-folder f-trips", "folder-rules f-sent"} {
+		if actions[unwanted] {
+			t.Errorf("menus have %s", unwanted)
 		}
 	}
 	rec = identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/?panel=1", account, nil, true)
@@ -282,7 +307,19 @@ func TestManageFoldersDialog(t *testing.T) {
 	}
 	rec = identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/", account, nil, true)
 	body = rec.Body.String()
-	if rec.Code != http.StatusOK || !strings.Contains(body, `aria-label="Delete Receipts"`) || !strings.Contains(body, "New label") || strings.Contains(body, "Trips") {
+	if rec.Code != http.StatusOK || !strings.Contains(body, `aria-label="More actions for Receipts"`) || !strings.Contains(body, "New label") || strings.Contains(body, "Trips") {
 		t.Fatalf("gmail dialog = %d %q", rec.Code, body)
+	}
+	// A label's menu has no rules: rules add labels, they don't move mail
+	// into them.
+	labels := 0
+	for action := range folderMenuActions(body) {
+		labels++
+		if name, _, _ := strings.Cut(action, " "); name != "folder-appearance" && name != "hide-tag" && name != "rename-label" && name != "delete-label" {
+			t.Errorf("label menu has %s", action)
+		}
+	}
+	if labels != 4 {
+		t.Errorf("label menu = %v", folderMenuActions(body))
 	}
 }

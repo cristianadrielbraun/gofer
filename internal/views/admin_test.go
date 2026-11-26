@@ -3,6 +3,7 @@ package views
 import (
 	"bytes"
 	"context"
+	stdhtml "html"
 	"regexp"
 	"strings"
 	"testing"
@@ -650,6 +651,57 @@ func TestAdminMailOperationsPageRendersSMTPBaseline(t *testing.T) {
 			t.Fatalf("rendered admin operations page missing %q: %s", want, html)
 		}
 	}
+}
+
+func TestAdminMailOperationsPageCountsOriginsAndWorkThatCantBeCompleted(t *testing.T) {
+	status := models.MailOperationsAdminStatus{Total: 5, ActionRequired: 3, Parked: 2}
+	status.ByOrigin = []models.MailOperationAdminOriginCount{
+		{Source: "rule", Kind: "move", Total: 3, ActionRequired: 3, Parked: 2},
+		{Source: "you", Kind: "empty_folder", Total: 2},
+	}
+	status.Health.MessageMutations = []models.MailOperationAdminKindStateCount{{Kind: "move", State: "parked", Count: 2}}
+	var out bytes.Buffer
+	if err := AdminMailOperationsPage(status).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	if got := adminOpsText(html, "data-admin-ops-parked", "data-admin-ops-origins"); !strings.Contains(got, "Can't be completed 2") {
+		t.Fatalf("parked card = %q", got)
+	}
+	rule := adminOpsText(html, `data-admin-ops-origin="rule:move"`, `data-admin-ops-origin="you:empty_folder"`)
+	if !strings.Contains(rule, "Move") || !strings.Contains(rule, "Started by a mail rule") || !strings.Contains(rule, "3 need attention") || !strings.Contains(rule, "2 can't be completed") {
+		t.Fatalf("rule origin = %q", rule)
+	}
+	person := adminOpsText(html, `data-admin-ops-origin="you:empty_folder"`, "</section>")
+	if !strings.Contains(person, "Empty folder") || !strings.Contains(person, "Started by a person") || strings.Contains(person, "attention") || strings.Contains(person, "completed") {
+		t.Fatalf("person origin = %q", person)
+	}
+	if got := adminOpsText(html, "Message mutations", "</section>"); !strings.Contains(got, "Move · Can't be completed 2") {
+		t.Fatalf("queue health = %q, want work that can't be completed named", got)
+	}
+
+	out.Reset()
+	if err := AdminMailOperationsPage(models.MailOperationsAdminStatus{}).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No work with a recorded origin.") {
+		t.Fatal("empty origins aren't said so")
+	}
+}
+
+// adminOpsText is the text of html from the first start marker to the next
+// end marker after it, with tags removed and spaces collapsed.
+func adminOpsText(html, start, end string) string {
+	from := strings.Index(html, start)
+	if from < 0 {
+		return ""
+	}
+	part := html[from:]
+	if to := strings.Index(part[len(start):], end); to >= 0 {
+		part = part[:len(start)+to]
+	}
+	part = regexp.MustCompile(`<[^>]*>|^[^>]*>`).ReplaceAllString(part, " ")
+	return strings.Join(strings.Fields(stdhtml.UnescapeString(part)), " ")
 }
 
 func TestAdminOperationalPagesRenderSelectedWebmailScope(t *testing.T) {

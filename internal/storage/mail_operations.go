@@ -4,16 +4,27 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
 var ErrMailOperationNotRetryable = errors.New("mail operation is not retryable in its current state")
+
+// ErrMailOperationNotUndoable is returned when an operation can still finish,
+// or is of a kind Gofer can't undo on its own.
+var ErrMailOperationNotUndoable = errors.New("mail operation can't be undone in its current state")
+
+// parkedRetryAt is the next attempt of work that can never finish, such as a
+// change in a folder that was deleted on the server. No worker reaches it, and
+// the Mail operations list shows such work as parked.
+var parkedRetryAt = time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC)
 
 var (
 	mailOperationSecretPattern = regexp.MustCompile(`(?i)(access[_ -]?token|refresh[_ -]?token|authorization|password|client[_ -]?secret|secret)\s*[:=]\s*["']?[^,\s"'}]+`)
@@ -24,7 +35,9 @@ const mailOperationProjection = `
 SELECT operation_id, operation_type, account_id, account_email, provider,
        message_id, folder_id, folder_name, destination_folder_id, destination_folder_name,
        label_name, operation, draft_key, state, attempts, last_error,
-       next_retry_at, created_at, updated_at, can_retry, can_reconcile, can_cancel, ambiguous
+       next_retry_at, created_at, updated_at, can_retry, can_reconcile, can_cancel, ambiguous,
+       action_id, action_kind, action_source, action_rule_id,
+       COALESCE((SELECT name FROM mail_rules WHERE id = operations.action_rule_id AND operations.action_rule_id != ''), '') AS action_rule_name
 FROM (
     SELECT
         'message_mutation:' || mm.id AS operation_id,
@@ -49,7 +62,8 @@ FROM (
         CASE WHEN mm.status = 'failed' THEN 1 ELSE 0 END AS can_retry,
         0 AS can_reconcile,
         0 AS can_cancel,
-        0 AS ambiguous
+        0 AS ambiguous,
+        mm.action_id, mm.action_kind, mm.action_source, mm.action_rule_id
     FROM message_mutations mm
     JOIN accounts a ON a.id = mm.account_id
     LEFT JOIN folders sf ON sf.id = mm.folder_id
@@ -78,10 +92,11 @@ FROM (
         lm.next_attempt_at,
         lm.created_at,
         lm.updated_at,
-        1 AS can_retry,
+        CASE WHEN lm.attempts > 0 OR COALESCE(lm.last_error, '') != '' THEN 1 ELSE 0 END AS can_retry,
         0 AS can_reconcile,
         0 AS can_cancel,
-        0 AS ambiguous
+        0 AS ambiguous,
+        lm.action_id, lm.action_kind, lm.action_source, lm.action_rule_id
     FROM label_mutation_queue lm
     JOIN accounts a ON a.id = lm.account_id
     LEFT JOIN folders lf ON lf.id = lm.folder_id
@@ -111,7 +126,8 @@ FROM (
         CASE WHEN io.status = 'failed' THEN 1 ELSE 0 END AS can_retry,
         CASE WHEN io.status = 'ambiguous' THEN 1 ELSE 0 END AS can_reconcile,
         0 AS can_cancel,
-        CASE WHEN io.status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous
+        CASE WHEN io.status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous,
+        '' AS action_id, '' AS action_kind, '' AS action_source, '' AS action_rule_id
     FROM imap_draft_operations io
     JOIN accounts a ON a.id = io.account_id
     JOIN imap_draft_states s ON s.account_id = io.account_id AND s.draft_key = io.draft_key
@@ -143,7 +159,8 @@ FROM (
         CASE WHEN os.sent_copy_status = 'failed' THEN 1 ELSE 0 END AS can_retry,
         CASE WHEN os.sent_copy_status = 'ambiguous' THEN 1 ELSE 0 END AS can_reconcile,
         0 AS can_cancel,
-        CASE WHEN os.sent_copy_status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous
+        CASE WHEN os.sent_copy_status = 'ambiguous' THEN 1 ELSE 0 END AS ambiguous,
+        '' AS action_id, '' AS action_kind, '' AS action_source, '' AS action_rule_id
     FROM outgoing_sends os
     JOIN accounts a ON a.id = os.account_id
     WHERE os.status = 'sent'
@@ -176,12 +193,16 @@ const userProviderDraftOperationProjection = `
                 a.provider=s.provider AND a.auth_method='oauth2' AND
                 COALESCE(a.provider_account_id,'')=s.mailbox_subject AND
                 COALESCE(a.is_deleting,0)=0 THEN 1 ELSE 0 END,
-           0, CASE WHEN o.status='ambiguous' THEN 1 ELSE 0 END
+           0, CASE WHEN o.status='ambiguous' THEN 1 ELSE 0 END,
+           '', '', '', ''
     FROM gofer_provider_draft_operations o
     JOIN gofer_provider_draft_states s ON s.account_id=o.account_id AND s.draft_key=o.draft_key
     JOIN accounts a ON a.id=o.account_id
     LEFT JOIN folders f ON f.id=s.folder_id
 `
+
+// mailOperationErrorLimit is how many bytes of an operation's error are shown.
+const mailOperationErrorLimit = 2000
 
 func sanitizeMailOperationError(value string) string {
 	value = strings.TrimSpace(value)
@@ -190,8 +211,10 @@ func sanitizeMailOperationError(value string) string {
 	}
 	value = mailOperationBearerPattern.ReplaceAllString(value, "Bearer [redacted]")
 	value = mailOperationSecretPattern.ReplaceAllString(value, "$1=[redacted]")
-	if len(value) > 500 {
-		value = value[:500] + "…"
+	// Provider replies often put the useful part at the end, so keep enough
+	// of them to read in the operation's details.
+	if len(value) > mailOperationErrorLimit {
+		value = strings.ToValidUTF8(value[:mailOperationErrorLimit], "") + "…"
 	}
 	return value
 }
@@ -211,6 +234,7 @@ func scanMailOperation(row mailOperationRowScanner) (models.MailOperationSummary
 		&operation.LabelName, &operation.Operation, &operation.DraftKey, &operation.State,
 		&operation.Attempts, &operation.LastError, &nextRetry, &createdAt, &updatedAt,
 		&canRetry, &canReconcile, &canCancel, &ambiguous,
+		&operation.ActionID, &operation.ActionKind, &operation.ActionSource, &operation.ActionRuleID, &operation.ActionRuleName,
 	); err != nil {
 		return models.MailOperationSummary{}, err
 	}
@@ -221,6 +245,14 @@ func scanMailOperation(row mailOperationRowScanner) (models.MailOperationSummary
 	operation.Ambiguous = ambiguous != 0
 	if nextRetry.Valid {
 		operation.NextRetryAt = nextRetry.Time
+	}
+	if operation.NextRetryAt.Equal(parkedRetryAt) {
+		// Retrying can't help: what the operation needs is gone.
+		operation.Parked = true
+		operation.ParkedReason = models.MailOperationParkedFolderRemoved
+		operation.CanRetry = false
+		operation.CanReconcile = false
+		operation.CanUndo = operation.Type == models.MailOperationMessageMutation || operation.Type == models.MailOperationLabelMutation
 	}
 	if createdAt.Valid {
 		operation.CreatedAt = createdAt.Time
@@ -251,6 +283,41 @@ LIMIT 200`,
 		operations = append(operations, operation)
 	}
 	return operations, rows.Err()
+}
+
+// ListRetryableMailOperationsForUser lists every operation of the user that
+// has its own Retry: work that failed and can still succeed. Unlike the list
+// in Settings it has no limit. Parked work and work waiting to be reconciled
+// are left out.
+func (db *DB) ListRetryableMailOperationsForUser(ctx context.Context, userID string) ([]models.MailOperationSummary, error) {
+	rows, err := db.Read().QueryContext(ctx, db.mailOperationProjection()+`
+WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND can_retry = 1`,
+		models.MailOperationMessageMutation, models.MailOperationLabelMutation,
+		models.MailOperationIMAPDraft, models.MailOperationSentCopy, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	operations := make([]models.MailOperationSummary, 0)
+	for rows.Next() {
+		operation, err := scanMailOperation(rows)
+		if err != nil {
+			return nil, err
+		}
+		if operation.CanRetry {
+			operations = append(operations, operation)
+		}
+	}
+	return operations, rows.Err()
+}
+
+// mailOperationForUserTx reads one of the user's operations inside tx. An
+// unknown operation, or another user's, is sql.ErrNoRows.
+func (db *DB) mailOperationForUserTx(ctx context.Context, tx *sql.Tx, userID, operationID string) (models.MailOperationSummary, error) {
+	return scanMailOperation(tx.QueryRowContext(ctx, db.mailOperationProjection()+`
+WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND operation_id = ?`,
+		models.MailOperationMessageMutation, models.MailOperationLabelMutation,
+		models.MailOperationIMAPDraft, models.MailOperationSentCopy, strings.TrimSpace(userID), strings.TrimSpace(operationID)))
 }
 
 func (db *DB) GetMailOperationForUser(ctx context.Context, userID, operationID string) (models.MailOperationSummary, error) {
@@ -293,15 +360,32 @@ ORDER BY updated_at DESC`, args...)
 	}
 	types := make(map[typeKey]*aggregate)
 	accounts := make(map[accountKey]*models.MailOperationAdminAccountCount)
+	origins := make(map[[2]string]*models.MailOperationAdminOriginCount)
 	for rows.Next() {
 		operation, err := scanMailOperation(rows)
 		if err != nil {
 			return models.MailOperationsAdminStatus{}, err
 		}
 		status.Total++
-		actionRequired := operation.CanRetry || operation.CanReconcile || operation.CanCancel || operation.State == "blocked"
+		actionRequired := operation.NeedsAttention()
 		if actionRequired {
 			status.ActionRequired++
+		}
+		if operation.Parked {
+			status.Parked++
+		}
+		if operation.ActionSource != "" && operation.ActionKind != "" {
+			origin := [2]string{operation.ActionSource, operation.ActionKind}
+			if origins[origin] == nil {
+				origins[origin] = &models.MailOperationAdminOriginCount{Source: origin[0], Kind: origin[1]}
+			}
+			origins[origin].Total++
+			if actionRequired {
+				origins[origin].ActionRequired++
+			}
+			if operation.Parked {
+				origins[origin].Parked++
+			}
 		}
 		key := typeKey{operation.Type, operation.Provider}
 		if types[key] == nil {
@@ -333,6 +417,10 @@ ORDER BY updated_at DESC`, args...)
 	for _, account := range accounts {
 		status.ByAccount = append(status.ByAccount, *account)
 	}
+	for _, origin := range origins {
+		status.ByOrigin = append(status.ByOrigin, *origin)
+	}
+	SortMailOperationAdminOrigins(status.ByOrigin)
 	sort.Slice(status.ByType, func(i, j int) bool {
 		if status.ByType[i].ActionRequired != status.ByType[j].ActionRequired {
 			return status.ByType[i].ActionRequired > status.ByType[j].ActionRequired
@@ -358,6 +446,21 @@ ORDER BY updated_at DESC`, args...)
 	return status, nil
 }
 
+// SortMailOperationAdminOrigins puts the origins with the most work that
+// needs attention first, then people before mail rules, then by action.
+func SortMailOperationAdminOrigins(origins []models.MailOperationAdminOriginCount) {
+	sort.Slice(origins, func(i, j int) bool {
+		a, b := origins[i], origins[j]
+		if a.ActionRequired != b.ActionRequired {
+			return a.ActionRequired > b.ActionRequired
+		}
+		if a.Source != b.Source {
+			return a.Source > b.Source
+		}
+		return a.Kind < b.Kind
+	})
+}
+
 func maskMailOperationAccount(ctx context.Context, email string) string {
 	email = strings.TrimSpace(email)
 	if email == "" {
@@ -381,10 +484,6 @@ func (db *DB) RetryMailOperationForUser(ctx context.Context, userID, operationID
 // The routed guard runs after waiting for the writer and before committing;
 // reconciliation identifiers and attempt counts are never reset by a retry.
 func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, operationID string, guard func(*sql.Tx) error) (models.MailOperationSummary, error) {
-	kind, rawID, ok := strings.Cut(strings.TrimSpace(operationID), ":")
-	if !ok || strings.TrimSpace(rawID) == "" {
-		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
-	}
 	userID = strings.TrimSpace(userID)
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -395,6 +494,75 @@ func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, oper
 		if err := guard(tx); err != nil {
 			return models.MailOperationSummary{}, err
 		}
+	}
+	operation, err := db.retryMailOperationTx(ctx, tx, userID, operationID)
+	if err != nil {
+		return models.MailOperationSummary{}, err
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return models.MailOperationSummary{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return models.MailOperationSummary{}, err
+	}
+	return operation, nil
+}
+
+// RetryMailOperationsForUserGuarded retries several of the user's operations
+// in one transaction, as RetryMailOperationForUserGuarded does one. Those
+// that are gone or can't be retried any more are skipped and counted, not
+// refused. guard runs before anything changes and again before committing.
+func (db *DB) RetryMailOperationsForUserGuarded(ctx context.Context, userID string, operationIDs []string, guard func(*sql.Tx) error) (retried, skipped int, err error) {
+	userID = strings.TrimSpace(userID)
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return 0, 0, err
+		}
+	}
+	for _, operationID := range operationIDs {
+		_, err := db.retryMailOperationTx(ctx, tx, userID, operationID)
+		switch {
+		case err == nil:
+			retried++
+		case errors.Is(err, ErrMailOperationNotRetryable) || errors.Is(err, sql.ErrNoRows):
+			skipped++
+		default:
+			return 0, 0, fmt.Errorf("retry %s: %w", operationID, err)
+		}
+	}
+	if guard != nil {
+		if err := guard(tx); err != nil {
+			return 0, 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+	return retried, skipped, nil
+}
+
+// retryMailOperationTx schedules one operation to be tried again now, inside
+// tx, and returns it as it is afterwards. Parked work, and work in a state
+// that can't be retried, is ErrMailOperationNotRetryable; an unknown
+// operation, or another user's, is sql.ErrNoRows.
+func (db *DB) retryMailOperationTx(ctx context.Context, tx *sql.Tx, userID, operationID string) (models.MailOperationSummary, error) {
+	kind, rawID, ok := strings.Cut(strings.TrimSpace(operationID), ":")
+	if !ok || strings.TrimSpace(rawID) == "" {
+		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
+	}
+	var err error
+	lookup := func() (models.MailOperationSummary, error) {
+		return db.mailOperationForUserTx(ctx, tx, userID, operationID)
+	}
+	if current, err := lookup(); err == nil && current.Parked {
+		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
 	}
 	var result sql.Result
 	switch kind {
@@ -452,29 +620,11 @@ func (db *DB) RetryMailOperationForUserGuarded(ctx context.Context, userID, oper
 	if err != nil {
 		return models.MailOperationSummary{}, err
 	}
-	lookup := func() (models.MailOperationSummary, error) {
-		return scanMailOperation(tx.QueryRowContext(ctx, db.mailOperationProjection()+`
-WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ?) AND operation_id = ?`,
-			models.MailOperationMessageMutation, models.MailOperationLabelMutation,
-			models.MailOperationIMAPDraft, models.MailOperationSentCopy, userID, strings.TrimSpace(operationID)))
-	}
 	if changed != 1 {
 		if _, lookupErr := lookup(); lookupErr != nil {
 			return models.MailOperationSummary{}, lookupErr
 		}
 		return models.MailOperationSummary{}, ErrMailOperationNotRetryable
 	}
-	operation, err := lookup()
-	if err != nil {
-		return models.MailOperationSummary{}, err
-	}
-	if guard != nil {
-		if err := guard(tx); err != nil {
-			return models.MailOperationSummary{}, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return models.MailOperationSummary{}, err
-	}
-	return operation, nil
+	return lookup()
 }

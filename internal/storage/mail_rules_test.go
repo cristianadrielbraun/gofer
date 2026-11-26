@@ -174,6 +174,56 @@ func TestSaveListOrderAndDeleteMailRules(t *testing.T) {
 	}
 }
 
+func TestChangeSeveralMailRules(t *testing.T) {
+	db := newMailRulesTestDB(t, "imap")
+	ctx := t.Context()
+	if _, err := db.Write().Exec(`INSERT INTO users (id, username, username_normalized) VALUES ('other', 'other', 'other')`); err != nil {
+		t.Fatal(err)
+	}
+	star := []models.MailRuleAction{{Kind: "star"}}
+	first := saveTestRule(t, db, models.MailRule{Name: "Bakery", Conditions: fromBakery(), Actions: star})
+	second := saveTestRule(t, db, models.MailRule{Name: "Lunch on Friday", Conditions: fromBakery(), Actions: star})
+	kept := saveTestRule(t, db, models.MailRule{Name: "Newsletters", Conditions: fromBakery(), Actions: star})
+	enabled := func(id string) bool {
+		t.Helper()
+		rule, err := db.GetMailRule(ctx, "default", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rule.Enabled
+	}
+
+	// Each rule once; IDs of no rule, or of someone else's, are skipped.
+	changed, err := db.SetMailRulesEnabledGuarded(ctx, "default", []string{first.ID, second.ID, first.ID, "gone"}, false, nil)
+	if err != nil || changed != 2 || enabled(first.ID) || enabled(second.ID) || !enabled(kept.ID) {
+		t.Fatalf("turned off = %d, %v", changed, err)
+	}
+	if changed, err := db.SetMailRulesEnabledGuarded(ctx, "other", []string{kept.ID}, false, nil); err != nil || changed != 0 || !enabled(kept.ID) {
+		t.Fatalf("someone else turned off = %d, %v", changed, err)
+	}
+	if changed, err := db.SetMailRulesEnabledGuarded(ctx, "default", []string{second.ID}, true, nil); err != nil || changed != 1 || !enabled(second.ID) {
+		t.Fatalf("turned on = %d, %v", changed, err)
+	}
+
+	if deleted, err := db.DeleteMailRulesGuarded(ctx, "other", []string{first.ID}, nil); err != nil || deleted != 0 {
+		t.Fatalf("someone else deleted = %d, %v", deleted, err)
+	}
+	deleted, err := db.DeleteMailRulesGuarded(ctx, "default", []string{first.ID, second.ID, "gone"}, nil)
+	if err != nil || deleted != 2 {
+		t.Fatalf("deleted = %d, %v", deleted, err)
+	}
+	rules, err := db.ListMailRules(ctx, "default")
+	if err != nil || len(rules) != 1 || rules[0].ID != kept.ID {
+		t.Fatalf("rules left = %+v, %v", rules, err)
+	}
+
+	// A refused change leaves every rule as it was.
+	refuse := func(*sql.Tx) error { return errors.New("signed out meanwhile") }
+	if _, err := db.SetMailRulesEnabledGuarded(ctx, "default", []string{kept.ID}, false, refuse); err == nil || !enabled(kept.ID) {
+		t.Fatalf("refused change = %v", err)
+	}
+}
+
 func TestSaveMailRuleChecksOwnership(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()

@@ -565,10 +565,15 @@ func (db *DB) CountFailedSenderAvatarLookupsSince(ctx context.Context, hash stri
 		    AND created_at >= ?
 		   GROUP BY created_at
 		   HAVING SUM(status = 'found') = 0
-		 )`, strings.ToLower(strings.TrimSpace(hash)), since).Scan(&count)
+		 )`, strings.ToLower(strings.TrimSpace(hash)), formatDBTime(since)).Scan(&count)
 	return count, err
 }
 
+// SaveSenderAvatarFound saves a sender's picture, to be looked up again after
+// expiresAt. The times of all three SaveSenderAvatar functions are saved in
+// UTC, because the queries compare them as text with SQLite's
+// CURRENT_TIMESTAMP, which is UTC: a time saved with the server's own offset
+// came due hours early or late on a server that isn't on UTC.
 func (db *DB) SaveSenderAvatarFound(ctx context.Context, hash, email, source, contentType, storagePath string, data []byte, expiresAt time.Time, gravatarStatus, bimiStatus string) error {
 	source = strings.ToLower(strings.TrimSpace(source))
 	if source == "" {
@@ -594,7 +599,7 @@ func (db *DB) SaveSenderAvatarFound(ctx context.Context, hash, email, source, co
 		 	expires_at = excluded.expires_at,
 		 	next_retry_at = NULL,
 		 	error = '',
-		 	updated_at = CURRENT_TIMESTAMP`, strings.ToLower(strings.TrimSpace(hash)), strings.ToLower(strings.TrimSpace(email)), source, gravatarStatus, gravatarStatus, bimiStatus, bimiStatus, contentType, data, storagePath, expiresAt)
+		 	updated_at = CURRENT_TIMESTAMP`, strings.ToLower(strings.TrimSpace(hash)), strings.ToLower(strings.TrimSpace(email)), source, gravatarStatus, gravatarStatus, bimiStatus, bimiStatus, contentType, data, storagePath, formatDBTime(expiresAt))
 	return err
 }
 
@@ -606,6 +611,8 @@ func SenderAvatarURL(hash string, expiresAt time.Time) string {
 	return senderAvatarURL(hash, version)
 }
 
+// SaveSenderAvatarMissing saves that no picture was found for a sender, to be
+// looked up again after expiresAt.
 func (db *DB) SaveSenderAvatarMissing(ctx context.Context, hash, email, source string, expiresAt time.Time, gravatarStatus, bimiStatus string) error {
 	source = strings.ToLower(strings.TrimSpace(source))
 	if source == "" {
@@ -631,10 +638,12 @@ func (db *DB) SaveSenderAvatarMissing(ctx context.Context, hash, email, source s
 		 	expires_at = excluded.expires_at,
 		 	next_retry_at = NULL,
 		 	error = '',
-		 	updated_at = CURRENT_TIMESTAMP`, strings.ToLower(strings.TrimSpace(hash)), strings.ToLower(strings.TrimSpace(email)), source, gravatarStatus, gravatarStatus, bimiStatus, bimiStatus, expiresAt)
+		 	updated_at = CURRENT_TIMESTAMP`, strings.ToLower(strings.TrimSpace(hash)), strings.ToLower(strings.TrimSpace(email)), source, gravatarStatus, gravatarStatus, bimiStatus, bimiStatus, formatDBTime(expiresAt))
 	return err
 }
 
+// SaveSenderAvatarError saves a failed lookup for a sender, to be tried again
+// after nextRetryAt.
 func (db *DB) SaveSenderAvatarError(ctx context.Context, hash, email, source, message string, nextRetryAt time.Time, gravatarStatus, bimiStatus string) error {
 	source = strings.ToLower(strings.TrimSpace(source))
 	if source == "" {
@@ -660,7 +669,7 @@ func (db *DB) SaveSenderAvatarError(ctx context.Context, hash, email, source, me
 		 	expires_at = NULL,
 		 	next_retry_at = excluded.next_retry_at,
 		 	error = excluded.error,
-		 	updated_at = CURRENT_TIMESTAMP`, strings.ToLower(strings.TrimSpace(hash)), strings.ToLower(strings.TrimSpace(email)), source, gravatarStatus, gravatarStatus, bimiStatus, bimiStatus, nextRetryAt, message)
+		 	updated_at = CURRENT_TIMESTAMP`, strings.ToLower(strings.TrimSpace(hash)), strings.ToLower(strings.TrimSpace(email)), source, gravatarStatus, gravatarStatus, bimiStatus, bimiStatus, formatDBTime(nextRetryAt), message)
 	return err
 }
 

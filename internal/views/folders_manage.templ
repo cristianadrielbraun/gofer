@@ -1,35 +1,36 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 )
 
 // FoldersDialog lists an account's folders, from its settings, to make,
 // rename and delete them where the sidebar's menu isn't at hand, as on a
-// phone, and to put them in order. Gmail has labels instead, which it lists.
-// The buttons run the sidebar's folder actions (app.js), which ask first;
-// after each change the panel loads again. Each folder's handle drags it
-// among the folders next to it (settings.js), each label's among the labels.
+// phone, and to put them in order, and the account's tags under them. Gmail
+// has labels instead of both, which it lists. Each row's menu runs the
+// sidebar's folder actions (app.js), which ask first; after each change the
+// panel loads again. Each folder's handle drags it among the folders next to
+// it (settings.js), each tag's or label's among the tags.
 templ FoldersDialog(data models.FoldersData) {
 	@dialog.Dialog(dialog.Props{ID: "folders-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					if data.Account.Provider == "gmail" {
-						{ i18n.T(ctx, "settings.account.labels") }
-					} else {
-						{ i18n.T(ctx, "settings.account.folders") }
-					}
+					{ foldersDialogName(ctx, data.Account, len(data.Labels) > 0) }
 				}
 				@dialog.Description() {
 					if data.Account.Provider == "gmail" {
 						{ i18n.T(ctx, "settings.folders.gmail_description") }
+					} else if len(data.Labels) > 0 {
+						{ i18n.T(ctx, "settings.folders.tags_description") }
 					} else {
 						{ i18n.T(ctx, "settings.folders.description") }
 					}
@@ -73,29 +74,136 @@ templ FoldersPanel(data models.FoldersData) {
 				if len(data.Labels) == 0 {
 					<p class="px-3 py-6 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "settings.folders.no_labels") }</p>
 				}
-				<div data-tag-order-list data-account-id={ data.Account.ID }>
-				for _, label := range data.Labels {
-					<div class="flex items-center gap-2 rounded-md bg-background/60 px-2.5 py-1.5 transition-transform duration-200 ease-out hover:bg-accent" data-tag-order-item data-tag-id={ label.ID }>
-						@OrderHandle("data-tag-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", label.Name))
-						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-							@TagAppearanceIcon(label)
-						</span>
-						<span class="min-w-0 flex-1 truncate text-sm">{ label.Name }</span>
-						@TagAppearanceButton(label)
-						@folderRowButton("rename-label", data.Account.ID, label.ID, label.Name, i18n.T(ctx, "settings.folders.rename_label", "name", label.Name), false) {
-							@icon.Pencil(icon.Props{Class: "size-3.5"})
-						}
-						@folderRowButton("delete-label", data.Account.ID, label.ID, label.Name, i18n.T(ctx, "settings.folders.delete_label", "name", label.Name), true) {
-							@icon.Trash2(icon.Props{Class: "size-3.5"})
-						}
-					</div>
-				}
-				</div>
+				@tagOrderList(data.Account, data.Labels)
 			} else {
-				@foldersOrderList(data.Account, data.Folders, 0, false)
+				@foldersOrderList(data.Account, data.Folders, 0, false, false)
+				if len(data.Labels) > 0 {
+					<p class="px-2.5 pb-1 pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "mail.tags") }</p>
+					@tagOrderList(data.Account, data.Labels)
+				}
 			}
 		</div>
 	</div>
+}
+
+// foldersDialogName is what the Folders dialog and the account menu item
+// that opens it are called: Labels on Gmail, which has them instead of
+// folders and tags, and Folders and tags on an account that has tags.
+func foldersDialogName(ctx context.Context, account models.Account, hasTags bool) string {
+	switch {
+	case account.Provider == "gmail":
+		return i18n.T(ctx, "settings.account.labels")
+	case hasTags:
+		return i18n.T(ctx, "settings.account.folders_and_tags")
+	default:
+		return i18n.T(ctx, "settings.account.folders")
+	}
+}
+
+// tagOrderList is an account's tags, or Gmail's labels, each with its
+// appearance and whether it shows in the sidebar, and its handle to put it
+// in order among them. Only Gmail's labels can be renamed or deleted: other
+// tags are only the words on the mail that has them.
+templ tagOrderList(account models.Account, labels []models.Label) {
+	{{ gmail := account.Provider == "gmail" }}
+	<div data-tag-order-list data-account-id={ account.ID }>
+		for _, label := range labels {
+			<div class="flex items-center gap-2 rounded-md bg-background/60 px-2.5 py-1.5 transition-transform duration-200 ease-out hover:bg-accent" data-tag-order-item data-tag-id={ label.ID }>
+				@OrderHandle("data-tag-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", label.Name))
+				<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+					@TagAppearanceIcon(label)
+				</span>
+				<span class={ "min-w-0 flex-1 truncate text-sm", templ.KV("text-muted-foreground", label.Hidden) }>{ label.Name }</span>
+				if label.Hidden {
+					@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden"))
+				}
+				@folderActionsMenu(label.ID, label.Name) {
+					@folderActionsItem("folder-appearance", account.ID, label.ID, label.Name, false, templ.Attributes{"data-tag-appearance": "", "data-tag-appearance-unified": label.IsUnified}) {
+						@icon.Palette(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.appearance") }
+					}
+					@folderVisibilityItem("tag", account.ID, label.ID, label.Name, label.Hidden, templ.Attributes{"data-tag-appearance": ""})
+					if gmail {
+						@folderActionsItem("rename-label", account.ID, label.ID, label.Name, false, nil) {
+							@icon.Pencil(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "mail.folder_menu.rename_label") }
+						}
+						@dropdown.Separator()
+						@folderActionsItem("delete-label", account.ID, label.ID, label.Name, true, nil) {
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "mail.folder_menu.delete_label") }
+						}
+					}
+				}
+			</div>
+		}
+	</div>
+}
+
+// folderRowActions are what a folder's menu in the Folders dialog offers.
+type folderRowActions struct {
+	Appearance, Hide, Show, NewSubfolder, Rules, Restore, Move, Rename, Delete bool
+}
+
+func (a folderRowActions) any() bool {
+	return a.Appearance || a.Hide || a.Show || a.NewSubfolder || a.Rules || a.Restore || a.Move || a.Rename || a.Delete
+}
+
+// folderRowActionsFor is what a folder's menu offers, as the sidebar's
+// menu does for it (fillSidebarContextMenu, app.js). Starred is a view, not
+// a folder. Only folders without a role can be renamed, deleted or hidden
+// from the sidebar; one inside Trash can be moved back out, and Local
+// folders' own can move. The sidebar has no Show, as a hidden folder isn't
+// there; one inside a hidden folder has no Hide either, as it's hidden with
+// it.
+func folderRowActionsFor(account models.Account, folder models.Folder, inTrash, inHidden bool) folderRowActions {
+	custom := folder.Role == "custom"
+	view := folder.Role == "starred"
+	return folderRowActions{
+		Appearance:   !view,
+		Hide:         custom && !folder.Hidden && !inHidden,
+		Show:         custom && folder.Hidden,
+		NewSubfolder: !view,
+		Rules:        folderTakesRuleMail(folder.Role),
+		Restore:      custom && inTrash,
+		Move:         custom && account.Provider == "local",
+		Rename:       custom,
+		Delete:       custom,
+	}
+}
+
+// folderTakesRuleMail reports whether rules can move mail into a folder
+// with this role: any but Sent and Drafts, and not a view such as Starred.
+func folderTakesRuleMail(role string) bool {
+	switch role {
+	case "sent", "drafts", "starred", "scheduled":
+		return false
+	}
+	return true
+}
+
+func folderActionsItemClass(destructive bool) string {
+	if destructive {
+		return "justify-start gap-2 whitespace-nowrap text-destructive " + menuDestructiveClass
+	}
+	return "justify-start gap-2 whitespace-nowrap"
+}
+
+// folderActionsItemAttributes are what manageFolderAction (app.js) reads
+// from a menu item, with any extra attributes the action needs.
+func folderActionsItemAttributes(action, accountID, id, name string, extra templ.Attributes) templ.Attributes {
+	attrs := templ.Attributes{
+		"type":                "button",
+		"data-folder-action":  action,
+		"data-folder-account": accountID,
+		"data-folder-id":      id,
+		"data-folder-name":    name,
+		"data-on-click":       onAction("manageFolderAction", actionElement),
+	}
+	for key, value := range extra {
+		attrs[key] = value
+	}
+	return attrs
 }
 
 func newFolderAction(provider string) string {
@@ -106,14 +214,15 @@ func newFolderAction(provider string) string {
 }
 
 // foldersOrderList holds folders next to each other, each with the folders
-// inside it, so each can be put in order among them.
-templ foldersOrderList(account models.Account, folders []models.Folder, depth int, inTrash bool) {
+// inside it, so each can be put in order among them. inHidden is set inside
+// a folder hidden from the sidebar.
+templ foldersOrderList(account models.Account, folders []models.Folder, depth int, inTrash, inHidden bool) {
 	<div data-folder-order-list data-account-id={ account.ID }>
 		for _, folder := range folders {
 			<div class="transition-transform duration-200 ease-out" data-folder-order-item data-folder-id={ folder.ID }>
-				@foldersPanelRow(account, folder, depth, inTrash)
+				@foldersPanelRow(account, folder, depth, inTrash, inHidden)
 				if len(folder.Children) > 0 {
-					@foldersOrderList(account, folder.Children, depth+1, inTrash || folder.Role == "trash")
+					@foldersOrderList(account, folder.Children, depth+1, inTrash || folder.Role == "trash", inHidden || folderHiddenInSidebar(folder))
 				}
 			</div>
 		}
@@ -122,58 +231,146 @@ templ foldersOrderList(account models.Account, folders []models.Folder, depth in
 
 // foldersPanelRow is one folder. Only folders without a role can be renamed
 // or deleted; one inside Trash can be moved back out. Local folders' own can
-// move anywhere in the account.
-templ foldersPanelRow(account models.Account, folder models.Folder, depth int, inTrash bool) {
+// move anywhere in the account. A folder hidden from the sidebar, or inside
+// one, has its name dimmed and a mark that says so.
+templ foldersPanelRow(account models.Account, folder models.Folder, depth int, inTrash, inHidden bool) {
 	{{ accountID := account.ID }}
-	{{ custom := folder.Role == "custom" }}
+	{{ actions := folderRowActionsFor(account, folder, inTrash, inHidden) }}
+	{{ hidden := folderHiddenInSidebar(folder) || (inHidden && folder.Role == "custom") }}
+	{{ name := i18n.FolderName(ctx, folder.Role, folder.Name) }}
 	<div class="flex items-center gap-2 rounded-md bg-background/60 py-1.5 pr-1 hover:bg-accent" style={ mailMoveIndent(depth) } data-folder-order-row>
-		@OrderHandle("data-folder-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", i18n.FolderName(ctx, folder.Role, folder.Name)))
+		@OrderHandle("data-folder-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", name))
 		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 			@FolderAppearanceIcon(folder)
 		</span>
-		<span class="min-w-0 flex-1 truncate text-sm">{ i18n.FolderName(ctx, folder.Role, folder.Name) }</span>
-		if folder.Role != "starred" {
-			@folderRowButton("folder-appearance", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.appearance_label", "name", i18n.FolderName(ctx, folder.Role, folder.Name)), false) {
-				@icon.Palette(icon.Props{Class: "size-3.5"})
-			}
-			@folderRowButton("new-subfolder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.new_in", "name", i18n.FolderName(ctx, folder.Role, folder.Name)), false) {
-				@icon.FolderPlus(icon.Props{Class: "size-3.5"})
-			}
+		<span class={ "min-w-0 flex-1 truncate text-sm", templ.KV("text-muted-foreground", hidden) }>{ name }</span>
+		if folderHiddenInSidebar(folder) {
+			@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden"))
+		} else if hidden {
+			@folderHiddenMark(i18n.T(ctx, "settings.folders.hidden_by_parent"))
 		}
-		if custom && inTrash {
-			@folderRowButton("restore-folder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.restore_label", "name", folder.Name), false) {
-				@icon.FolderOutput(icon.Props{Class: "size-3.5"})
+		if actions.any() {
+			@folderActionsMenu(folder.ID, name) {
+				if actions.Appearance {
+					@folderActionsItem("folder-appearance", accountID, folder.ID, folder.Name, false, nil) {
+						@icon.Palette(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.appearance") }
+					}
+				}
+				if actions.Hide || actions.Show {
+					@folderVisibilityItem("folder", accountID, folder.ID, folder.Name, actions.Show, nil)
+				}
+				if actions.NewSubfolder {
+					@folderActionsItem("new-subfolder", accountID, folder.ID, folder.Name, false, nil) {
+						@icon.FolderPlus(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.new_subfolder") }
+					}
+				}
+				if actions.Rules {
+					@folderActionsItem("folder-rules", accountID, folder.ID, folder.Name, false, nil) {
+						@icon.ListFilter(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.rules") }
+						@folderRulesCount()
+					}
+				}
+				if actions.Rename {
+					@dropdown.Separator()
+				}
+				if actions.Restore {
+					@folderActionsItem("restore-folder", accountID, folder.ID, folder.Name, false, nil) {
+						@icon.FolderOutput(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.restore_folder") }
+					}
+				}
+				if actions.Move {
+					@folderActionsItem("move-folder", accountID, folder.ID, folder.Name, false, nil) {
+						@icon.FolderInput(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.move_folder") }
+					}
+				}
+				if actions.Rename {
+					@folderActionsItem("rename-folder", accountID, folder.ID, folder.Name, false, nil) {
+						@icon.FolderPen(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.rename_folder") }
+					}
+				}
+				if actions.Delete {
+					@dropdown.Separator()
+					@folderActionsItem("delete-folder", accountID, folder.ID, folder.Name, true, nil) {
+						@icon.FolderX(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "mail.folder_menu.delete_folder") }
+					}
+				}
 			}
-		}
-		if custom && account.Provider == "local" {
-			@folderRowButton("move-folder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.move_label", "name", folder.Name), false) {
-				@icon.FolderInput(icon.Props{Class: "size-3.5"})
-			}
-		}
-		if custom {
-			@folderRowButton("rename-folder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.rename_label", "name", folder.Name), false) {
-				@icon.Pencil(icon.Props{Class: "size-3.5"})
-			}
-			@folderRowButton("delete-folder", accountID, folder.ID, folder.Name, i18n.T(ctx, "settings.folders.delete_label", "name", folder.Name), true) {
-				@icon.Trash2(icon.Props{Class: "size-3.5"})
-			}
+		} else {
+			// Keeps the names of the folders around it in line.
+			<span class="size-7 shrink-0" aria-hidden="true"></span>
 		}
 	</div>
 }
 
-templ folderRowButton(action, accountID, id, name, label string, destructive bool) {
-	<button
-		type="button"
-		class={ "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-			templ.KV("hover:bg-destructive/10 hover:text-destructive", destructive) }
-		title={ label }
-		aria-label={ label }
-		data-folder-action={ action }
-		data-folder-account={ accountID }
-		data-folder-id={ id }
-		data-folder-name={ name }
-		data-on-click={ onAction("manageFolderAction", actionElement) }
-	>
+// folderHiddenInSidebar reports whether the user hid the folder from the
+// sidebar. Special folders always show, whatever was saved for them before.
+func folderHiddenInSidebar(folder models.Folder) bool {
+	return folder.Role == "custom" && folder.Hidden
+}
+
+// folderHiddenMark is the eye-off beside a folder or label hidden from the
+// sidebar, with why as its name.
+templ folderHiddenMark(why string) {
+	<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground" title={ why } role="img" aria-label={ why } data-folder-hidden-mark>
+		@icon.EyeOff(icon.Props{Class: "size-3.5"})
+	</span>
+}
+
+// folderVisibilityItem hides a folder ("folder") or a tag ("tag", with its
+// data-tag-appearance in attrs) from the sidebar, or shows a hidden one
+// again.
+templ folderVisibilityItem(kind, accountID, id, name string, hidden bool, attrs templ.Attributes) {
+	if hidden {
+		@folderActionsItem("show-"+kind, accountID, id, name, false, attrs) {
+			@icon.Eye(icon.Props{Class: "size-3.5"})
+			{ i18n.T(ctx, "mail.folder_menu.show_in_sidebar") }
+		}
+	} else {
+		@folderActionsItem("hide-"+kind, accountID, id, name, false, attrs) {
+			@icon.EyeOff(icon.Props{Class: "size-3.5"})
+			{ i18n.T(ctx, "mail.folder_menu.hide_from_sidebar") }
+		}
+	}
+}
+
+// folderActionsMenu holds a folder's or a label's actions under one
+// button, as the account cards hold theirs, so the row keeps its room for
+// the name. name is the folder's name as the row shows it. The button's
+// hover is a shade over the row's own hover color, so it shows on a row
+// under the pointer, and stays while its menu is open.
+templ folderActionsMenu(id, name string) {
+	@dropdown.Dropdown(dropdown.Props{ID: "folder-actions-menu-" + id}) {
+		@dropdown.Trigger() {
+			<button
+				type="button"
+				class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground in-data-[tui-popover-open=true]:bg-foreground/10 in-data-[tui-popover-open=true]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				title={ i18n.T(ctx, "settings.folders.more_actions", "name", name) }
+				aria-label={ i18n.T(ctx, "settings.folders.more_actions", "name", name) }
+				data-folder-actions-trigger
+			>
+				@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+			</button>
+		}
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet " + fitMenuWidth + " normal-case tracking-normal"}) {
+			{ children... }
+		}
+	}
+}
+
+// folderActionsItem runs one of the sidebar's folder actions on a folder or
+// label (manageFolderAction, app.js), named with the sidebar menu's words.
+templ folderActionsItem(action, accountID, id, name string, destructive bool, attrs templ.Attributes) {
+	@dropdown.Item(dropdown.ItemProps{
+		Class:      folderActionsItemClass(destructive),
+		Attributes: folderActionsItemAttributes(action, accountID, id, name, attrs),
+	}) {
 		{ children... }
-	</button>
+	}
 }

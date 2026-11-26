@@ -454,7 +454,7 @@ func calDAVCalendarTimeZone(data string) string {
 	// Baïkal stores the bare name, such as "Europe/Zurich", where the
 	// property should hold a VCALENDAR with the zone in it.
 	if !strings.ContainsAny(data, "\r\n:") {
-		if location, err := time.LoadLocation(data); err == nil && location.String() != "Local" {
+		if calDAVKnownTimeZone(data) {
 			return data
 		}
 		return ""
@@ -468,13 +468,23 @@ func calDAVCalendarTimeZone(data string) string {
 			continue
 		}
 		zone, err := child.Props.Text("TZID")
-		if err == nil {
-			if _, err := time.LoadLocation(zone); err == nil {
-				return zone
-			}
+		if err == nil && calDAVKnownTimeZone(zone) {
+			return zone
 		}
 	}
 	return ""
+}
+
+// calDAVKnownTimeZone reports whether name is a time zone Go knows. "Local"
+// isn't one, although Go loads it: it means the server's own zone, which says
+// nothing about the calendar's. It's refused by name, since Go only calls the
+// server's zone "Local" when TZ isn't set.
+func calDAVKnownTimeZone(name string) bool {
+	if name == "Local" {
+		return false
+	}
+	_, err := time.LoadLocation(name)
+	return err == nil
 }
 
 // calDAVSetReminder replaces the event's display and sound alarms, the ones

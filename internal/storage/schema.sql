@@ -310,7 +310,11 @@ CREATE TABLE IF NOT EXISTS label_mutation_queue (
     next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_error TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    action_id TEXT NOT NULL DEFAULT '',
+    action_kind TEXT NOT NULL DEFAULT '',
+    action_source TEXT NOT NULL DEFAULT '',
+    action_rule_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS gmail_message_fetch_queue (
@@ -342,6 +346,10 @@ CREATE TABLE IF NOT EXISTS message_mutations (
     next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    action_id TEXT NOT NULL DEFAULT '',
+    action_kind TEXT NOT NULL DEFAULT '',
+    action_source TEXT NOT NULL DEFAULT '',
+    action_rule_id TEXT NOT NULL DEFAULT '',
     UNIQUE(message_id, kind, folder_id)
 );
 
@@ -698,6 +706,12 @@ ON message_mutations(status, next_attempt_at, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_message_mutations_account
 ON message_mutations(account_id, status, next_attempt_at);
+
+CREATE INDEX IF NOT EXISTS idx_message_mutations_action
+ON message_mutations(action_id) WHERE action_id != '';
+
+CREATE INDEX IF NOT EXISTS idx_label_mutation_queue_action
+ON label_mutation_queue(action_id) WHERE action_id != '';
 
 CREATE INDEX IF NOT EXISTS idx_label_aliases_display
 ON label_aliases(account_id, provider_type, display_name COLLATE NOCASE);
@@ -1973,6 +1987,13 @@ CREATE TABLE IF NOT EXISTS mail_rule_accounts (
     PRIMARY KEY (rule_id, account_id)
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_accounts_account ON mail_rule_accounts(account_id);
+-- A rule's tags say what it is for, to find and change rules together; they
+-- don't change how it runs. Each of an owner's tags has one spelling.
+CREATE TABLE IF NOT EXISTS mail_rule_tags (
+    rule_id TEXT NOT NULL REFERENCES mail_rules(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL COLLATE NOCASE CHECK (tag != ''),
+    PRIMARY KEY (rule_id, tag)
+);
 CREATE TABLE IF NOT EXISTS mail_rule_transfers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2057,4 +2078,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (151);
+INSERT OR REPLACE INTO schema_version (version) VALUES (154);

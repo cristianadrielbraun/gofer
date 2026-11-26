@@ -143,8 +143,14 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 				pattern != "POST /api/accounts/{id}/identities/smtp-test" &&
 				pattern != "POST /api/mail/sync/accounts/{id}/repair" &&
 				pattern != "GET /api/mail-operations" &&
+				pattern != "GET /api/mail-operations/attention" &&
 				pattern != "GET /settings/operations/content" &&
+				pattern != "GET /settings/operations/actions/{id}" &&
+				pattern != "POST /api/mail-operations/actions/{id}/retry" &&
+				pattern != "POST /api/mail-operations/actions/{id}/undo" &&
 				pattern != "POST /api/mail-operations/{id}/retry" &&
+				pattern != "POST /api/mail-operations/{id}/undo" &&
+				pattern != "POST /api/mail-operations/retry-failed" &&
 				pattern != "GET /api/calendar/events/new" &&
 				pattern != "POST /api/calendar/events" &&
 				pattern != "PATCH /api/calendar/events/{id}" &&
@@ -209,6 +215,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("POST /api/tags/{id}/appearance", routed.handleSaveTagAppearance)
 	private("GET /api/unified-tags/{id}/appearance", routed.handleUnifiedTagAppearance)
 	private("POST /api/unified-tags/{id}/appearance", routed.handleSaveUnifiedTagAppearance)
+	private("POST /api/tags/{id}/visibility", routed.handleSaveTagVisibility)
+	private("POST /api/unified-tags/{id}/visibility", routed.handleSaveUnifiedTagVisibility)
 	private("POST /api/virtual-folders/{id}/appearance", routed.handleSaveVirtualFolderAppearance)
 	private("POST /api/unified-folders/order", routed.handleUnifiedFolderOrder)
 	private("POST /api/unified-tags/order", routed.handleUnifiedTagOrder)
@@ -305,7 +313,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("POST /api/accounts/test", routed.handleTestNewAccount)
 	private("POST /api/accounts/{id}/test-changes", routed.handleTestAccountChanges)
 	private("GET /api/mail-operations", routed.handleMailOperations)
+	private("GET /api/mail-operations/attention", routed.handleMailOperationsAttention)
 	private("GET /settings/operations/content", routed.handleSettingsMailOperationsContent)
+	private("GET /settings/operations/actions/{id}", routed.handleSettingsMailActionChanges)
 	private("GET /settings", routed.handleSettings)
 	private("GET /settings/{tab}", routed.handleSettingsTab)
 	// The About page's update check and license texts read nothing of the
@@ -434,6 +444,10 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("GET /api/contacts/{id}/sync-setup/findings", routed.handleUserContactSyncSetupFindings)
 		private("POST /api/contacts/{id}/sync-setup/preview", routed.handleUserPreviewContactSyncSetup)
 		private("POST /api/mail-operations/{id}/retry", routed.handleUserRetryMailOperation)
+		private("POST /api/mail-operations/{id}/undo", routed.handleUserUndoMailOperation)
+		private("POST /api/mail-operations/retry-failed", routed.handleUserRetryFailedMailOperations)
+		private("POST /api/mail-operations/actions/{id}/retry", routed.handleUserRetryMailAction)
+		private("POST /api/mail-operations/actions/{id}/undo", routed.handleUserUndoMailAction)
 		private("POST /api/settings/sync", routed.handleUserSaveSyncSettings)
 		private("POST /api/settings/accounts/{id}/outlook-push", routed.handleOutlookPushSetting)
 		private("POST /api/settings/accounts/{id}/outlook-push/check", routed.handleOutlookPushCheck)
@@ -451,6 +465,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("GET /api/folders/{id}/manage", routed.handleFolderInfo)
 		private("GET /api/folders/{id}/appearance", routed.handleFolderAppearance)
 		private("POST /api/folders/{id}/appearance", routed.handleSaveFolderAppearance)
+		private("POST /api/folders/{id}/visibility", routed.handleSaveFolderVisibility)
 		private("POST /api/folders/{id}/rename", routed.handleRenameFolder)
 		private("POST /api/folders/{id}/delete", routed.handleDeleteFolder)
 		private("POST /api/folders/{id}/restore", routed.handleRestoreFolder)

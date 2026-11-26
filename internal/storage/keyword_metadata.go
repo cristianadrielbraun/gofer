@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS retired_keyword_labels (
 	provider_id TEXT NOT NULL
 );`
 
-// migrateV150ToV151 stores server keyword and mailbox metadata separately from
+// migrateV153ToV154 stores server keyword and mailbox metadata separately from
 // labels. The new flag baseline starts unset so older databases fetch full FLAGS.
-func migrateV150ToV151(db *sql.DB) error {
+func migrateV153ToV154(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -36,7 +36,7 @@ func migrateV150ToV151(db *sql.DB) error {
 	if err := tx.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
 		return err
 	}
-	if version >= 151 {
+	if version >= 154 {
 		return nil
 	}
 	for _, column := range []struct{ table, name, definition string }{
@@ -67,7 +67,7 @@ func migrateV150ToV151(db *sql.DB) error {
 	if err := preserveStatusKeywordLabelsTx(tx); err != nil {
 		return err
 	}
-	if err := markSchemaVersion(tx, 151); err != nil {
+	if err := markSchemaVersion(tx, 154); err != nil {
 		return err
 	}
 	return tx.Commit()

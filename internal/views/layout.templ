@@ -22,6 +22,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/progress"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/tabs"
+	"github.com/cristianadrielbraun/gofer/components/tagsinput"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 	"github.com/cristianadrielbraun/gofer/components/toast"
 )
@@ -198,6 +199,7 @@ templ SettingsComponentScripts() {
 	@progress.Script()
 	@collapsible.Script()
 	@slider.Script()
+	@tagsinput.Script()
 }
 
 templ SettingsRuntime(accounts []models.Account) {

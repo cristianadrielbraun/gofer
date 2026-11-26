@@ -103,6 +103,10 @@
     if (subjectThreading && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('subject_threading', subjectThreading.checked ? 'true' : 'false');
     }
+    var subjectThreadingLateReplies = e.target.closest('[data-subject-threading-late-replies-setting]');
+    if (subjectThreadingLateReplies && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('subject_threading_late_replies', subjectThreadingLateReplies.checked ? 'true' : 'false');
+    }
     var subjectThreadingNumber = e.target.closest('[data-subject-threading-number]');
     if (subjectThreadingNumber && typeof GoferSettings !== 'undefined') {
       // The same bounds as the server keeps: a window of 1 to 365 days, a
@@ -1628,7 +1632,7 @@
     document.querySelectorAll('[data-unified-folder-switch]').forEach(function(input) {
       input.disabled = !enabled;
     });
-    document.querySelectorAll('[data-unified-folder-account-switch]').forEach(function(input) {
+    document.querySelectorAll('[data-unified-folder-account-switch], [data-unified-tag-switch]').forEach(function(input) {
       input.disabled = !enabled;
     });
     document.querySelectorAll('[data-unified-folder-account-button]').forEach(function(button) {

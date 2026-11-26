@@ -166,3 +166,103 @@ func TestMailOperationsAdminStatusIncludesRetentionDiagnostics(t *testing.T) {
 		t.Fatalf("SMTP profile = %#v, want one successful sample", status.Health.SMTPProfile)
 	}
 }
+
+func TestRetryAllFailedMailOperationsIsUserScoped(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	seedHandlerMailOperation(t, h, db)
+
+	retryAll := func(userID string) (int, int) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/mail-operations/retry-failed", nil)
+		rec := httptest.NewRecorder()
+		h.handleRetryFailedMailOperations(rec, mailOperationsRequest(req, userID, false))
+		var result struct{ Retried, Skipped int }
+		if rec.Code != http.StatusOK || json.NewDecoder(rec.Body).Decode(&result) != nil {
+			t.Fatalf("%s retry all status = %d body = %q", userID, rec.Code, rec.Body.String())
+		}
+		return result.Retried, result.Skipped
+	}
+	if retried, skipped := retryAll("attacker"); retried != 0 || skipped != 0 {
+		t.Fatalf("attacker retried %d, skipped %d; want nothing", retried, skipped)
+	}
+	if retried, _ := retryAll("owner"); retried != 1 {
+		t.Fatalf("owner retried %d, want 1", retried)
+	}
+	var status string
+	if err := db.Read().QueryRow(`SELECT status FROM message_mutations WHERE id = 'handler-mut'`).Scan(&status); err != nil || status != storage.MessageMutationPending {
+		t.Fatalf("status after retry all = %q, %v", status, err)
+	}
+	if retried, _ := retryAll("owner"); retried != 0 {
+		t.Fatalf("second retry all retried %d, want 0", retried)
+	}
+}
+
+func TestMailActionHandlersAreUserScoped(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	seedHandlerMailOperation(t, h, db)
+	if _, err := db.Write().Exec(`UPDATE message_mutations SET action_id = 'act-1', action_kind = 'mark_read', action_source = 'you' WHERE id = 'handler-mut'`); err != nil {
+		t.Fatal(err)
+	}
+	post := func(path, userID string, handle http.HandlerFunc) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.SetPathValue("id", "act-1")
+		rec := httptest.NewRecorder()
+		handle(rec, mailOperationsRequest(req, userID, false))
+		return rec
+	}
+	page := func(userID string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/settings/operations/actions/act-1", nil)
+		req.SetPathValue("id", "act-1")
+		rec := httptest.NewRecorder()
+		h.handleSettingsMailActionChanges(rec, mailOperationsRequest(req, userID, false))
+		return rec.Body.String()
+	}
+	if strings.Contains(page("attacker"), "Private operation") {
+		t.Fatal("another user sees the action's messages")
+	}
+	if !strings.Contains(page("owner"), "Private operation") {
+		t.Fatal("the owner doesn't see the action's messages")
+	}
+	if rec := post("/api/mail-operations/actions/act-1/retry", "attacker", h.handleRetryMailAction); rec.Code != http.StatusConflict {
+		t.Fatalf("attacker retry = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post("/api/mail-operations/actions/act-1/undo", "owner", h.handleUndoMailAction); rec.Code != http.StatusConflict {
+		t.Fatalf("undo of work that can still finish = %d %s", rec.Code, rec.Body.String())
+	}
+	rec := post("/api/mail-operations/actions/act-1/retry", "owner", h.handleRetryMailAction)
+	var result struct{ Changed int }
+	if rec.Code != http.StatusOK || json.NewDecoder(rec.Body).Decode(&result) != nil || result.Changed != 1 {
+		t.Fatalf("owner retry = %d %s", rec.Code, rec.Body.String())
+	}
+	var status string
+	if err := db.Read().QueryRow(`SELECT status FROM message_mutations WHERE id = 'handler-mut'`).Scan(&status); err != nil || status != storage.MessageMutationPending {
+		t.Fatalf("status after group retry = %q, %v", status, err)
+	}
+}
+
+func TestMailOperationsAttentionIsUserScoped(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	seedHandlerMailOperation(t, h, db)
+	attention := func(userID string) (int, string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/mail-operations/attention", nil)
+		rec := httptest.NewRecorder()
+		h.handleMailOperationsAttention(rec, mailOperationsRequest(req, userID, false))
+		var result struct {
+			Count       int
+			Fingerprint string
+		}
+		if rec.Code != http.StatusOK || json.NewDecoder(rec.Body).Decode(&result) != nil {
+			t.Fatalf("%s attention = %d %q", userID, rec.Code, rec.Body.String())
+		}
+		return result.Count, result.Fingerprint
+	}
+	if count, fingerprint := attention("attacker"); count != 0 || fingerprint != "" {
+		t.Fatalf("attacker sees %d, %q", count, fingerprint)
+	}
+	if count, fingerprint := attention("owner"); count != 1 || fingerprint == "" {
+		t.Fatalf("owner sees %d, %q; want the failed change", count, fingerprint)
+	}
+}

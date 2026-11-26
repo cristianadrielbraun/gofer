@@ -38,7 +38,18 @@ func TagStyleKey(id string, unified bool) string {
 	return "tag_style:" + id
 }
 
-// UnifiedTagAppearance keeps the combined tag independent of any account's copy.
+// TagVisibleKey holds "false" for a tag hidden from the sidebar's tags, of
+// one account or, unified, of all accounts. The two are separate: hiding an
+// account's copy of a tag leaves the unified one, and the other way round.
+func TagVisibleKey(id string, unified bool) string {
+	if unified {
+		return "unified_tag_visible:" + id
+	}
+	return "tag_visible:" + id
+}
+
+// UnifiedTagAppearance keeps the combined tag independent of any account's
+// copy, its place in the sidebar included.
 func UnifiedTagAppearance(label Label, settings map[string]string) Label {
 	label.ID = UnifiedTagID(label.Name)
 	label.Name = strings.TrimSpace(label.Name)
@@ -49,6 +60,7 @@ func UnifiedTagAppearance(label Label, settings map[string]string) Label {
 		label.AppearanceColor = color
 	}
 	label.IconStyle = FolderIconStyle(settings[TagStyleKey(label.ID, true)])
+	label.Hidden = settings[TagVisibleKey(label.ID, true)] == "false"
 	return label
 }
 

@@ -1157,6 +1157,13 @@ func SubjectThreadingEnabled(settings map[string]string) bool {
 	return uiSettingGet(settings, "subject_threading", "false") == "true"
 }
 
+// SubjectThreadingLateReplies reports whether replies grouped by subject
+// join their conversation however long ago it was. It is on unless turned
+// off.
+func SubjectThreadingLateReplies(settings map[string]string) bool {
+	return uiSettingGet(settings, "subject_threading_late_replies", "true") != "false"
+}
+
 // SubjectThreadingWindowDays is the subject grouping window as shown.
 func SubjectThreadingWindowDays(settings map[string]string) string {
 	return strconv.Itoa(storage.SubjectThreadingWindowDays(uiSettingGet(settings, "subject_threading_window_days", "")))

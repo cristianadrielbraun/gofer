@@ -86,10 +86,30 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 	}
 	// As in the account's Folders dialog: a new folder at the top, or inside
 	// any folder.
-	for _, want := range []string{`data-folder-picker-create-account="victim-account"`, `data-folder-picker-create-parent="owner-receipts"`, `data-folder-picker-create-parent="owner-inbox"`, `data-folder-field-choice="role:inbox"`, "New folder in Receipts", "data-folder-field-create"} {
+	for _, want := range []string{`data-folder-picker-create-account="victim-account"`, `data-folder-picker-create-parent="owner-receipts"`, `data-folder-picker-create-parent="owner-inbox"`, "New folder in Receipts", "data-folder-field-create"} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("move folder picker lacks %s: %q", want, rec.Body.String())
 		}
+	}
+	// A rule for one account lists that account's folders, not the folders
+	// every account has as well; a rule for all of them offers those first.
+	if strings.Contains(rec.Body.String(), `data-folder-field-choice="role:`) {
+		t.Fatalf("folder pickers of a rule for one account repeat its folders: %q", rec.Body.String())
+	}
+	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_ids": "all", "cond_field": "folder", "act_kind": "move"}), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `data-folder-field-choice="role:inbox"`) {
+		t.Fatalf("folder pickers of a rule for every account = %d %q", rec.Code, body)
+	}
+	// Moving to a folder asks what happens to mail from another account,
+	// unless the rule is for that folder's account alone.
+	fromElsewhere := `aria-label="What happens to mail from another account"`
+	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"act_kind": "move", "act_folder": "id:owner-receipts"}), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || strings.Contains(body, fromElsewhere) || !strings.Contains(body, `name="act_for_good" value=""`) {
+		t.Fatalf("a move within the rule's only account asks about other accounts: %d %q", rec.Code, body)
+	}
+	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_ids": "all", "act_kind": "move", "act_folder": "id:owner-receipts"}), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, fromElsewhere) {
+		t.Fatalf("a move for every account doesn't ask about other accounts: %d %q", rec.Code, body)
 	}
 	// Mail goes to one place: once an action moves it, an added action
 	// offers no move, and nothing already there.
@@ -360,3 +380,341 @@ func TestStopMailRuleCount(t *testing.T) {
 		t.Fatalf("started a stopped count: %+v", run)
 	}
 }
+
+// Rules selected in the list are turned on or off, or deleted, together,
+// and the list says how many changed. Another person's selection changes
+// none of the owner's rules.
+func TestChangeSelectedMailRules(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+	var ids []string
+	for _, name := range []string{"Offers", "Orders", "Lunch on Friday"} {
+		rule, err := db.SaveMailRuleGuarded(ctx, "owner", models.MailRule{Name: name, Enabled: true,
+			Conditions: []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}},
+			Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionStar}}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, rule.ID)
+	}
+	selected := url.Values{"rule_ids": {ids[0] + "," + ids[1]}}
+	enabledRules := func() (on []string) {
+		t.Helper()
+		rules, err := db.ListMailRules(ctx, "owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rule := range rules {
+			if rule.Enabled {
+				on = append(on, rule.Name)
+			}
+		}
+		return on
+	}
+
+	rec := identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": selected["rule_ids"], "enabled": {""}}, false)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "Offers") || len(enabledRules()) != 3 {
+		t.Fatalf("someone else's selection = %d %q, on %v", rec.Code, rec.Body.String(), enabledRules())
+	}
+	rec = identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": selected["rule_ids"], "enabled": {""}}, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "2 rules turned off.") || strings.Join(enabledRules(), ",") != "Lunch on Friday" {
+		t.Fatalf("turn off = %d %q, on %v", rec.Code, body, enabledRules())
+	}
+	rec = identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": {ids[0]}, "enabled": {"1"}}, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "1 rule turned on.") || len(enabledRules()) != 2 {
+		t.Fatalf("turn on = %d %q", rec.Code, body)
+	}
+
+	rec = identityRequest(t, h, h.handleDeleteMailRules, http.MethodPost, "/api/settings/rules/selected/delete", nil, selected, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "2 rules deleted.") || !strings.Contains(body, "Lunch on Friday") || strings.Contains(body, ">Offers<") {
+		t.Fatalf("delete = %d %q", rec.Code, body)
+	}
+	if rules, err := db.ListMailRules(ctx, "owner"); err != nil || len(rules) != 1 || rules[0].ID != ids[2] {
+		t.Fatalf("rules left = %+v, %v", rules, err)
+	}
+	if rec = identityRequest(t, h, h.handleDeleteMailRules, http.MethodPost, "/api/settings/rules/selected/delete", nil, url.Values{"rule_ids": {""}}, true); rec.Code != http.StatusBadRequest {
+		t.Fatalf("nothing selected = %d", rec.Code)
+	}
+}
+
+// Opened from a folder's menu in the sidebar, the rules list says which
+// folder it shows the rules of, and every rule carries the folders it moves
+// mail into, which the list is filtered by.
+func TestMailRulesPanelForFolder(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+	for _, rule := range []models.MailRule{
+		{Name: "Receipts", Actions: []models.MailRuleAction{{Kind: models.MailRuleActionMove, Folder: &models.MailRuleFolderTarget{FolderID: "owner-receipts"}}}},
+		{Name: "Old offers", Actions: []models.MailRuleAction{{Kind: models.MailRuleActionArchive}}},
+		{Name: "Lunch on Friday", Actions: []models.MailRuleAction{{Kind: models.MailRuleActionStar}}},
+	} {
+		rule.Enabled = true
+		rule.Conditions = []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}}
+		if _, err := db.SaveMailRuleGuarded(ctx, "owner", rule, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_folder=owner-receipts", nil, nil, true)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `data-filter-folder="owner-receipts"`) ||
+		!strings.Contains(body, "Moves mail to Receipts in owner@example.com") || !strings.Contains(body, `data-mail-rules-filter-remove="folder"`) {
+		t.Fatalf("panel for a folder = %d %q", rec.Code, body)
+	}
+	for _, want := range []string{`data-mail-rule-folders="[&#34;owner-receipts&#34;]"`, `data-mail-rule-folders="[&#34;owner-archive&#34;]"`, `data-mail-rule-folders="[]"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("panel lacks %s: %q", want, body)
+		}
+	}
+	// A special folder is named as the sidebar names it.
+	rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_folder=owner-archive", nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Moves mail to Archive in owner@example.com") {
+		t.Fatalf("panel for Archive = %d %q", rec.Code, body)
+	}
+	// A folder that isn't the user's, or no folder, shows every rule.
+	for _, path := range []string{"/api/settings/rules/panel?filter_folder=someone-elses", "/api/settings/rules/panel"} {
+		rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, path, nil, nil, true)
+		if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `data-filter-folder=""`) || mailRulesPillShown.MatchString(body) || !strings.Contains(body, `data-mail-rule-folders="[&#34;owner-receipts&#34;]"`) {
+			t.Fatalf("%s = %d %q", path, rec.Code, body)
+		}
+	}
+
+	// A folder's menu shows how many rules the list would show for it, a
+	// rule turned off included.
+	if _, err := db.SaveMailRuleGuarded(ctx, "owner", models.MailRule{Name: "Old receipts",
+		Conditions: []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "receipt"}},
+		Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionMove, Folder: &models.MailRuleFolderTarget{FolderID: "owner-receipts"}}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for folder, want := range map[string]string{"owner-receipts": `{"count":2}`, "owner-archive": `{"count":1}`, "owner-inbox": `{"count":0}`, "someone-elses": `{"count":0}`, "": `{"count":0}`} {
+		rec = identityRequest(t, h, h.handleMailRuleFolderCount, http.MethodGet, "/api/settings/rules/folder-count?folder="+folder, nil, nil, true)
+		if got := strings.TrimSpace(rec.Body.String()); rec.Code != http.StatusOK || got != want {
+			t.Errorf("count for %q = %d %s, want %s", folder, rec.Code, got, want)
+		}
+	}
+}
+
+// A rule's categories are set in its form, shown in the list, and added to
+// or taken off several rules at once in their own dialog, which says what
+// is wrong with a category it can't add.
+func TestMailRuleCategories(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+
+	// The form sends its categories, and drawing it again keeps them.
+	form := mailRuleForm(nil)
+	form["tags"] = []string{"#Shopping", "Receipts"}
+	rec := identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, form, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `name="tags" value="#Shopping"`) || !strings.Contains(body, `aria-label="Remove Receipts"`) {
+		t.Fatalf("form drawn again = %d %q", rec.Code, body)
+	}
+	rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save = %d %q", rec.Code, rec.Body.String())
+	}
+	form = mailRuleForm(map[string]string{"name": "Orders"})
+	form["tags"] = []string{"shopping"}
+	if rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true); rec.Code != http.StatusOK {
+		t.Fatalf("save another = %d %q", rec.Code, rec.Body.String())
+	}
+	if rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, mailRuleForm(map[string]string{"name": "Lunch on Friday"}), true); rec.Code != http.StatusOK {
+		t.Fatalf("save a third = %d %q", rec.Code, rec.Body.String())
+	}
+	rules, err := db.ListMailRules(ctx, "owner")
+	if err != nil || len(rules) != 3 || strings.Join(rules[0].Tags, ",") != "Receipts,Shopping" || strings.Join(rules[1].Tags, ",") != "Shopping" || len(rules[2].Tags) != 0 {
+		t.Fatalf("saved rules = %+v, %v", rules, err)
+	}
+	ids := []string{rules[0].ID, rules[1].ID, rules[2].ID}
+
+	// The list shows each rule's categories, and the form suggests them.
+	rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel", nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-mail-rule-tags="[&#34;Receipts&#34;,&#34;Shopping&#34;]"`) || !strings.Contains(body, `aria-label="Categories"`) {
+		t.Fatalf("list = %q", body)
+	}
+	rec = identityRequest(t, h, h.handleMailRuleDialog, http.MethodGet, "/api/settings/rules/dialog?edit="+ids[2], nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-tui-tagsinput-suggestion-value="Receipts"`) || !strings.Contains(body, `data-tui-tagsinput-suggestion-value="Shopping"`) {
+		t.Fatalf("form suggestions = %q", rec.Body.String())
+	}
+
+	// Taking categories off lists only those the selected rules have, with
+	// how many of them have each.
+	rec = identityRequest(t, h, h.handleMailRuleTagDialog, http.MethodGet, "/api/settings/rules/selected/tags?remove=1&rule_ids="+ids[1]+","+ids[2], nil, nil, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Remove categories") || !strings.Contains(body, "From the 2 selected rules.") ||
+		!strings.Contains(body, `value="Shopping"`) || strings.Contains(body, `value="Receipts"`) || !strings.Contains(body, "on 1 rule") {
+		t.Fatalf("remove dialog = %d %q", rec.Code, body)
+	}
+	rec = identityRequest(t, h, h.handleMailRuleTagDialog, http.MethodGet, "/api/settings/rules/selected/tags?rule_ids="+ids[2], nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Add categories") || !strings.Contains(body, "To the selected rule.") || !strings.Contains(body, `data-tui-tagsinput-suggestion-value="Receipts"`) {
+		t.Fatalf("add dialog = %q", body)
+	}
+
+	selected := func(tags ...string) url.Values {
+		return url.Values{"rule_ids": {ids[1] + "," + ids[2]}, "tags": tags}
+	}
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected("Travel", "bills"), true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Categories added to 2 rules.") || rec.Header().Get("HX-Trigger") != "mail-rule-dialog-done" {
+		t.Fatalf("add = %d %q", rec.Code, body)
+	}
+	// What can't be a category keeps the dialog open, saying why, with
+	// what was typed.
+	for tag, want := range map[string]string{"a,b": "A category can&#39;t contain a comma.", "  ": "Enter the category to add."} {
+		rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected(tag), true)
+		if body := rec.Body.String(); !strings.Contains(body, want) || !strings.Contains(body, "data-mail-rule-tag-change") || rec.Header().Get("HX-Trigger") != "" {
+			t.Errorf("add %q = %q, want %q", tag, body, want)
+		}
+	}
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected("1", "2", "3", "4", "5", "6", "7", "8", "9"), true)
+	if body := rec.Body.String(); !strings.Contains(body, "A rule can have at most 10 categories.") || !strings.Contains(body, `name="tags" value="9"`) {
+		t.Fatalf("too many = %q", body)
+	}
+	remove := selected()
+	remove.Set("remove", "1")
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, remove, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Choose the categories to remove.") {
+		t.Fatalf("remove nothing = %q", body)
+	}
+	remove["tags"] = []string{"Travel", "Shopping"}
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, remove, true)
+	if body := rec.Body.String(); !strings.Contains(body, "Categories removed from 2 rules.") {
+		t.Fatalf("remove = %q", body)
+	}
+	rules, err = db.ListMailRules(ctx, "owner")
+	if err != nil || strings.Join(rules[0].Tags, ",") != "Receipts,Shopping" || strings.Join(rules[1].Tags, ",") != "bills" || strings.Join(rules[2].Tags, ",") != "bills" {
+		t.Fatalf("rules after the changes = %+v, %v", rules, err)
+	}
+	// Another person's rules change neither way.
+	rec = identityRequest(t, h, h.handleMailRulesTags, http.MethodPost, "/api/settings/rules/selected/tags", nil, selected("Travel"), false)
+	if rules, err = db.ListMailRules(ctx, "owner"); err != nil || strings.Join(rules[1].Tags, ",") != "bills" {
+		t.Fatalf("someone else's change = %d, %+v, %v", rec.Code, rules, err)
+	}
+}
+
+// The rules list's filters come with each request and the list is drawn
+// with them: the categories some rule has, as a pill and in the Filters
+// menu. A rule just added that they would hide clears them.
+func TestMailRulesListFilters(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+	for _, rule := range []models.MailRule{
+		{Name: "Receipts", Tags: []string{"Finance"}, Actions: []models.MailRuleAction{{Kind: models.MailRuleActionMove, Folder: &models.MailRuleFolderTarget{FolderID: "owner-receipts"}}}},
+		{Name: "Bank", Tags: []string{"Finance", "Bills"}, Actions: []models.MailRuleAction{{Kind: models.MailRuleActionStar}}},
+	} {
+		rule.Enabled = true
+		rule.Conditions = []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}}
+		if _, err := db.SaveMailRuleGuarded(ctx, "owner", rule, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_tag=finance,Travel&filter_folder=owner-receipts", nil, nil, true)
+	body := rec.Body.String()
+	for _, want := range []string{
+		`data-filter-tags="[&#34;Finance&#34;]"`, // spelled as the rules spell it; Travel is no category
+		"Category: Finance",
+		`data-mail-rules-filter-remove="tags"`,
+		`data-filter-folder="owner-receipts"`,
+		`data-active="true" data-mail-rules-filters-trigger=""`,
+		`data-tui-selectbox-value="Bills"`,
+		`data-mail-rule-category-filter="Bills"`,
+		`aria-label="Show only rules in Finance"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("filtered list lacks %s", want)
+		}
+	}
+	if t.Failed() {
+		t.Fatalf("filtered list = %d %q", rec.Code, body)
+	}
+	// Changes to the rules draw the list again with the filters they carry.
+	ids := []string{}
+	rules, err := db.ListMailRules(ctx, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range rules {
+		ids = append(ids, rule.ID)
+	}
+	rec = identityRequest(t, h, h.handleMailRulesEnabled, http.MethodPost, "/api/settings/rules/selected/enabled", nil, url.Values{"rule_ids": {ids[0]}, "enabled": {""}, "filter_tag": {"Bills"}}, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-tags="[&#34;Bills&#34;]"`) || !strings.Contains(body, "Category: Bills") {
+		t.Fatalf("list after a change = %q", body)
+	}
+
+	// A rule added in a category being shown keeps the filters; one they
+	// would hide clears them, so it shows.
+	form := mailRuleForm(map[string]string{"name": "Card"})
+	form["tags"] = []string{"Bills"}
+	form["filter_tag"] = []string{"Bills"}
+	rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-tags="[&#34;Bills&#34;]"`) {
+		t.Fatalf("a new rule the filters show = %q", body)
+	}
+	form = mailRuleForm(map[string]string{"name": "Lunch on Friday"})
+	form["filter_tag"] = []string{"Bills"}
+	form["filter_folder"] = []string{"owner-receipts"}
+	rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-tags="[]"`) || !strings.Contains(body, `data-filter-folder=""`) || mailRulesPillShown.MatchString(body) {
+		t.Fatalf("a new rule the filters hide = %q", body)
+	}
+}
+
+// The list's filters by account, on or off, and kind of action come with
+// each request too, dropping what names nothing, and draw as pills.
+func TestMailRulesListMoreFilters(t *testing.T) {
+	h, db := newMailRulesTestHandler(t)
+	ctx := t.Context()
+	if _, err := db.SaveMailRuleGuarded(ctx, "owner", models.MailRule{Name: "Receipts", Enabled: true, AccountsChosen: true, AccountIDs: []string{"victim-account"},
+		Conditions: []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}},
+		Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionStar}, {Kind: models.MailRuleActionArchive}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_account=victim-account,someone-elses&filter_status=off&filter_action=star,erase", nil, nil, true)
+	body := rec.Body.String()
+	for _, want := range []string{
+		`data-filter-accounts="[&#34;victim-account&#34;]"`,
+		`data-filter-status="off"`,
+		`data-filter-actions="[&#34;star&#34;]"`,
+		"Account: owner@example.com",
+		"Turned off",
+		"Action: Star",
+		`data-mail-rules-filter-remove="accounts"`,
+		`data-mail-rules-filter-remove="status"`,
+		`data-mail-rules-filter-remove="actions"`,
+		`data-mail-rule-accounts="[&#34;victim-account&#34;]"`,
+		`data-mail-rule-on="true"`,
+		`data-mail-rule-actions="[&#34;star&#34;,&#34;archive&#34;]"`,
+		`data-tui-selectbox-value="mark_read"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("list lacks %s", want)
+		}
+	}
+	if t.Failed() {
+		t.Fatalf("list = %q", body)
+	}
+	// With one account to choose from there's no account to pick.
+	if strings.Contains(body, `name="filter_account"`) {
+		t.Errorf("one account still offers accounts to filter by")
+	}
+	// No list in the Filters menu closes the menu when it opens.
+	if menu, _, ok := strings.Cut(body[strings.Index(body, "data-mail-rules-filter-form"):], "data-mail-rules-active-filters"); !ok || strings.Contains(menu, `data-tui-popover-exclusive="true"`) {
+		t.Errorf("a list in the Filters menu closes it: %q", menu)
+	}
+	rec = identityRequest(t, h, h.handleMailRulesPanel, http.MethodGet, "/api/settings/rules/panel?filter_status=maybe", nil, nil, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-status=""`) || mailRulesPillShown.MatchString(body) {
+		t.Fatalf("an unknown status = %q", body)
+	}
+
+	// A rule added turned on, while the list shows rules turned off, clears
+	// the filters so it shows.
+	form := mailRuleForm(map[string]string{"name": "Lunch on Friday"})
+	form["filter_status"] = []string{"off"}
+	rec = identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, form, true)
+	if body := rec.Body.String(); !strings.Contains(body, `data-filter-status=""`) {
+		t.Fatalf("a new rule the status filter hides = %q", body)
+	}
+}
+
+// mailRulesPillShown finds a pill of the rules list's filters; the pill the
+// page draws others from names no filter.
+var mailRulesPillShown = regexp.MustCompile(`data-mail-rules-filter-remove="[a-z]`)

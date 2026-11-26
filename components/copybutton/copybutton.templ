@@ -13,6 +13,7 @@ type Props struct {
 	Class    string           // Custom CSS classes
 	Attrs    templ.Attributes // Additional HTML attributes
 	TargetID string           // Required - ID of element to copy from
+	Label    string           // Optional - shown next to the icon, on a small outlined button
 }
 
 templ CopyButton(props Props) {
@@ -25,20 +26,39 @@ templ CopyButton(props Props) {
 		data-target-id={ p.TargetID }
 		class="inline-block"
 	>
-		@button.Button(button.Props{
-			ID:         p.ID,
-			Class:      utils.TwMerge("h-7 w-7 text-muted-foreground hover:text-accent-foreground", p.Class),
-			Attributes: p.Attrs,
-			Size:       button.SizeIcon,
-			Variant:    button.VariantGhost,
-			Type:       button.TypeButton,
-		}) {
-			<span data-copy-icon-clipboard>
-				@icon.Clipboard(icon.Props{Class: "size-4"})
-			</span>
-			<span data-copy-icon-check class="hidden">
-				@icon.Check(icon.Props{Class: "size-4"})
-			</span>
+		if p.Label != "" {
+			@button.Button(button.Props{
+				ID:         p.ID,
+				Class:      utils.TwMerge("h-7 gap-1.5 px-2.5 text-xs", p.Class),
+				Attributes: p.Attrs,
+				Size:       button.SizeSm,
+				Variant:    button.VariantOutline,
+				Type:       button.TypeButton,
+			}) {
+				<span data-copy-icon-clipboard>
+					@icon.Clipboard(icon.Props{Class: "size-3.5"})
+				</span>
+				<span data-copy-icon-check class="hidden">
+					@icon.Check(icon.Props{Class: "size-3.5"})
+				</span>
+				{ p.Label }
+			}
+		} else {
+			@button.Button(button.Props{
+				ID:         p.ID,
+				Class:      utils.TwMerge("h-7 w-7 text-muted-foreground hover:text-accent-foreground", p.Class),
+				Attributes: p.Attrs,
+				Size:       button.SizeIcon,
+				Variant:    button.VariantGhost,
+				Type:       button.TypeButton,
+			}) {
+				<span data-copy-icon-clipboard>
+					@icon.Clipboard(icon.Props{Class: "size-4"})
+				</span>
+				<span data-copy-icon-check class="hidden">
+					@icon.Check(icon.Props{Class: "size-4"})
+				</span>
+			}
 		}
 	</div>
 }

@@ -197,7 +197,7 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 		if body {
 			s.bodyCount[owner]++
 		}
-		block := owner == s.blockOwner && s.blockCommand != "" && (s.blockCommand == "body" && body || s.blockCommand == "list" && strings.Contains(upper, " LIST ") || s.blockCommand == "headers" && strings.Contains(upper, "ENVELOPE") || s.blockCommand == "store" && strings.Contains(upper, " UID STORE ") || s.blockCommand == "move" && strings.Contains(upper, " UID MOVE ") || s.blockCommand == "append" && strings.Contains(upper, " APPEND "))
+		block := owner == s.blockOwner && s.blockCommand != "" && (s.blockCommand == "body" && body || s.blockCommand == "list" && strings.Contains(upper, " LIST ") || s.blockCommand == "headers" && strings.Contains(upper, "HEADER.FIELDS") || s.blockCommand == "store" && strings.Contains(upper, " UID STORE ") || s.blockCommand == "move" && strings.Contains(upper, " UID MOVE ") || s.blockCommand == "append" && strings.Contains(upper, " APPEND "))
 		blocked, release, reject := s.blocked, s.release, s.rejectBody
 		bodyOverride := s.bodyOverride
 		hasJunk := s.mutationMailboxes[owner+":Junk"] != nil
@@ -318,16 +318,17 @@ func (s *routedIMAPServer) serve(conn net.Conn) {
 						raw = bodyOverride
 					}
 					fmt.Fprintf(writer, "* %d FETCH (UID %d BODY[] {%d}\r\n%s)\r\n", index+1, uid, len(raw), raw)
-				} else if strings.Contains(upper, "ENVELOPE") {
+				} else if strings.Contains(upper, "HEADER.FIELDS") {
+					size, subject, to, messageID := 900, fmt.Sprintf("%s private subject %d", owner, origin), owner+"@example.com", fmt.Sprintf("<%s-%d@example.com>", owner, origin)
 					if rawMessages[uid] != "" {
 						msg, err := stdmail.ReadMessage(strings.NewReader(rawMessages[uid]))
 						if err != nil {
 							continue
 						}
-						fmt.Fprintf(writer, `* %d FETCH (UID %d FLAGS (%s) INTERNALDATE "06-Oct-2026 10:00:00 +0000" RFC822.SIZE %d ENVELOPE ("Tue, 6 Oct 2026 10:00:00 +0000" %s (("Sender" NIL "%s" "example.com")) NIL NIL ((NIL NIL "recipient" "example.com")) NIL NIL NIL %s))`+"\r\n", index+1, uid, flags, len(rawMessages[uid]), strconv.Quote(msg.Header.Get("Subject")), owner, strconv.Quote(msg.Header.Get("Message-ID")))
-						continue
+						size, subject, to, messageID = len(rawMessages[uid]), msg.Header.Get("Subject"), "recipient@example.com", msg.Header.Get("Message-ID")
 					}
-					fmt.Fprintf(writer, `* %d FETCH (UID %d FLAGS (%s) INTERNALDATE "06-Oct-2026 10:00:00 +0000" RFC822.SIZE 900 ENVELOPE ("Tue, 6 Oct 2026 10:00:00 +0000" "%s private subject %d" (("Sender" NIL "%s" "example.com")) NIL NIL ((NIL NIL "%s" "example.com")) NIL NIL NIL "<%s-%d@example.com>"))`+"\r\n", index+1, uid, flags, owner, origin, owner, owner, owner, origin)
+					headers := fmt.Sprintf("Date: Tue, 6 Oct 2026 10:00:00 +0000\r\nSubject: %s\r\nFrom: Sender <%s@example.com>\r\nTo: %s\r\nMessage-ID: %s\r\n\r\n", subject, owner, to, messageID)
+					fmt.Fprintf(writer, `* %d FETCH (UID %d FLAGS (%s) INTERNALDATE "06-Oct-2026 10:00:00 +0000" RFC822.SIZE %d BODY[HEADER.FIELDS (Subject)] {%d}`+"\r\n%s)\r\n", index+1, uid, flags, size, len(headers), headers)
 				} else {
 					fmt.Fprintf(writer, "* %d FETCH (UID %d FLAGS (%s))\r\n", index+1, uid, flags)
 				}

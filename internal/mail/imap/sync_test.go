@@ -117,7 +117,7 @@ func TestFinalizeSyncMessageUsesIMAPDatePrecedence(t *testing.T) {
 		want         time.Time
 		wantFallback bool
 	}{
-		{name: "header wins", dates: messageDateCandidates{envelopeDate: headerDate, internalDate: internalDate}, want: headerDate.UTC()},
+		{name: "header wins", dates: messageDateCandidates{headerDate: headerDate, internalDate: internalDate}, want: headerDate.UTC()},
 		{name: "internal date fills missing header", dates: messageDateCandidates{internalDate: internalDate}, want: internalDate},
 		{name: "fallback only when both are missing", dates: messageDateCandidates{}, want: fallbackDate, wantFallback: true},
 	}

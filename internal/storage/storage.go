@@ -44,6 +44,9 @@ type DB struct {
 	// changed (contact_changes.go).
 	contactChangeHook func(userID string)
 	contactWatch      *contactChangeWatch
+	// mailOperationsChangeHook tells open pages whose background mail work
+	// changed (mail_operation_changes.go).
+	mailOperationsChangeHook func(userID string)
 }
 
 type ContactActivityNotification struct {
@@ -64,7 +67,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 151
+const CurrentSchemaVersion = 154
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -1242,6 +1245,24 @@ func (db *DB) migrate() error {
 	if currentVersion <= 150 {
 		if err := migrateV150ToV151(db.write); err != nil {
 			return fmt.Errorf("migrate v150 to v151: %w", err)
+		}
+	}
+
+	if currentVersion <= 151 {
+		if err := migrateV151ToV152(db.write); err != nil {
+			return fmt.Errorf("migrate v151 to v152: %w", err)
+		}
+	}
+
+	if currentVersion <= 152 {
+		if err := migrateV152ToV153(db.write); err != nil {
+			return fmt.Errorf("migrate v152 to v153: %w", err)
+		}
+	}
+
+	if currentVersion <= 153 {
+		if err := migrateV153ToV154(db.write); err != nil {
+			return fmt.Errorf("migrate v153 to v154: %w", err)
 		}
 	}
 

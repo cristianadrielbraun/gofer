@@ -3,7 +3,9 @@
 // account, name or path has the text, so a parent's name finds the folders
 // inside it too. An account with no folder left is hidden, unless it has a
 // row that stays (data-folder-picker-keep), such as its New folder row,
-// which is then named for the search.
+// which is then named for the search. A row another filter left out
+// (data-folder-picker-out), such as a rule for another folder in the rules
+// list, stays hidden whatever is typed.
 ;(function () {
   // filter applies the search field of the picker inside root and returns
   // the text typed, trimmed. A new folder's name field being typed in goes.
@@ -24,7 +26,7 @@
     root.querySelectorAll("[data-folder-picker-account]").forEach(function (account) {
       var matches = 0
       account.querySelectorAll("[data-folder-picker-row]").forEach(function (row) {
-        row.hidden = query !== "" && (row.dataset.searchText || "").indexOf(query) === -1
+        row.hidden = row.hasAttribute("data-folder-picker-out") || (query !== "" && (row.dataset.searchText || "").indexOf(query) === -1)
         if (!row.hidden) matches++
       })
       account.hidden = matches === 0 && !account.querySelector("[data-folder-picker-keep]")
@@ -34,17 +36,6 @@
     if (empty) empty.classList.toggle("hidden", visible !== 0)
     return typed
   }
-
-  // A row's tooltip names the whole path, but only when the row cuts its
-  // name or path short: otherwise its trigger is switched to "manual". This
-  // runs before the tooltip's own hover handling, which opens only "hover"
-  // triggers.
-  document.addEventListener("pointerover", function (event) {
-    var trigger = event.target.closest && event.target.closest("[data-folder-picker-tip]")
-    if (!trigger) return
-    var cut = Array.prototype.some.call(trigger.querySelectorAll(".truncate"), function (text) { return text.scrollWidth > text.clientWidth })
-    trigger.setAttribute("data-tui-popover-type", cut ? "hover" : "manual")
-  }, true)
 
   // startCreate names a new folder in the list, where it will be: at the
   // top of an account (data-folder-picker-create-parent "") or inside the

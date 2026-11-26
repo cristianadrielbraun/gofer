@@ -10,7 +10,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 )
 
-func seedV150KeywordLabels(t *testing.T, db *DB) {
+func seedV153KeywordLabels(t *testing.T, db *DB) {
 	t.Helper()
 	migrationFixtureSQL(t, db, `
 		DROP TABLE message_provider_keywords;
@@ -19,7 +19,7 @@ func seedV150KeywordLabels(t *testing.T, db *DB) {
 		ALTER TABLE folders DROP COLUMN flags_metadata_synced;
 		ALTER TABLE message_folder_state DROP COLUMN remote_keywords;
 		DELETE FROM schema_version;
-		INSERT INTO schema_version(version) VALUES (150);
+		INSERT INTO schema_version(version) VALUES (153);
 		UPDATE folders SET uid_validity = 100, highest_modseq = 55 WHERE id = 'alice-folder';
 		INSERT INTO labels (id, account_id, name, provider_id, provider_type) VALUES
 			('color', 'alice-mail', 'Orange', '$MailFlagBit0', 'imap_keyword'),
@@ -32,7 +32,7 @@ func seedV150KeywordLabels(t *testing.T, db *DB) {
 			SELECT message_id, label_id, 'copy-1' FROM message_labels WHERE label_id = 'memo';`)
 }
 
-func assertV150KeywordsPreserved(t *testing.T, db *DB) {
+func assertV153KeywordsPreserved(t *testing.T, db *DB) {
 	t.Helper()
 	ctx := t.Context()
 	var messageID int64
@@ -63,15 +63,15 @@ func assertV150KeywordsPreserved(t *testing.T, db *DB) {
 
 func TestKeywordMetadataMigrationPreservesLegacyKeywords(t *testing.T) {
 	db := sharedMigrationFixture(t)
-	seedV150KeywordLabels(t, db)
+	seedV153KeywordLabels(t, db)
 	for range 2 {
-		if err := migrateV150ToV151(db.Write()); err != nil {
+		if err := migrateV153ToV154(db.Write()); err != nil {
 			t.Fatal(err)
 		}
-		assertV150KeywordsPreserved(t, db)
+		assertV153KeywordsPreserved(t, db)
 	}
 	var version int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 151 {
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 154 {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 }
@@ -80,12 +80,12 @@ func TestUserStorageCopyPreservesKeywordMetadata(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		name := "current"
 		if legacy {
-			name = "v150"
+			name = "v153"
 		}
 		t.Run(name, func(t *testing.T) {
 			source := sharedMigrationFixture(t)
 			if legacy {
-				seedV150KeywordLabels(t, source)
+				seedV153KeywordLabels(t, source)
 			} else {
 				migrationFixtureSQL(t, source, `
 					UPDATE folders SET mailbox_attributes='["snoozed"]', highest_modseq=55, flags_metadata_synced=1 WHERE id='alice-folder';
@@ -109,7 +109,7 @@ func TestUserStorageCopyPreservesKeywordMetadata(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = opened.Close() })
 			if legacy {
-				assertV150KeywordsPreserved(t, opened)
+				assertV153KeywordsPreserved(t, opened)
 				return
 			}
 			if got, err := opened.GetMailboxAttributes(t.Context(), "alice-folder"); err != nil || !reflect.DeepEqual(got, []keywords.MailboxAttribute{keywords.MailboxSnoozed}) {

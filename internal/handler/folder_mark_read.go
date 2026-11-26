@@ -30,6 +30,7 @@ func (h *Handler) handleMarkFolderRead(w http.ResponseWriter, r *http.Request) {
 	// With per-user storage, an account whose changes can't be delivered
 	// yet is left as it is; elsewhere every account is allowed.
 	var refused error
+	ctx = storage.WithUserMailAction(ctx, storage.MailActionMarkFolderRead)
 	result, err := h.db.MarkFolderReadForUser(ctx, folderID, userID, func(accountID string) bool {
 		err := h.checkUserMessageMutation(ctx, &storage.MessageMutationInfo{AccountID: accountID})
 		if err != nil && refused == nil {

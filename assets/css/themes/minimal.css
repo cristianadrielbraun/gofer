@@ -262,11 +262,6 @@
   box-shadow: none;
 }
 
-[data-corners="square"] [data-folder-unread],
-[data-corners="square"] #mail-folder-count {
-  border-radius: 0;
-}
-
 [data-depth="flat"] .empty-icon-box {
   box-shadow: none;
   border: 2px solid var(--border);

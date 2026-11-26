@@ -600,6 +600,9 @@
 
 .compose-attachment-menu {
   position: fixed;
+  /* It opens as a popover: undo the browser's centring of one. */
+  inset: auto;
+  margin: 0;
   z-index: 90;
   padding: 0.25rem;
   border: 1px solid var(--border);
@@ -1160,7 +1163,10 @@
   overflow-wrap: anywhere;
 }
 
-.compose-rich-editor a {
+/* A link in the signature editor looks like one too, so a kept link isn't
+   taken for plain text. */
+.compose-rich-editor a,
+[data-signature-editor] a {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -1664,8 +1670,11 @@ input[role="switch"] + .gofer-switch-track::after {
 }
 
 /* A contacts pill names every value of its filter, account names included,
-   so it takes the room the row has, and pills share it once they don't fit. */
-.contacts-active-filter-strip .mail-active-filter-pill {
+   so it takes the room the row has, and pills share it once they don't fit.
+   So does a rules pill, which names a folder and its account, or every
+   category chosen. */
+.contacts-active-filter-strip .mail-active-filter-pill,
+.rules-active-filter-strip .mail-active-filter-pill {
   flex: 0 1 auto;
   min-width: 4rem;
   max-width: 100%;
@@ -1673,7 +1682,8 @@ input[role="switch"] + .gofer-switch-track::after {
 
 /* Room at the sides as well, for the border and shadow of a pill as wide
    as the row, kept out of the alignment with the search above. */
-.contacts-active-filter-strip .mail-active-filter-visible {
+.contacts-active-filter-strip .mail-active-filter-visible,
+.rules-active-filter-strip .mail-active-filter-visible {
   padding-inline: 2px;
   margin-inline: -2px;
 }
@@ -4462,9 +4472,29 @@ body.mail-list-column-resizing {
   will-change: transform;
 }
 
+/* Collapsed sheets out of view aren't styled, laid out or drawn until they
+   scroll near, so a long conversation opens without doing that work for every
+   message. Until then a sheet counts as about a collapsed sheet's height, or
+   the height it had when last drawn. An open message is always drawn: the
+   reader scrolls to it as the conversation arrives, which needs its real
+   height, and its body only loads and measures itself while drawn. */
+.mail-thread-card {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 11rem;
+}
+
+.mail-thread-card:has(details[open]) {
+  content-visibility: visible;
+}
+
 @container (max-width: 560px) {
   .mail-view-scroll-top-button {
     right: 0;
+  }
+
+  /* A collapsed sheet's buttons wrap under its sender here, so it's taller. */
+  .mail-thread-card {
+    contain-intrinsic-block-size: auto 14rem;
   }
 
   .mail-view-frame {
@@ -7311,6 +7341,25 @@ body.mail-list-column-resizing {
   transition: none;
 }
 
+/* A rule dragged with others selected carries them, and says how many go. */
+[data-mail-rule-row][data-order-group]::after {
+  content: attr(data-order-group);
+  position: absolute;
+  top: -0.5rem;
+  right: -0.5rem;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 [data-settings-account-card] > .settings-account-card,
 [data-mail-rule-row] > .mail-rule-card {
   transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
@@ -7765,45 +7814,86 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 }
 
+/* === SIGNATURES DIALOG ===
+   Both tabs share one grid cell. The closed one stays laid out but hidden, so
+   the dialog is as tall as the taller tab and keeps its size when the tabs
+   switch. */
+
+.signatures-dialog [data-signature-tab-panels] > [data-tui-tabs-content] {
+  display: block;
+}
+
+.signatures-dialog [data-signature-tab-panels] > [data-tui-tabs-content][data-tui-tabs-state="inactive"] {
+  visibility: hidden;
+}
+
+/* Hiding is a change of visibility, which controls with transition-all (the
+   button component, among others) would animate: the closed tab's buttons
+   lingered on screen after switching. Nothing animates while hidden. */
+.signatures-dialog [data-signature-tab-panels] > [data-tui-tabs-content][data-tui-tabs-state="inactive"] * {
+  transition: none !important;
+}
+
+/* The footer's status line: "Changes save automatically", "Saved" in the
+   success color, or an error. Each change slides the old text up and out and
+   the new one up from below (settings.js sets data-status-swap). */
+.signatures-dialog [data-signatures-status] {
+  transition: opacity 150ms ease, transform 150ms ease, color 150ms ease;
+}
+
+.signatures-dialog [data-signatures-status][data-status-swap="out"] {
+  opacity: 0;
+  transform: translateY(-0.375rem);
+}
+
+.signatures-dialog [data-signatures-status][data-status-swap="in"] {
+  opacity: 0;
+  transform: translateY(0.375rem);
+  transition: none;
+}
+
+.signatures-dialog [data-signatures-status][data-status-tone="success"] {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.signatures-dialog [data-signatures-status][data-status-tone="error"] {
+  color: var(--destructive);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signatures-dialog [data-signatures-status] {
+    transition: none;
+    transform: none !important;
+  }
+}
+
 /* === SMALL SCREENS: SIGNATURES ===
-   The signatures dialogs scroll inside their panel, so the title and close button stay
-   put. The library and account sections lose their card boxes and sit one after
-   the other, split by a line. */
+   On a phone the signatures dialog is a page. Its panel fills the screen with no
+   padding of its own, so the tabs' bodies scroll edge to edge between the title
+   and the footer, and each part keeps the page's 1rem side margin. */
 
 @media (max-width: 1023.98px) {
-  .signatures-dialog {
-    overflow: hidden;
-  }
-
   .signatures-dialog > [data-tui-dialog-panel] {
     height: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-  }
-
-  .signatures-dialog [data-account-signatures-manager] > .grid,
-  .signatures-dialog [data-account-signatures-manager].grid {
+    max-height: none;
     gap: 0;
+    padding: 0 0 env(safe-area-inset-bottom);
   }
 
-  .signatures-dialog [data-account-signatures-manager] .rounded-lg.border.bg-background\/60 {
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    padding: 0.25rem 0 1.25rem;
+  .signatures-dialog > [data-tui-dialog-panel] > :first-child {
+    margin-inline: 0;
   }
 
-  .signatures-dialog [data-account-signatures-manager] .min-w-0.space-y-4 + .rounded-lg.border.bg-background\/60 {
-    border-top: 1px solid var(--border);
-    padding-top: 1.25rem;
+  .signatures-dialog :is([data-signature-tabs], [data-data-dialog-scroll], [data-data-dialog-footer]) {
+    padding-inline: 1rem;
   }
 
-  .signatures-dialog [data-signature-new] {
+  .signatures-dialog :is([data-signature-new], [data-signature-row]) {
     height: 2.5rem;
   }
 
-  .signatures-dialog :is([data-signature-form], [data-account-signature-settings]) button[type="submit"] {
+  .signatures-dialog [data-data-dialog-footer] button {
     min-height: 2.5rem;
   }
 }
@@ -8814,8 +8904,7 @@ html.dark:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:no
 
 /* === ACCOUNT IDENTITIES DIALOG ===
    An account with many From addresses makes a list taller than the screen:
-   the list scrolls under the title. On a phone the whole page scrolls, as the
-   signatures dialog does. */
+   the list scrolls under the title. On a phone the whole page scrolls. */
 
 .account-identities-dialog > [data-tui-dialog-panel] {
   max-height: calc(100dvh - 2rem);

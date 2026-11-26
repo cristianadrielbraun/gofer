@@ -90,7 +90,11 @@ func (h *Handler) handleUserAllowRemoteContent(w http.ResponseWriter, r *http.Re
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if err != nil || len(data) == 0 {
+				if err == nil && len(data) == 0 {
+					err = errEmptyRemoteResource
+				}
+				if err != nil {
+					logUnsavedRemoteImage(id, url, err)
 					continue
 				}
 				asset, err := candidate.StoreRemoteAsset(account, id, url, data)

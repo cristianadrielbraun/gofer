@@ -257,7 +257,9 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 		// Repeating meetings depend on the calendar: Google and Outlook support
 		// them, and the CalDAV paths refuse them before writing.
 	}
-	if draft.Summary == "" || utf8.RuneCountInString(draft.Summary) > 255 {
+	// The title may be left empty: iCalendar makes SUMMARY optional, and every
+	// calendar shows such an event as untitled.
+	if utf8.RuneCountInString(draft.Summary) > 255 {
 		return draft, fmt.Errorf("enter an event title of at most 255 characters")
 	}
 	if !utf8.ValidString(draft.Summary+draft.Description+draft.Location) || len(draft.Description) > 65536 || utf8.RuneCountInString(draft.Description) > 16384 || utf8.RuneCountInString(draft.Location) > 1024 || strings.ContainsRune(draft.Summary+draft.Description+draft.Location, 0) {

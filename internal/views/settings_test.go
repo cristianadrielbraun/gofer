@@ -20,7 +20,7 @@ import (
 
 func TestSettingsSyncTabIncludesUnifiedFoldersPanel(t *testing.T) {
 	var out bytes.Buffer
-	if err := SettingsSyncTab(models.SyncSettings{SyncIntervalMinutes: 5}, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(models.SyncSettings{SyncIntervalMinutes: 5}, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -281,7 +281,7 @@ func TestSettingsSyncTabRendersUnifiedFolderAccountSwitches(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, uiSettings).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, uiSettings, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -320,7 +320,7 @@ func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -366,7 +366,7 @@ func TestSettingsSyncTabShowsConfiguredIDLEFolderInPollingDuringFallback(t *test
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -456,7 +456,7 @@ func TestSettingsSyncTabRendersGmailAPIInfoInsteadOfFolderModes(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -498,7 +498,7 @@ func TestSettingsSyncTabRendersOutlookGraphInfoInsteadOfFolderModes(t *testing.T
 	}
 
 	var out bytes.Buffer
-	if err := SettingsSyncTab(settings, nil).Render(context.Background(), &out); err != nil {
+	if err := SettingsSyncTab(settings, nil, nil).Render(context.Background(), &out); err != nil {
 		t.Fatalf("SettingsSyncTab.Render() error = %v", err)
 	}
 	html := out.String()
@@ -1344,6 +1344,35 @@ func TestSettingsMailOffersConversationGrouping(t *testing.T) {
 		row = row[:strings.Index(row, ">")]
 		if faded := strings.Contains(row, "opacity-50"); faded == tt.grouped {
 			t.Fatalf("saved %q: thread order row %s faded %v, want %v", tt.saved, row, faded, !tt.grouped)
+		}
+	}
+}
+
+// Group replies at any time is on until turned off, and can only be changed
+// while grouping by subject is on.
+func TestSettingsMailOffersLateReplies(t *testing.T) {
+	for _, tt := range []struct {
+		subject, late     string
+		checked, disabled bool
+	}{
+		{"true", "", true, false},
+		{"true", "false", false, false},
+		{"false", "true", true, true},
+	} {
+		var out bytes.Buffer
+		settings := map[string]string{"subject_threading": tt.subject, "subject_threading_late_replies": tt.late}
+		if err := SettingsComposeDisplayTab(settings, nil).Render(context.Background(), &out); err != nil {
+			t.Fatalf("SettingsComposeDisplayTab.Render() error = %v", err)
+		}
+		html := out.String()
+		start := strings.Index(html, `id="subject-threading-late-replies"`)
+		if start < 0 {
+			t.Fatalf("%v: no group replies at any time switch", settings)
+		}
+		toggle := html[strings.LastIndex(html[:start], "<input"):]
+		toggle = toggle[:strings.Index(toggle, ">")]
+		if strings.Contains(toggle, " checked") != tt.checked || strings.Contains(toggle, " disabled") != tt.disabled {
+			t.Fatalf("%v: switch %s, want checked %v disabled %v", settings, toggle, tt.checked, tt.disabled)
 		}
 	}
 }
