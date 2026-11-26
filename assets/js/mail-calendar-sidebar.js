@@ -5,20 +5,8 @@
 
   // The width is saved with the other pane sizes, so the page is drawn at it.
   const WIDTH_SETTING = "mail_calendar_width";
-  const WIDE_KEY = "gofer.mailCalendar.open.wide.v2";
-  const NARROW_KEY = "gofer.mailCalendar.open.narrow.v2";
   const MIN = 260;
   const MAX = 450;
-
-  function read(key) {
-    try { return localStorage.getItem(key); }
-    catch (_) { return null; }
-  }
-
-  function write(key, value) {
-    try { localStorage.setItem(key, String(value)); }
-    catch (_) {}
-  }
 
   function wide() {
     return matchMedia("(min-width: 1536px)").matches;
@@ -48,12 +36,15 @@
     if (typeof GoferSettings !== "undefined") GoferSettings.set(WIDTH_SETTING, String(value));
   }
 
-  function stateKey() {
-    return wide() ? WIDE_KEY : NARROW_KEY;
+  // Whether it's open is saved with the other pane settings, separately for
+  // beside the panes (wide screens, open unless closed) and over them
+  // (closed unless opened).
+  function openSetting() {
+    return wide() ? "mail_calendar_open" : "mail_calendar_overlay_open";
   }
 
   function preferredOpen() {
-    const saved = read(stateKey());
+    const saved = typeof GoferSettings !== "undefined" ? GoferSettings.get(openSetting()) : null;
     return saved === null ? wide() : saved === "true";
   }
 
@@ -293,7 +284,7 @@
     const before = shell.getBoundingClientRect().width;
 
     if (shell._mailCalendarSlide) shell._mailCalendarSlide.cancel();
-    write(stateKey(), open);
+    if (typeof GoferSettings !== "undefined") GoferSettings.set(openSetting(), String(open));
     apply(shell, open, width());
     slide(shell, before);
   });

@@ -1,10 +1,13 @@
 package views
 
 import (
+	"context"
 	"sort"
 	"strconv"
 
 	"github.com/a-h/templ"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 // mailSidebarURL is the calendar cache's month around date, drawn for the
@@ -114,4 +117,18 @@ func mailCalendarWidthStyle(uiSettings map[string]string) templ.SafeCSS {
 	}
 	width = max(mailCalendarMinWidth, min(mailCalendarMaxWidth, width))
 	return templ.SafeCSS("--mail-calendar-width: " + strconv.Itoa(width) + "px;")
+}
+
+// mailCalendarOpen is whether the calendar sidebar was left open beside the
+// panes on wide screens. It's open unless it was closed.
+func mailCalendarOpen(uiSettings map[string]string) bool {
+	return uiSettings["mail_calendar_open"] != "false"
+}
+
+// mailCalendarToggleLabel names what the show and hide tab does next.
+func mailCalendarToggleLabel(ctx context.Context, open bool) string {
+	if open {
+		return i18n.T(ctx, "calendar.mail_sidebar.hide")
+	}
+	return i18n.T(ctx, "calendar.mail_sidebar.show")
 }

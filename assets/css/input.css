@@ -4693,6 +4693,22 @@ body.mail-list-column-resizing {
 }
 
 @media (max-width: 1535.98px) {
+  /* The page can't know how wide the screen is, so over the panes the
+     calendar starts closed until mail-calendar-sidebar.js applies the
+     choice saved for them (controlsReady). */
+  .mail-calendar-shell:not([data-controls-ready]) {
+    width: 0;
+  }
+
+  .mail-calendar-shell:not([data-controls-ready]) :is(.mail-calendar-aside, .mail-calendar-grip) {
+    display: none;
+  }
+
+  .mail-calendar-shell:not([data-controls-ready]) .mail-calendar-toggle-icon {
+    rotate: 180deg;
+    transition: none;
+  }
+
   .mail-calendar-shell {
     /* The saved width is for beside the panes; over them it's always this. */
     --mail-calendar-width: 300px !important;

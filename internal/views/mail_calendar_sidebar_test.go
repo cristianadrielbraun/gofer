@@ -64,3 +64,24 @@ func TestMailCalendarSidebarIsDrawnAtItsSavedWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestMailCalendarSidebarIsDrawnOpenOrClosedAsLeft(t *testing.T) {
+	for _, tc := range []struct {
+		saved string
+		open  string
+	}{
+		{"", "true"},
+		{"true", "true"},
+		{"false", "false"},
+	} {
+		var out bytes.Buffer
+		settings := map[string]string{"mail_calendar_sidebar_enabled": "true", "mail_calendar_open": tc.saved}
+		if err := MailCalendarSidebar(settings).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		html := out.String()
+		if !strings.Contains(html, `data-open="`+tc.open+`"`) || !strings.Contains(html, `aria-expanded="`+tc.open+`"`) {
+			t.Errorf("saved open state %q should be drawn as open=%s", tc.saved, tc.open)
+		}
+	}
+}

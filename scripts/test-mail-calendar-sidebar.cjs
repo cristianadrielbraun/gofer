@@ -10,7 +10,7 @@ const source = fs.readFileSync(path.join(__dirname, '../assets/js/mail-calendar-
 // Loads the calendar sidebar with a fake page, as wide as screen says.
 // slide stands in for resize.js's slideAppPanelWidth and decides what it
 // hands back.
-function load(slide, screen = 'wide', reducedMotion = false) {
+function load(slide, screen = 'wide', reducedMotion = false, saved = {}) {
   const fannedIn = []
   const fannedOut = []
   const fadedDays = []
@@ -47,7 +47,7 @@ function load(slide, screen = 'wide', reducedMotion = false) {
   grip.closest = toggle.closest
   grip.removeAttribute = name => { delete grip.attributes[name] }
   const storage = {}
-  const settings = {}
+  const settings = {...saved}
   const context = vm.createContext({
     window: {addEventListener(type, listener) { windowListeners[type] = listener }, removeEventListener() {}},
     localStorage: {getItem: key => storage[key] ?? null, setItem: (key, value) => { storage[key] = value }},
@@ -178,7 +178,20 @@ page = load(() => null)
 page.click()
 assert.equal(page.shell.dataset.open, 'false')
 assert.equal(page.shell.dataset.mailCalendarSliding, undefined, 'Nothing waits for a slide that never ran')
-assert.equal(page.storage['gofer.mailCalendar.open.wide.v2'], 'false')
+assert.equal(page.settings.mail_calendar_open, 'false', 'Closing it beside the panes is saved with the other pane settings')
+
+// Over the panes (smaller screens) it has its own choice, closed unless
+// opened, and opening it there leaves the wide screens' choice alone.
+page = load(() => null, 'medium')
+assert.equal(page.shell.dataset.open, 'false', 'Over the panes it starts closed')
+page.click()
+assert.equal(page.shell.dataset.open, 'true')
+assert.equal(page.settings.mail_calendar_overlay_open, 'true', 'Opening it over the panes is saved for smaller screens')
+assert.equal(page.settings.mail_calendar_open, undefined)
+page = load(() => null, 'medium', false, {mail_calendar_overlay_open: 'true'})
+assert.equal(page.shell.dataset.open, 'true', 'It opens over the panes when it was left open there')
+page = load(() => null, 'wide', false, {mail_calendar_open: 'false'})
+assert.equal(page.shell.dataset.open, 'false', 'It stays closed beside the panes when it was left closed')
 
 // Dragging the grip keeps it marked, so its line stays highlighted over the
 // tab even when the pointer drifts off it, and letting go clears the mark.

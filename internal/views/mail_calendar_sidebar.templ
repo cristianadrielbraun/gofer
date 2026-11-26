@@ -13,7 +13,9 @@ import (
 // which don't show it, never load it. Until then it shows this month's days,
 // as the Calendar page does while it loads, with no events yet. It's drawn at
 // its saved width, and Mail drawn again keeps it as it is (hx-preserve), so it
-// neither jumps in width nor loads twice.
+// neither jumps in width nor loads twice. Wide screens draw it open or
+// closed as it was left; smaller ones show it over the panes once
+// mail-calendar-sidebar.js has applied their own choice.
 templ MailCalendarSidebar(uiSettings map[string]string) {
 	<div
 		id="mail-calendar-sidebar-slot"
@@ -21,7 +23,7 @@ templ MailCalendarSidebar(uiSettings map[string]string) {
 		style={ mailCalendarWidthStyle(uiSettings) }
 		hx-preserve="true"
 		data-mail-calendar-shell
-		data-open="true"
+		data-open={ strconv.FormatBool(mailCalendarOpen(uiSettings)) }
 		data-mail-calendar-hide-label={ i18n.T(ctx, "calendar.mail_sidebar.hide") }
 		data-mail-calendar-show-label={ i18n.T(ctx, "calendar.mail_sidebar.show") }
 	>
@@ -30,8 +32,8 @@ templ MailCalendarSidebar(uiSettings map[string]string) {
 			Class:   "mail-calendar-toggle h-8 w-6 rounded-r-none border-r-0 bg-background px-0 text-muted-foreground shadow-none hover:bg-accent hover:text-foreground dark:border-border dark:bg-background dark:hover:bg-accent",
 			Attributes: templ.Attributes{
 				"data-mail-calendar-toggle": "",
-				"aria-label":                i18n.T(ctx, "calendar.mail_sidebar.hide"),
-				"aria-expanded":             "true",
+				"aria-label":                mailCalendarToggleLabel(ctx, mailCalendarOpen(uiSettings)),
+				"aria-expanded":             strconv.FormatBool(mailCalendarOpen(uiSettings)),
 				"aria-controls":             "mail-calendar-sidebar-content",
 				"title":                     i18n.T(ctx, "calendar.mail_sidebar.toggle"),
 			},
