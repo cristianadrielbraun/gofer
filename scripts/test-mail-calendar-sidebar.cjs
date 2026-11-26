@@ -5,11 +5,16 @@ const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/mail-calendar-sidebar.js'), 'utf8')
 
+;(async () => {
+
 // Loads the calendar sidebar with a fake page, as wide as screen says.
 // slide stands in for resize.js's slideAppPanelWidth and decides what it
 // hands back.
 function load(slide, screen = 'wide', reducedMotion = false) {
   const fannedIn = []
+  const fannedOut = []
+  const fadedDays = []
+  const swapped = []
   let content = null
   const listeners = {}
   const windowListeners = {}
@@ -53,6 +58,7 @@ function load(slide, screen = 'wide', reducedMotion = false) {
     MutationObserver: class { constructor(callback) { observers.push(callback) } observe() {} },
     document: {
       body: {style: {}},
+      getElementById: id => id === 'mail-calendar-sidebar-content' ? content : null,
       documentElement: root,
       addEventListener(type, listener) { (listeners[type] ||= []).push(listener) },
       removeEventListener(type, listener) { listeners[type] = (listeners[type] || []).filter(other => other !== listener) },
@@ -60,6 +66,18 @@ function load(slide, screen = 'wide', reducedMotion = false) {
       querySelectorAll: selector => selector === '[data-mobile-mail-calendar]' ? [topbarButton] : [],
     },
     fanInElements(nodes, delay) { fannedIn.push({nodes, delay}) },
+    fanOutElement(node) {
+      const animation = {node, cancelled: false, cancel() { this.cancelled = true }}
+      animation.finished = new Promise(resolve => { animation.finish = resolve })
+      fannedOut.push(animation)
+      return animation
+    },
+    fadeInCalendarDays(nodes, direction) { fadedDays.push({nodes: [...nodes], direction}) },
+    htmx: {swap(target, response) {
+      swapped.push({target, response})
+      content = response
+      observers.forEach(callback => callback())
+    }},
     GoferSettings: {get: key => settings[key] ?? null, set(key, value) { settings[key] = value }},
     slideAppPanelWidth(target, from, to) {
       slides.push({target, from, to})
@@ -82,13 +100,32 @@ function load(slide, screen = 'wide', reducedMotion = false) {
     releaseGrip: () => dispatch('pointerup', {}),
     goBack: () => windowListeners.popstate(),
     leaveMail() { shellOnPage = false; observers.forEach(callback => callback()) },
-    fannedIn,
+    fannedIn, fannedOut, fadedDays, swapped,
+    content: () => content,
+    request(xhr) { dispatch('htmx:beforeRequest', {detail: {xhr, target: content}}) },
+    respond(xhr, response, ok = true) {
+      const detail = {xhr, target: content, shouldSwap: ok, serverResponse: response}
+      dispatch('htmx:beforeSwap', {detail})
+      return detail
+    },
+    fail(type, xhr) { dispatch(type, {detail: {xhr}}) },
     observe: () => observers.forEach(callback => callback()),
     // Puts calendar content in the sidebar, as htmx does, with these events.
     swapIn(events, busy = false) {
-      content = {dataset: {}, getAttribute: name => name === 'aria-busy' ? String(busy) : null, querySelectorAll: selector => selector === '[data-calendar-event-trigger]' ? events : []}
+      content = calendarContent(events, busy)
       observers.forEach(callback => callback())
     },
+  }
+}
+
+// A calendar sidebar's content as htmx puts it in: month is its month, and
+// days are what a day of it looks like to the month fade.
+function calendarContent(events, busy = false, month = '2026-03', days = ['day']) {
+  return {
+    id: 'mail-calendar-sidebar-content',
+    dataset: {mailCalendarMonth: month},
+    getAttribute: name => name === 'aria-busy' ? String(busy) : null,
+    querySelectorAll: selector => selector.includes('data-calendar-event-trigger') ? events : selector === '[data-mail-calendar-day]' ? days : [],
   }
 }
 
@@ -180,6 +217,46 @@ page = load(() => null, 'wide', true)
 page.swapIn(['lunch'])
 assert.equal(page.fannedIn.length, 0, 'Reduced motion shows events without the fan-in')
 
+// Picking another day works like switching mail folders: the day's events
+// fan out while the next day loads, and it only goes in once they're gone.
+const card = name => ({name, animate() {}})
+page = load(() => null)
+page.swapIn([card('lunch'), card('standup')])
+const nextDay = calendarContent([card('dentist')], false, '2026-03')
+page.request('xhr-1')
+assert.deepEqual(page.fannedOut.map(animation => animation.node.name), ['lunch', 'standup'], 'The day\'s events fan out as the next day loads')
+let detail = page.respond('xhr-1', nextDay)
+assert.equal(detail.shouldSwap, false, 'htmx leaves the swap to the calendar')
+await Promise.resolve()
+assert.equal(page.swapped.length, 0, 'The next day waits for the events to go')
+page.fannedOut.forEach(animation => animation.finish())
+await new Promise(resolve => setTimeout(resolve))
+assert.equal(page.content(), nextDay, 'The next day goes in once the events are gone')
+assert.equal(page.fadedDays.length, 0, 'Another day of the same month leaves the days alone')
+assert.deepEqual([...page.fannedIn.at(-1).nodes].map(item => item.name), ['dentist'], 'Its events fan in')
+
+// Another month: its days fade in from the side it came from.
+for (const [month, direction] of [['2026-04', 1], ['2026-02', -1]]) {
+  page.request('xhr-' + month)
+  page.respond('xhr-' + month, calendarContent([], false, month, ['first', 'second']))
+  page.fannedOut.forEach(animation => animation.finish())
+  await new Promise(resolve => setTimeout(resolve))
+  const fade = page.fadedDays.at(-1)
+  assert.equal(fade.direction, direction, 'A month ' + (direction > 0 ? 'ahead' : 'back') + ' comes in from that side')
+  assert.deepEqual(fade.nodes, ['first', 'second'])
+}
+
+// A pick that doesn't load puts the events back, whether the server says
+// no or the request never gets an answer.
+for (const failure of [p => p.respond('xhr-bad', null, false), p => p.fail('htmx:sendError', 'xhr-bad')]) {
+  page = load(() => null)
+  page.swapIn([card('lunch')])
+  page.request('xhr-bad')
+  failure(page)
+  assert.equal(page.fannedOut[0].cancelled, true, 'The events come back')
+  assert.equal(page.swapped.length, 0)
+}
+
 // Small screens: the top bar's button opens the calendar as a drawer. It
 // starts closed, whatever wider screens left the calendar at.
 page = load(() => null, 'small')
@@ -211,4 +288,8 @@ page.leaveMail()
 assert.equal(page.root.hasAttribute('data-mail-calendar-in-page'), false, 'Other sections hide the top bar button')
 assert.equal(page.root.hasAttribute('data-mail-calendar-drawer-open'), false, 'Leaving Mail closes the drawer with the calendar')
 
-console.log('Mail calendar sidebar: hide and show slide the shell, the panel stays drawn while sliding, a second click replaces the slide, no motion just switches, and small screens open and close it as a drawer.')
+console.log('Mail calendar sidebar: hide and show slide the shell, the panel stays drawn while sliding, a second click replaces the slide, no motion just switches, small screens open and close it as a drawer, and moving to another day or month fans the events out and in and fades the days of a new month in.')
+})().catch(error => {
+  console.error(error)
+  process.exit(1)
+})

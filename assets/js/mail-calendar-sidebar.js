@@ -94,6 +94,13 @@
     }
   }
 
+  // A day's events, or the note that it has none.
+  const AGENDA_ITEMS = "[data-calendar-event-trigger], [data-mail-calendar-agenda-empty]";
+
+  function reducedMotion() {
+    return matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
   // A day's events arrive like a new mail list's rows (fanInElements in
   // virtual-scroll.js), when the calendar first loads and whenever another
   // day or month comes in. This runs before the new events are first drawn.
@@ -102,10 +109,80 @@
     if (!content || content.getAttribute("aria-busy") === "true" || content.dataset.fannedIn) return;
 
     content.dataset.fannedIn = "true";
-    if (typeof fanInElements !== "function" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (typeof fanInElements !== "function" || reducedMotion()) return;
 
-    fanInElements(Array.from(content.querySelectorAll("[data-calendar-event-trigger]")), 0);
+    fanInElements(Array.from(content.querySelectorAll(AGENDA_ITEMS)), 0);
   }
+
+  // Moving to another day or month works like switching mail folders: the
+  // day's events fan out (fanOutElement in virtual-scroll.js) while the next
+  // one loads, it goes in once they're gone, and its events fan in. A new
+  // month's days also fade in from the side it came from, as on the Calendar
+  // page (fadeInCalendarDays in app.js).
+  let leaving = null;
+
+  document.addEventListener("htmx:beforeRequest", function (event) {
+    const detail = event.detail || {};
+    const content = detail.target;
+    if (!content || content.id !== "mail-calendar-sidebar-content" || content.getAttribute("aria-busy") === "true") return;
+
+    // A newer pick takes over the fan-out already running.
+    if (leaving) {
+      leaving.xhr = detail.xhr;
+      return;
+    }
+
+    const items = reducedMotion() || typeof fanOutElement !== "function"
+      ? []
+      : Array.from(content.querySelectorAll(AGENDA_ITEMS)).filter(function (item) { return typeof item.animate === "function"; });
+    const animations = items.map(fanOutElement);
+    leaving = {
+      xhr: detail.xhr,
+      month: content.dataset.mailCalendarMonth,
+      animations: animations,
+      done: Promise.all(animations.map(function (animation) { return animation.finished.catch(function () {}); })),
+    };
+  });
+
+  // A pick that didn't load puts the day's events back.
+  function cancelLeaving(xhr) {
+    if (!leaving || (xhr && leaving.xhr !== xhr)) return;
+    leaving.animations.forEach(function (animation) { animation.cancel(); });
+    leaving = null;
+  }
+
+  ["htmx:sendError", "htmx:sendAbort", "htmx:timeout"].forEach(function (type) {
+    document.addEventListener(type, function (event) {
+      cancelLeaving(event.detail && event.detail.xhr);
+    });
+  });
+
+  document.addEventListener("htmx:beforeSwap", function (event) {
+    const detail = event.detail || {};
+    if (!leaving || detail.xhr !== leaving.xhr) return;
+
+    if (!detail.shouldSwap) {
+      cancelLeaving();
+      return;
+    }
+
+    const move = leaving;
+    const response = detail.serverResponse;
+    detail.shouldSwap = false;
+    move.done.then(function () {
+      if (leaving !== move) return;
+      leaving = null;
+
+      const content = document.getElementById("mail-calendar-sidebar-content");
+      if (!content || typeof htmx === "undefined") return;
+      htmx.swap(content, response, { swapStyle: "outerHTML" });
+
+      const arrived = document.getElementById("mail-calendar-sidebar-content");
+      const month = arrived && arrived.dataset.mailCalendarMonth;
+      if (!month || !move.month || month === move.month || reducedMotion() || typeof fadeInCalendarDays !== "function") return;
+      fadeInCalendarDays(arrived.querySelectorAll("[data-mail-calendar-day]"), month > move.month ? 1 : -1);
+    });
+  });
 
   function currentShell() {
     return document.querySelector("#main-content [data-mail-calendar-shell]");

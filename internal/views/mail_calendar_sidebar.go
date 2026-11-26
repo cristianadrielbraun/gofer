@@ -54,12 +54,14 @@ func mailSidebarDayEvents(day CalendarDay, events []CalendarEvent) []CalendarEve
 }
 
 // mailSidebarLinkAttributes load date's month into the calendar sidebar
-// without leaving Mail.
+// without leaving Mail. mail-calendar-sidebar.js animates the change.
 func mailSidebarLinkAttributes(date string) templ.Attributes {
 	return templ.Attributes{
 		"hx-get":    mailSidebarURL(date),
 		"hx-target": "#mail-calendar-sidebar-content",
 		"hx-swap":   "outerHTML",
+		// A newer pick replaces one still loading.
+		"hx-sync": "#mail-calendar-sidebar-content:replace",
 	}
 }
 

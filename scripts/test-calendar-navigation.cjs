@@ -49,7 +49,7 @@ const context = vm.createContext({
 })
 vm.runInContext('var CALENDAR_MONTH_FADE_MS = 240; var _calendarNavigationRequest = null; var _calendarNavigationTransition = null; var _calendarWeekSlide = null;\n' +
   source.slice(source.indexOf('var CALENDAR_VIEWS'), source.indexOf('\n', source.indexOf('var CALENDAR_VIEWS'))) + '\n' +
-  ['calendarScrollArea', 'calendarSnapshotScrollArea', 'finishCalendarNavigationTransition', 'fadeInCalendarMonthContents', 'configureCalendarNavigationRequest', 'prepareCalendarNavigation', 'animateCalendarNavigation', 'handleCalendarNavigationResult'].map(helper).join('\n'), context)
+  ['calendarScrollArea', 'calendarSnapshotScrollArea', 'finishCalendarNavigationTransition', 'fadeInCalendarMonthContents', 'fadeInCalendarDays', 'configureCalendarNavigationRequest', 'prepareCalendarNavigation', 'animateCalendarNavigation', 'handleCalendarNavigationResult'].map(helper).join('\n'), context)
 function event(xhr, shouldSwap = true) { return {detail: {xhr, shouldSwap, target: {id: 'main-content'}}} }
 function navigate(direction) {
   const xhr = {goferCalendarNavigationDirection: direction}

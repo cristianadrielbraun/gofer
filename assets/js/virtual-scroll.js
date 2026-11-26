@@ -33,6 +33,19 @@ function fanInElements(nodes, delay) {
   }
 }
 
+// fanOutElement takes away one row of a list that's leaving, the way a
+// folder's rows go when switching folders: it drops back and shrinks a
+// little before it fades, so it reads as moving away. Each row goes 25ms
+// after the one above it (index), the last at most 150ms after the first.
+// The calendar sidebar's events leave the same way.
+function fanOutElement(node, index) {
+  return node.animate([
+    { opacity: 1, translate: "0 0", scale: "1" },
+    { opacity: 1, offset: 0.45 },
+    { opacity: 0, translate: "0 18px", scale: "0.99" },
+  ], { duration: 220, delay: Math.min(150, index * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+}
+
 // Search results show where they are in a band (data-search-group): along
 // the top of every card, 1.5rem, and above a table row's columns, 1.25rem,
 // once per run of rows from one place (input.css). getHeight adds it to
@@ -1086,15 +1099,7 @@ class VirtualMailList {
       hide()
       return Promise.resolve()
     }
-    this.transitionAnimations = nodes.map(function (node, i) {
-      // Each card drops back and shrinks a little before it fades, so it
-      // reads as moving away.
-      return node.animate([
-        { opacity: 1, translate: "0 0", scale: "1" },
-        { opacity: 1, offset: 0.45 },
-        { opacity: 0, translate: "0 18px", scale: "0.99" },
-      ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
-    })
+    this.transitionAnimations = nodes.map(fanOutElement)
     return Promise.all(this.transitionAnimations.map(function (animation) {
       return animation.finished.catch(function () {})
     })).then(hide)
@@ -1152,11 +1157,7 @@ class VirtualMailList {
       overlay.appendChild(clone)
       clones.push(clone)
       if (typeof clone.animate !== "function") continue
-      last = clone.animate([
-        { opacity: 1, translate: "0 0", scale: "1" },
-        { opacity: 1, offset: 0.45 },
-        { opacity: 0, translate: "0 18px", scale: "0.99" },
-      ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+      last = fanOutElement(clone, i)
     }
     if (this.viewMode === "table") this.keepTableColumns(overlay, clones)
     var done = function () {
@@ -4479,11 +4480,7 @@ class VirtualContactsList {
       clone.style.height = item.rect.height + "px"
       overlay.appendChild(clone)
       if (typeof clone.animate !== "function") continue
-      last = clone.animate([
-        { opacity: 1, translate: "0 0", scale: "1" },
-        { opacity: 1, offset: 0.45 },
-        { opacity: 0, translate: "0 18px", scale: "0.99" },
-      ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+      last = fanOutElement(clone, i)
     }
     var done = function () {
       if (overlay.parentNode) overlay.remove()

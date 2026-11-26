@@ -15857,11 +15857,18 @@ var CALENDAR_MONTH_FADE_MS = 240
 
 function fadeInCalendarMonthContents(calendar, direction) {
   var grid = calendar && calendar.querySelector("[data-calendar-month-grid]")
-  if (!grid || !grid.animate) return
+  if (!grid) return
+  fadeInCalendarDays(grid.querySelectorAll("[data-calendar-day-head], [data-calendar-day-dots], [data-calendar-day-overflow]:not([hidden])"), direction)
+}
+
+// fadeInCalendarDays fades a new month's days in, drifting 4px in from the
+// side the user moved towards (direction: -1 back, 1 forward, 0 none). The
+// Calendar page's month and the calendar sidebar in Mail both use it.
+function fadeInCalendarDays(nodes, direction) {
   var timing = { duration: CALENDAR_MONTH_FADE_MS, easing: "ease-out" }
   var frames = [{ opacity: 0, transform: "translateX(" + (direction || 0) * 4 + "px)" }, { opacity: 1, transform: "translateX(0)" }]
-  grid.querySelectorAll("[data-calendar-day-head], [data-calendar-day-dots], [data-calendar-day-overflow]:not([hidden])").forEach(function (node) {
-    node.animate(frames, timing)
+  Array.prototype.forEach.call(nodes, function (node) {
+    if (node.animate) node.animate(frames, timing)
   })
 }
 
