@@ -29,11 +29,8 @@ templ MailCalendarSidebar() {
 				"title":                     i18n.T(ctx, "calendar.mail_sidebar.toggle"),
 			},
 		}) {
-			<span class="inline-flex" data-mail-calendar-hide-icon>
+			<span class="mail-calendar-toggle-icon inline-flex" data-mail-calendar-toggle-icon>
 				@icon.ChevronRight(icon.Props{Class: "size-4"})
-			</span>
-			<span class="inline-flex" data-mail-calendar-show-icon>
-				@icon.ChevronLeft(icon.Props{Class: "size-4"})
 			</span>
 		}
 		<div

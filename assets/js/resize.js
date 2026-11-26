@@ -1,6 +1,7 @@
 var initResizeHandles;
 var measureAppPanels;
 var slideAppPanels;
+var slideAppPanelWidth;
 var appPanelsSlideRemaining;
 
 (function () {
@@ -229,6 +230,15 @@ var appPanelsSlideRemaining;
     if (startTime !== null) animation.startTime = startTime;
     return trackSlide(animation);
   }
+
+  // Slides a panel's width from one size to another, at the same speed and
+  // easing as the section switches. The caller sets the final size first, so
+  // where motion is off (phones, reduced motion) the panel just jumps there,
+  // and null comes back instead of the animation.
+  slideAppPanelWidth = function (element, from, to) {
+    if (!element || from === to || !canSlide()) return null;
+    return startPanelSlide(element, "width", from, to, null);
+  };
 
   // Milliseconds until every running slide has ended.
   appPanelsSlideRemaining = function () {

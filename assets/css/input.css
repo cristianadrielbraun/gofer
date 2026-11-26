@@ -4588,33 +4588,51 @@ body.mail-list-column-resizing {
 /* === MAIL CALENDAR SIDEBAR === */
 
 /* The calendar beside Mail takes its saved width at the right edge on wide
-   screens. Smaller ones show it over the panes, from the right edge. */
+   screens. Smaller ones show it over the panes, from the right edge. The
+   panel keeps its width and hangs from the shell's left edge, so as the
+   shell narrows to hide it, it slides out to the right. */
 .mail-calendar-shell {
   --mail-calendar-width: 300px;
   position: relative;
-  display: flex;
-  flex: 0 0 var(--mail-calendar-width);
+  flex: none;
   width: var(--mail-calendar-width);
   min-width: 0;
   height: 100%;
 }
 
 .mail-calendar-shell[data-open="false"] {
-  flex-basis: 0;
   width: 0;
 }
 
 .mail-calendar-aside {
-  flex: 1 1 auto;
-  width: 100%;
-  min-width: 0;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--mail-calendar-width);
   overflow: hidden;
 }
 
-.mail-calendar-shell[data-open="false"] :is(.mail-calendar-aside, .mail-calendar-grip),
-.mail-calendar-shell[data-open="true"] [data-mail-calendar-show-icon],
-.mail-calendar-shell[data-open="false"] [data-mail-calendar-hide-icon] {
+/* A hidden calendar stays drawn until it has slid away. */
+.mail-calendar-shell[data-open="false"]:not([data-mail-calendar-sliding]) .mail-calendar-aside,
+.mail-calendar-shell[data-open="false"] .mail-calendar-grip {
   display: none;
+}
+
+/* The tab's arrow points the way the calendar will go, and turns with the
+   slide, at the same speed and easing as the panes (resize.js). */
+.mail-calendar-toggle-icon {
+  transition: rotate 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mail-calendar-shell[data-open="false"] .mail-calendar-toggle-icon {
+  rotate: 180deg;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-calendar-toggle-icon {
+    transition: none;
+  }
 }
 
 /* The tab that hides and shows it sticks out of its left edge at the top,
@@ -4661,7 +4679,6 @@ body.mail-list-column-resizing {
     top: 0;
     right: 0;
     height: 100dvh;
-    flex: none;
   }
 
   .mail-calendar-grip {

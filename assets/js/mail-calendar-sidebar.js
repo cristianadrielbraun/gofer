@@ -117,10 +117,39 @@
     if (!shell) return;
 
     const open = shell.dataset.open !== "true";
+    const before = shell.getBoundingClientRect().width;
 
+    if (shell._mailCalendarSlide) shell._mailCalendarSlide.cancel();
     write(stateKey(), open);
     apply(shell, open, width());
+    slide(shell, before);
   });
+
+  // Slides the calendar in or out like the panes do when switching sections.
+  // While it slides away the panel stays drawn, then CSS hides it.
+  function slide(shell, before) {
+    if (typeof slideAppPanelWidth !== "function") return;
+
+    const animation = slideAppPanelWidth(
+      shell,
+      before,
+      shell.getBoundingClientRect().width
+    );
+
+    if (!animation) return;
+
+    shell._mailCalendarSlide = animation;
+    shell.dataset.mailCalendarSliding = "true";
+
+    function done() {
+      if (shell._mailCalendarSlide !== animation) return;
+      shell._mailCalendarSlide = null;
+      delete shell.dataset.mailCalendarSliding;
+    }
+
+    animation.addEventListener("finish", done);
+    animation.addEventListener("cancel", done);
+  }
 
   document.addEventListener("pointerdown", function (event) {
     const grip = event.target.closest(
