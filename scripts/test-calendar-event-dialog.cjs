@@ -4,9 +4,11 @@ const vm = require('node:vm')
 const loadI18n = require('./i18n-test-helper.cjs')
 const path = require('node:path')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
-function fixture() {
+// page is 'calendar' (the Calendar page) or 'mail' (Mail, with the calendar
+// sidebar on screen).
+function fixture(page = 'calendar') {
  const handlers = {}, timers = new Map(), opens = [], toasts = [], aborts = []
- let timerID = 0, root = null, visible = true
+ let timerID = 0, root = null, visible = true, sidebarOnScreen = page === 'mail'
  const calendar = {dataset: {calendarPeriod: 'month:2026-10'}, hasAttribute() {return false}}
  function makeRoot() {
   const listeners = {}, title = {textContent: ''}
@@ -21,7 +23,9 @@ function fixture() {
  const target = {replaceChildren() {if (root) root.remove();root = makeRoot()}, querySelector() {return root}}
  const template = {content: {cloneNode() {return {}}}}
  const context = vm.createContext({
-  document: {body: {addEventListener(type,fn) {(handlers[type] ||= []).push(fn)}}, getElementById(id) {return {'calendar-main':calendar,'calendar-event-loading':template,'app-pane-dialogs':target,'calendar-event-details-dialog':root}[id]}},
+  document: {body: {addEventListener(type,fn) {(handlers[type] ||= []).push(fn)}},
+   getElementById(id) {return {'calendar-main':page === 'calendar' ? calendar : null,'calendar-event-loading':template,'app-pane-dialogs':target,'calendar-event-details-dialog':root}[id]},
+   querySelector(selector) {return selector === '#main-content [data-mail-calendar-shell]' && sidebarOnScreen ? {} : null}},
   window: {tui: {dialog: {open(id) {opens.push(id);if (root) root.dialog.open = true}}}, htmx: {trigger(trigger,name) {aborts.push(name);fire('htmx:sendAbort',{elt:trigger,xhr:context._calendarEventRequestForTest})}}},
   DOMParser: class {parseFromString(html) {return {querySelector() {return html === 'details' ? {} : null}}}},
   _calendarSourceIsVisible() {return visible}, showGoferToast(toast) {toasts.push(toast)},
@@ -31,7 +35,7 @@ function fixture() {
  vm.runInContext(source.slice(source.indexOf('var _calendarEventRequest = null'), source.indexOf('var _calendarCreateDialogRequest = null')), context)
  function fire(type,detail) {for (const fn of handlers[type] || []) fn({detail})}
  function begin(title = 'Planning <b>literal title</b>') {
-  const trigger = {dataset:{calendarSourceId:'source'},attrs:new Map(),hasAttribute(name){return name==='data-calendar-event-trigger'},setAttribute(name,value){this.attrs.set(name,value)},removeAttribute(name){this.attrs.delete(name)},querySelector(){return {textContent:title}}}
+  const trigger = {dataset:{calendarSourceId:'source'},attrs:new Map(),closest(selector){return page === 'mail' && selector === '[data-mail-calendar-shell]' ? {} : null},hasAttribute(name){return name==='data-calendar-event-trigger'},setAttribute(name,value){this.attrs.set(name,value)},removeAttribute(name){this.attrs.delete(name)},querySelector(){return {textContent:title}}}
   const detail = {xhr:{status:200},elt:trigger,target}
   fire('htmx:beforeRequest',detail)
   context._calendarEventRequestForTest=detail.xhr
@@ -45,7 +49,7 @@ function fixture() {
   fire('htmx:afterRequest',{...detail,successful})
   return swap
  }
- return {context,calendar,opens,toasts,aborts,timers,begin,delayed,response,fire,get root(){return root},setVisible(value){visible=value}}
+ return {context,calendar,opens,toasts,aborts,timers,begin,delayed,response,fire,get root(){return root},setVisible(value){visible=value},leaveMail(){sidebarOnScreen=false}}
 }
 let f=fixture(), req=f.begin()
 assert.equal(f.opens.length,0)
@@ -104,4 +108,16 @@ for(const slow of [false,true]) {
 }
 f=fixture();req=f.begin();f.delayed();f.response(req,true,'malformed response')
 assert.equal(f.root,null);assert.equal(f.toasts.length,1,'A response without the details panel cannot strand a loader')
-console.log('Calendar event dialog: no fast-load flash, delayed loading, same-modal handoff, dismissal, stale responses, aborts, and failures passed')
+// Events in the calendar sidebar open the same dialog in Mail, where there's
+// no Calendar page, quickly or after the loading delay.
+f=fixture('mail');req=f.begin();f.response(req)
+assert.equal(f.opens.length,1,'An event from the calendar sidebar opens its dialog in Mail')
+f=fixture('mail');req=f.begin();f.delayed()
+assert.equal(f.opens.length,1,'A slow one shows the same loading dialog')
+assert.equal(f.response(req).shouldSwap,true)
+assert.equal(f.toasts.length,0)
+f=fixture('mail');req=f.begin();f.setVisible(false);f.response(req)
+assert.equal(f.opens.length,1,'The Calendar page\'s calendar toggles don\'t apply to the sidebar')
+f=fixture('mail');req=f.begin();f.delayed();f.leaveMail()
+assert.equal(f.response(req).shouldSwap,false,'Leaving Mail drops a dialog still loading')
+console.log('Calendar event dialog: no fast-load flash, delayed loading, same-modal handoff, dismissal, stale responses, aborts, failures, and events from the calendar sidebar in Mail passed')

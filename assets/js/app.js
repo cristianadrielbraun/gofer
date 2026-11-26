@@ -16008,12 +16008,16 @@ window.addEventListener("blur", function () {
 var _calendarEventRequest = null
 
 function calendarEventRequestCurrent(xhr) {
-  var calendar = document.getElementById("calendar-main")
   var dialog = xhr.goferCalendarEventDialog
-  return xhr === _calendarEventRequest && calendar && !calendar.hasAttribute("data-calendar-loading") &&
+  if (xhr !== _calendarEventRequest || (dialog && !(dialog.isConnected && dialog.open && !dialog.hasAttribute("data-tui-dialog-closing")))) return false
+  // An event opened from the calendar sidebar in Mail stays current while
+  // that calendar is on screen; the Calendar page's period and calendar
+  // toggles don't apply to it.
+  if (xhr.goferCalendarEventFromSidebar) return !!document.querySelector("#main-content [data-mail-calendar-shell]")
+  var calendar = document.getElementById("calendar-main")
+  return !!calendar && !calendar.hasAttribute("data-calendar-loading") &&
     calendar.dataset.calendarPeriod === xhr.goferCalendarEventPeriod &&
-    _calendarSourceIsVisible({dataset: {calendarSourceId: xhr.goferCalendarEventSource}}) &&
-    (!dialog || (dialog.isConnected && dialog.open && !dialog.hasAttribute("data-tui-dialog-closing")))
+    _calendarSourceIsVisible({dataset: {calendarSourceId: xhr.goferCalendarEventSource}})
 }
 
 function clearCalendarEventLoading(xhr, removeDialog) {
@@ -16062,6 +16066,7 @@ document.body.addEventListener("htmx:beforeRequest", function (event) {
   var xhr = _calendarEventRequest = event.detail.xhr
   xhr.goferCalendarEventPeriod = calendar ? calendar.dataset.calendarPeriod : ""
   xhr.goferCalendarEventSource = trigger.dataset.calendarSourceId
+  xhr.goferCalendarEventFromSidebar = !!(trigger.closest && trigger.closest("[data-mail-calendar-shell]"))
   // Fast requests open the complete dialog with no loading flash.
   xhr.goferCalendarEventTimer = setTimeout(function () { showCalendarEventPending(xhr, trigger) }, 250)
   trigger.setAttribute("aria-busy", "true")
