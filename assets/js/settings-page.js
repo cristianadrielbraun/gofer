@@ -1317,7 +1317,7 @@
 
 // Advanced tab: switches saved as they change
 (function() {
-  // "Show on phones too" only means something while the calendar beside Mail
+  // "Also show on small screens" only means something while the calendar sidebar
   // is on, so it's dimmed and locked while that's off.
   function syncMailCalendarPhones(enabled) {
     var row = document.querySelector('[data-mail-calendar-sidebar-phones-row]');

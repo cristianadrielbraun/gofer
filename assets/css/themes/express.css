@@ -1756,7 +1756,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   color: var(--xp-select-foreground);
 }
 
-/* The calendar beside Mail: square days, the picked one in navy and today
+/* The calendar sidebar in Mail: square days, the picked one in navy and today
    framed in navy, with square calendar dots like the event markers. */
 [data-theme="express"] [data-mail-calendar-day] {
   border-radius: 0;

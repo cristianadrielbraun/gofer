@@ -7,7 +7,7 @@ import (
 )
 
 // mailSidebarURL is the calendar cache's month around date, drawn for the
-// calendar beside Mail.
+// calendar sidebar in Mail.
 func mailSidebarURL(date string) string {
 	return "/calendar?view=month&date=" + date + "&cache=1"
 }
@@ -52,7 +52,7 @@ func mailSidebarDayEvents(day CalendarDay, events []CalendarEvent) []CalendarEve
 	return result
 }
 
-// mailSidebarLinkAttributes load date's month into the calendar beside Mail
+// mailSidebarLinkAttributes load date's month into the calendar sidebar
 // without leaving Mail.
 func mailSidebarLinkAttributes(date string) templ.Attributes {
 	return templ.Attributes{

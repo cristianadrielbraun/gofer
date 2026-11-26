@@ -4587,7 +4587,7 @@ body.mail-list-column-resizing {
 
 /* === MAIL CALENDAR SIDEBAR === */
 
-/* The calendar beside Mail takes its saved width at the right edge on wide
+/* The calendar sidebar in Mail takes its saved width at the right edge on wide
    screens. Smaller ones show it over the panes, from the right edge. The
    panel keeps its width and hangs from the shell's left edge, so as the
    shell narrows to hide it, it slides out to the right. */

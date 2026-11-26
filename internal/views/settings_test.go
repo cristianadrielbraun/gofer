@@ -1560,10 +1560,10 @@ func TestMailCalendarSidebarPhonesSwitchFollowsMainSwitch(t *testing.T) {
 
 	html := render(map[string]string{})
 	if !disabled.MatchString(phonesSwitch.FindString(html)) {
-		t.Fatal("the small-screen switch should be locked while the calendar beside Mail is off")
+		t.Fatal("the small-screen switch should be locked while the calendar sidebar is off")
 	}
 	if !strings.Contains(phonesRow.FindString(html), "data-disabled") {
-		t.Fatal("the small-screen row should be dimmed while the calendar beside Mail is off")
+		t.Fatal("the small-screen row should be dimmed while the calendar sidebar is off")
 	}
 
 	html = render(map[string]string{"mail_calendar_sidebar_enabled": "true", "mail_calendar_sidebar_phones": "true"})
@@ -1572,7 +1572,7 @@ func TestMailCalendarSidebarPhonesSwitchFollowsMainSwitch(t *testing.T) {
 		t.Fatal("no small-screen switch")
 	}
 	if disabled.MatchString(tag) || strings.Contains(phonesRow.FindString(html), "data-disabled") {
-		t.Fatal("the small-screen switch should be usable while the calendar beside Mail is on")
+		t.Fatal("the small-screen switch should be usable while the calendar sidebar is on")
 	}
 	if !checked.MatchString(tag) {
 		t.Fatal("the small-screen switch should show the saved choice")

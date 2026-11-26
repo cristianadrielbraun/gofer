@@ -17,7 +17,7 @@ func TestMailCalendarSidebarLoadsWithTheMonthsDays(t *testing.T) {
 	}
 	html := out.String()
 	if strings.Contains(html, i18n.T(context.Background(), "calendar.loading")) {
-		t.Fatal("the calendar beside Mail should show the month's shape while it loads, not loading text")
+		t.Fatal("the calendar sidebar should show the month's shape while it loads, not loading text")
 	}
 	if !strings.Contains(html, `hx-trigger="intersect once"`) || !strings.Contains(html, `aria-busy="true"`) {
 		t.Fatal("the loading calendar should load itself once it is on screen, and say it's busy")

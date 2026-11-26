@@ -912,8 +912,8 @@ templ CalendarMainPartial(month CalendarMonthData) {
 }
 
 // CalendarAgendaEventCard is one event in an agenda: the Calendar page's
-// agenda and the calendar beside Mail show the same card. A compact card
-// leaves out the clock or calendar picture, since the calendar beside Mail is
+// agenda and the calendar sidebar in Mail show the same card. A compact card
+// leaves out the clock or calendar picture, since the calendar sidebar is
 // narrow.
 templ CalendarAgendaEventCard(event CalendarEvent, location *time.Location, compact bool) {
 	<button type="button" hidden?={ event.SourceHidden } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } data-calendar-agenda-event data-calendar-event-all-day={ strconv.FormatBool(event.AllDay) } data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-event-start={ calendarEventTimestamp(event.StartAt) } data-calendar-event-end={ calendarEventTimestamp(event.EndAt) } class="group relative w-full rounded-xl border border-border bg-card px-3.5 py-3 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={ i18n.T(ctx, "calendar.open_event", "event", calendarEventResponseSummary(ctx, event)) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" data-calendar-event-trigger>

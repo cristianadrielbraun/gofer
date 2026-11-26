@@ -16,7 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
-// MailCalendarSidebar is the calendar beside Mail. It loads the month from the
+// MailCalendarSidebar is the calendar sidebar in Mail. It loads the month from the
 // calendar cache once it is on screen, so Mail never waits for it and phones,
 // which don't show it, never load it. Until then it shows this month's days,
 // as the Calendar page does while it loads, with no events yet.
@@ -487,7 +487,7 @@ func MailCalendarSidebarContent(month CalendarMonthData) templ.Component {
 	})
 }
 
-// mailCalendarSidebarSlot is where the calendar beside Mail goes: the calendar
+// mailCalendarSidebarSlot is where the calendar sidebar in Mail goes: the calendar
 // when it's turned on, and an empty placeholder otherwise.
 func mailCalendarSidebarSlot(uiSettings map[string]string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {

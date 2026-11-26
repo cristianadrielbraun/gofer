@@ -6064,8 +6064,8 @@ func CalendarMainPartial(month CalendarMonthData) templ.Component {
 }
 
 // CalendarAgendaEventCard is one event in an agenda: the Calendar page's
-// agenda and the calendar beside Mail show the same card. A compact card
-// leaves out the clock or calendar picture, since the calendar beside Mail is
+// agenda and the calendar sidebar in Mail show the same card. A compact card
+// leaves out the clock or calendar picture, since the calendar sidebar is
 // narrow.
 func CalendarAgendaEventCard(event CalendarEvent, location *time.Location, compact bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {

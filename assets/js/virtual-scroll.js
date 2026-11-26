@@ -18,7 +18,7 @@ function listRemPx(rem) {
 // fanInElements brings elements in the way a new list's rows arrive: each
 // fades in first and then drops into place from above, slightly bigger as if
 // dropped, one after another (25ms apart, the last at most 150ms after the
-// first), each after delay ms. The calendar beside Mail brings its events in
+// first), each after delay ms. The calendar sidebar in Mail brings its events in
 // the same way. Callers skip it when the user prefers reduced motion.
 function fanInElements(nodes, delay) {
   delay = delay || 0

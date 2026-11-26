@@ -5,7 +5,7 @@ const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/mail-calendar-sidebar.js'), 'utf8')
 
-// Loads the calendar beside Mail with a fake page, as wide as screen says.
+// Loads the calendar sidebar with a fake page, as wide as screen says.
 // slide stands in for resize.js's slideAppPanelWidth and decides what it
 // hands back.
 function load(slide, screen = 'wide', reducedMotion = false) {
