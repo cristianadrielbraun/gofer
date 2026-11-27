@@ -157,7 +157,15 @@ func TestGoogleCalendarForwardSeriesExceptions(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, body)
 		}
 	}
-	if strings.Count(body, "BEGIN:VEVENT") != 2 || strings.Count(body, "BEGIN:VTIMEZONE") != 1 || strings.Count(body, "mailto:new@example.com") != 2 || strings.Contains(body, "20261124") {
+	if strings.Count(body, "BEGIN:VEVENT") != 2 || strings.Count(body, "BEGIN:VTIMEZONE") != 1 || strings.Count(body, "mailto:new@example.com") != 2 {
 		t.Fatalf("series:\n%s", body)
+	}
+	// The other series' deleted date must not become one of this series'
+	// dates. Only the date lines are checked, because DTSTAMP holds the day
+	// the invitation is written, which can be that same day.
+	for _, line := range strings.Split(unfolded, "\r\n") {
+		if (strings.HasPrefix(line, "EXDATE") || strings.HasPrefix(line, "RECURRENCE-ID")) && strings.Contains(line, "20261124") {
+			t.Fatalf("another series' date in %q:\n%s", line, body)
+		}
 	}
 }
