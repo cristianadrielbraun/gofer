@@ -267,16 +267,16 @@ func (db *DB) AddImportedCalendarSources(ctx context.Context, userID, accountID,
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO calendar_sources (
 				id, user_id, account_id, provider, remote_id, name, description,
-				timezone, color, access_role, is_primary, is_selected, is_hidden, is_deleted
+				timezone, color, access_role, is_primary, is_selected, is_hidden, is_deleted, chosen_color
 			)
-			SELECT ?, ?, a.id, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0
+			SELECT ?, ?, a.id, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?
 			FROM accounts a
 			WHERE a.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
 			ON CONFLICT(account_id, remote_id) DO NOTHING`,
 			id, userID, provider, remoteID,
 			strings.TrimSpace(source.Name), strings.TrimSpace(source.Description),
 			strings.TrimSpace(source.TimeZone), strings.TrimSpace(source.Color), strings.TrimSpace(source.AccessRole),
-			calendarBoolInt(source.IsPrimary), calendarBoolInt(source.IsHidden),
+			calendarBoolInt(source.IsPrimary), calendarBoolInt(source.IsHidden), importedCalendarColor(source.ChosenColor),
 			accountID, userID)
 		if err != nil {
 			return fmt.Errorf("add imported calendar %q: %w", remoteID, err)
@@ -291,4 +291,14 @@ func (db *DB) AddImportedCalendarSources(ctx context.Context, userID, accountID,
 		}
 	}
 	return tx.Commit()
+}
+
+// importedCalendarColor is a profile's color picked in Gofer for a calendar,
+// or empty when it isn't #rrggbb.
+func importedCalendarColor(color string) string {
+	color = strings.ToLower(strings.TrimSpace(color))
+	if !calendarHexColor(color) {
+		return ""
+	}
+	return color
 }

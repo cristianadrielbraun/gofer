@@ -159,14 +159,28 @@ import "./floating_ui_dom.js";
       parseInt(content.getAttribute("data-tui-popover-offset"), 10) ||
       (arrowEl ? 8 : 4);
 
+    // The arrow keeps clear of the popover's rounded corners. Placed at the
+    // start or end of something smaller than that, such as a calendar's color
+    // dot, the popover moves along so the arrow still points at its middle
+    // instead of hanging off the corner.
+    const arrowPadding = arrowEl
+      ? Math.max(5, (parseFloat(getComputedStyle(content).borderTopLeftRadius) || 0) + 2)
+      : 0;
+    let alignment = 0;
+    if (arrowEl && /-(start|end)$/.test(placement)) {
+      const box = reference.getBoundingClientRect();
+      const side = /^(top|bottom)/.test(placement) ? box.width : box.height;
+      alignment = Math.min(0, side / 2 - arrowPadding - (arrowEl.offsetWidth || 10) / 2);
+    }
+
     const middleware = [
-      offset(offsetValue),
+      offset({ mainAxis: offsetValue, alignmentAxis: alignment }),
       flip({ padding: 10 }),
       shift({ padding: 10 }),
     ];
 
     if (arrowEl) {
-      middleware.push(arrow({ element: arrowEl, padding: 5 }));
+      middleware.push(arrow({ element: arrowEl, padding: arrowPadding }));
     }
 
     // Match the fixed-position popover layer so scroll offsets stay correct.
@@ -264,10 +278,12 @@ import "./floating_ui_dom.js";
     }
   }
 
-  function open(id) {
+  // open shows the popover, placed at anchor when given: one popover can
+  // then serve several places on the page that aren't its trigger.
+  function open(id, anchor = null) {
     const root = getRootById(id);
     if (root) {
-      openRoot(root);
+      openRoot(root, anchor);
     }
   }
 

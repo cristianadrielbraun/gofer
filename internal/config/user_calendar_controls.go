@@ -36,6 +36,14 @@ func (s *UserAccountStore) SetCalendarSourceVisible(ctx context.Context, owner, 
 	})
 }
 
+// SetCalendarSourceColor saves a color picked for one of the owner's synced
+// calendars; see storage.CalendarColorChange.
+func (s *UserAccountStore) SetCalendarSourceColor(ctx context.Context, owner, sourceID string, change storage.CalendarColorChange) error {
+	return s.WithUser(ctx, owner, func(_ *AccountStore, db *storage.DB) error {
+		return db.SetUserCalendarSourceColor(ctx, owner, sourceID, change, s.calendarControlGuard(ctx, owner))
+	})
+}
+
 func (s *UserAccountStore) SetCalendarServiceEnabled(ctx context.Context, owner, accountID string, enabled bool) error {
 	return s.WithAccountForUser(ctx, owner, accountID, func(_ *AccountStore, db *storage.DB) error {
 		return db.SetUserCalendarServiceEnabled(ctx, owner, accountID, enabled, s.calendarControlGuard(ctx, owner))

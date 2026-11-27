@@ -1,0 +1,66 @@
+package views
+
+import (
+	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// colorPickerProps sets up colorPicker: its title over the name of what it
+// colors, the color it starts on, the custom color field's id, and the
+// attributes that tell scripts which picker and preview these are.
+type colorPickerProps struct {
+	Title             string
+	Name              string
+	Color             string
+	CustomID          string
+	Attributes        templ.Attributes
+	PreviewClass      string
+	PreviewAttributes templ.Attributes
+}
+
+// colorPicker is the marker colors to choose from, a custom color field with
+// its color code, and a status line under it, shown while there is something
+// to say, with a preview of the color: the account marker picker, and the one
+// for calendars. The colors have the theme's corners. Anything a picker adds
+// goes below.
+templ colorPicker(props colorPickerProps) {
+	<div class="p-3" { props.Attributes... }>
+		<div class="mb-3 flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ props.Title }</p>
+				<p class="mt-0.5 truncate text-sm font-medium text-popover-foreground" data-color-picker-name>{ props.Name }</p>
+			</div>
+			<div class={ "size-6 shrink-0", props.PreviewClass } style={ accountColorStyle(props.Color) } { props.PreviewAttributes... }></div>
+		</div>
+		<div class="grid grid-cols-6 gap-2">
+			for _, color := range accountColorOptions() {
+				<button
+					type="button"
+					class="account-color-swatch size-7 rounded-md transition-transform hover:scale-110 focus-visible:outline-none"
+					style={ accountColorStyle(color) }
+					data-color-picker-option={ color }
+					data-account-color-active={ fmt.Sprintf("%t", accountColorSelected(props.Color, color)) }
+					aria-label={ i18n.T(ctx, "settings.account.color_use", "color", color) }
+					aria-pressed={ fmt.Sprintf("%t", accountColorSelected(props.Color, color)) }
+				></button>
+			}
+		</div>
+		// The space around the color shrinks for a long label, down to half a
+		// rem; the popover's w-[16.5rem] leaves the longest one, German, that.
+		<div class="mt-3 flex items-center rounded-md border border-border/70 bg-background/50 px-2.5 py-2">
+			<label for={ props.CustomID } class="shrink-0 text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "settings.account.color_custom") }</label>
+			<span class="w-4 min-w-2 shrink" aria-hidden="true"></span>
+			<input
+				id={ props.CustomID }
+				type="color"
+				value={ accountColorValue(props.Color) }
+				class="color-picker-custom h-7 w-14 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+				data-color-picker-custom
+			/>
+			<span class="w-4 min-w-2 shrink" aria-hidden="true"></span>
+			<span class="shrink-0 text-xs tabular-nums text-muted-foreground" data-color-picker-code>{ accountColorValue(props.Color) }</span>
+		</div>
+		<p class="mt-1.5 text-xs text-muted-foreground empty:hidden" data-color-picker-status></p>
+		{ children... }
+	</div>
+}

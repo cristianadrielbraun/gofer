@@ -1260,6 +1260,22 @@
   box-shadow: 0 0 0 2px var(--popover), 0 0 0 4px var(--ring), 0 1px 2px rgba(0,0,0,0.16);
 }
 
+/* A color picker's custom color field shows its color with the theme's
+   corners, like the colors beside it, inside the field's own padding. */
+.color-picker-custom::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-picker-custom::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.color-picker-custom::-moz-color-swatch {
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
 /* The theme builder's Base switch slides its highlight to the checked side. */
 [data-custom-theme-choice="mode"]:has([value="dark"]:checked) [data-custom-theme-base-indicator] {
   transform: translateX(calc(100% + 2px));

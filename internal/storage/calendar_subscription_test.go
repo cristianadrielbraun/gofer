@@ -68,6 +68,11 @@ func TestCalendarSubscriptionMigration(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 136 {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
+	// The calendar list as it is read now has the color picked in Gofer,
+	// from a later schema.
+	if err := migrateV154ToV155(db.Write()); err != nil {
+		t.Fatal(err)
+	}
 
 	local, err := db.EnsureLocalFoldersAccount(ctx, "owner")
 	if err != nil {

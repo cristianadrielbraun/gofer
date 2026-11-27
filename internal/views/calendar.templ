@@ -136,6 +136,7 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 			@CalendarImportDialog(accounts)
 			@CalendarExportDialog(accounts)
 			@CalendarSubscriptionDialog()
+			@CalendarColorPicker()
 		</div>
 		<hr class="divider-etched mx-4"/>
 		<nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-3 pb-3">
@@ -223,7 +224,7 @@ templ calendarSourceRow(account models.Account, source models.AccountCalendarSou
 				},
 			})
 		</span>
-		<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(CalendarEvent{SourceColor: source.Color}) }></span>
+		<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(CalendarEvent{SourceColor: source.Color}) } data-calendar-color-dot={ source.ID }></span>
 		<span class={ "min-w-0 flex-1 truncate", templ.KV("opacity-50", source.IsHidden) } data-calendar-source-name title={ calendarSourceDisplayName(ctx, source) }>{ calendarSourceDisplayName(ctx, source) }</span>
 		// Its menu: show only this calendar (or all of them again when it
 		// already is the only one shown), or stop syncing it; a
@@ -244,6 +245,15 @@ templ calendarSourceRow(account models.Account, source models.AccountCalendarSou
 						@icon.Eye(icon.Props{Class: "size-4"})
 					</span>
 					<span data-calendar-only-tooltip={ source.ID }>{ i18n.T(ctx, "calendar.source.show_only") }</span>
+				}
+				if source.Provider != "ics" {
+					// A subscription's color is changed with the rest of it.
+					@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: calendarColorItemAttributes(ctx, account, source)}) {
+						<span class="inline-flex text-muted-foreground">
+							@icon.Palette(icon.Props{Class: "size-4"})
+						</span>
+						{ i18n.T(ctx, "calendar.color.menu") }
+					}
 				}
 				if source.Provider == "ics" {
 					// A subscription is changed and removed only in Gofer.
@@ -429,6 +439,43 @@ templ CalendarExportDialog(accounts []models.Account) {
 						</button>
 					}
 				</form>
+			}
+		}
+	}
+}
+
+// CalendarColorPicker is the color picker a synced calendar's Color… opens
+// at the calendar's dot, which the page fills in for that calendar. A note
+// says when only Gofer will show the color picked, and a calendar showing a
+// color only Gofer has can go back to its provider's.
+templ CalendarColorPicker() {
+	@popover.Root(popover.RootProps{ID: "calendar-color-popover"}) {
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "mobile-sheet w-[16.5rem] normal-case tracking-normal"}) {
+			@colorPicker(colorPickerProps{
+				Title:             i18n.T(ctx, "calendar.color.title"),
+				CustomID:          "calendar-color-custom",
+				Attributes:        templ.Attributes{"data-calendar-color-picker": ""},
+				PreviewClass:      "rounded-full",
+				PreviewAttributes: templ.Attributes{"data-calendar-color-preview": ""},
+			}) {
+				<div class="mt-3 space-y-2 empty:hidden">
+					<div class="flex items-start gap-2 text-xs text-muted-foreground" data-calendar-color-note="google_access" hidden>
+						@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+						<div class="min-w-0 space-y-1">
+							<p>{ i18n.T(ctx, "calendar.color.google_access") }</p>
+							@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto p-0 text-xs", Attributes: templ.Attributes{"data-calendar-color-allow-access": ""}}) {
+								{ i18n.T(ctx, "calendar.color.allow_access") }
+							}
+						</div>
+					</div>
+					<p class="flex items-start gap-2 text-xs text-muted-foreground" data-calendar-color-note="provider" hidden>
+						@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+						<span>{ i18n.T(ctx, "calendar.color.only_gofer") }</span>
+					</p>
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "w-full", Attributes: templ.Attributes{"data-calendar-color-reset": "", "hidden": true}}) {
+						<span class="truncate">{ i18n.T(ctx, "calendar.color.reset") }</span>
+					}
+				</div>
 			}
 		}
 	}

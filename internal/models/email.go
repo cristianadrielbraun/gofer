@@ -120,6 +120,9 @@ type AccountCalendarSource struct {
 	// A subscription's feed URL and how often it is read, in minutes.
 	SubscriptionURL string
 	RefreshMinutes  int
+	// ColorInGoferOnly is set when Color was picked in Gofer and the
+	// calendar's provider didn't take it, so only Gofer shows it.
+	ColorInGoferOnly bool
 }
 
 type Folder struct {

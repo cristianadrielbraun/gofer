@@ -48,6 +48,18 @@ type CalendarSource struct {
 	// RefreshMinutes is how often a calendar subscription is read again;
 	// other calendars follow the owner's sync interval and leave it 0.
 	RefreshMinutes int
+	// ChosenColor is a color picked in Gofer that the provider didn't take,
+	// shown instead of Color. Discovery never reads or writes it.
+	ChosenColor string
+}
+
+// ShownColor is the color Gofer shows for the calendar: the one picked in
+// Gofer, or else the provider's.
+func (s CalendarSource) ShownColor() string {
+	if s.ChosenColor != "" {
+		return s.ChosenColor
+	}
+	return s.Color
 }
 
 // UndeletableReason says why the calendar can't be deleted from its
@@ -243,7 +255,7 @@ func replaceCalendarSourcesTx(ctx context.Context, tx *sql.Tx, userID, accountID
 func (db *DB) ListCalendarSourcesForAccount(ctx context.Context, userID, accountID string) ([]CalendarSource, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT id, user_id, account_id, provider, remote_id, name, description,
-		       timezone, color, access_role, is_primary, is_selected, is_deleted, is_hidden
+		       timezone, color, access_role, is_primary, is_selected, is_deleted, is_hidden, chosen_color
 		FROM calendar_sources
 		WHERE user_id = ? AND account_id = ? AND is_deleted = 0
 		ORDER BY is_primary DESC, name COLLATE NOCASE, remote_id`, userID, accountID)
@@ -259,7 +271,7 @@ func (db *DB) ListCalendarSourcesForAccount(ctx context.Context, userID, account
 		if err := rows.Scan(
 			&source.ID, &source.UserID, &source.AccountID, &source.Provider,
 			&source.RemoteID, &source.Name, &source.Description, &source.TimeZone,
-			&source.Color, &source.AccessRole, &isPrimary, &isSelected, &isDeleted, &isHidden,
+			&source.Color, &source.AccessRole, &isPrimary, &isSelected, &isDeleted, &isHidden, &source.ChosenColor,
 		); err != nil {
 			return nil, err
 		}
@@ -383,7 +395,7 @@ func (db *DB) ListSelectedCalendarSources(ctx context.Context, userID string) ([
 // discovered but aren't synced, for the Calendar sidebar to offer.
 func (db *DB) ListUnselectedCalendarSources(ctx context.Context, userID string) ([]CalendarSource, error) {
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT source.id, source.account_id, source.provider, source.name, source.color
+		SELECT source.id, source.account_id, source.provider, source.name, source.color, source.chosen_color
 		FROM calendar_sources source
 		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
 		WHERE source.user_id = ? AND COALESCE(account.is_deleting, 0) = 0
@@ -397,7 +409,7 @@ func (db *DB) ListUnselectedCalendarSources(ctx context.Context, userID string) 
 	for rows.Next() {
 		var source CalendarSource
 		source.UserID = userID
-		if err := rows.Scan(&source.ID, &source.AccountID, &source.Provider, &source.Name, &source.Color); err != nil {
+		if err := rows.Scan(&source.ID, &source.AccountID, &source.Provider, &source.Name, &source.Color, &source.ChosenColor); err != nil {
 			return nil, err
 		}
 		sources = append(sources, source)
@@ -418,7 +430,7 @@ func (db *DB) listSelectedCalendarSources(ctx context.Context, userID string, in
 		       source.is_selected, source.is_deleted, source.is_hidden,
 		       COALESCE(sync.state, 'pending'), COALESCE(sync.attempt_count, 0), COALESCE(sync.last_error, ''),
 		       sync.last_started_at, sync.last_success_at, sync.next_attempt_at,
-		       sync.window_start, sync.window_end, source.created_in_gofer, source.refresh_minutes
+		       sync.window_start, sync.window_end, source.created_in_gofer, source.refresh_minutes, source.chosen_color
 		FROM calendar_sources source
 		JOIN accounts account ON account.id = source.account_id
 		LEFT JOIN calendar_sync_state sync ON sync.source_id = source.id
@@ -442,7 +454,7 @@ func (db *DB) listSelectedCalendarSources(ctx context.Context, userID string, in
 			&source.ID, &source.UserID, &source.AccountID, &source.Provider,
 			&source.RemoteID, &source.Name, &source.Description, &source.TimeZone,
 			&source.Color, &source.AccessRole, &isPrimary, &isSelected, &isDeleted, &isHidden,
-			&source.SyncState, &source.SyncAttempt, &source.SyncError, &started, &success, &next, &windowStart, &windowEnd, &source.CreatedInGofer, &source.RefreshMinutes,
+			&source.SyncState, &source.SyncAttempt, &source.SyncError, &started, &success, &next, &windowStart, &windowEnd, &source.CreatedInGofer, &source.RefreshMinutes, &source.ChosenColor,
 		); err != nil {
 			return nil, err
 		}
@@ -762,7 +774,7 @@ const calendarEventColumns = `
 		       event.start_at, event.end_at, event.start_timezone, event.end_timezone,
 		       event.recurrence_json, event.attendees_json, event.online_meeting_json,
 		       event.html_link, event.provider_created_at, event.provider_updated_at,
-		       event.is_deleted, source.name, source.color, source.is_hidden, event.response_status,
+		       event.is_deleted, source.name, ` + calendarShownColorSQL + `, source.is_hidden, event.response_status,
 		       source.provider, account.email_address, event.reminder_minutes, event.show_as, event.is_private, event.event_type`
 
 const calendarEventFrom = `

@@ -65,6 +65,11 @@ func TestJMAPCalendarSourcesMigration(t *testing.T) {
 	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 127 {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
+	// The calendar list as it is read now has the color picked in Gofer,
+	// from a later schema.
+	if err := migrateV154ToV155(db.Write()); err != nil {
+		t.Fatal(err)
+	}
 
 	// The account switches to JMAP calendars: the CalDAV one is let go.
 	if err := db.ReplaceCalendarSources(ctx, "owner", "account", CalendarSourceProviderJMAP, []CalendarSource{{RemoteID: "c1", Name: "Personal", IsPrimary: true, IsSelected: true}}); err != nil {

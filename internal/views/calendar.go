@@ -512,6 +512,39 @@ func calendarPersonalItemAttributes(state, action string, account models.Account
 	return attributes
 }
 
+// calendarColorNote says why only Gofer would show a color picked for a
+// synced calendar: "google_access" for a Google account that hasn't allowed
+// Gofer full calendar access, which changing its calendar list needs, or
+// "provider" where Gofer doesn't change calendar colors on the provider. It
+// is empty when the provider takes the color too.
+func calendarColorNote(account models.Account, source models.AccountCalendarSource) string {
+	switch source.Provider {
+	case "gmail":
+		if account.CalendarFullAccess {
+			return ""
+		}
+		return "google_access"
+	case "ics":
+		return ""
+	}
+	return "provider"
+}
+
+// calendarColorItemAttributes are a synced calendar's Color… item, with
+// what the color picker shows for it.
+func calendarColorItemAttributes(ctx context.Context, account models.Account, source models.AccountCalendarSource) templ.Attributes {
+	return templ.Attributes{
+		"type":                         "button",
+		"data-calendar-source-color":   source.ID,
+		"data-calendar-source-name":    calendarSourceDisplayName(ctx, source),
+		"data-calendar-color":          strings.TrimSpace(source.Color),
+		"data-calendar-color-in-gofer": strconv.FormatBool(source.ColorInGoferOnly),
+		"data-calendar-color-note":     calendarColorNote(account, source),
+		"data-calendar-account-email":  account.Email,
+		"data-calendar-account-name":   account.Name,
+	}
+}
+
 // calendarSourceHome names where a calendar lives, for saying what deleting
 // it deletes from.
 func calendarSourceHome(ctx context.Context, source models.AccountCalendarSource) string {

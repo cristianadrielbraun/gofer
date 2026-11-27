@@ -1628,6 +1628,9 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_in_gofer INTEGER NOT NULL DEFAULT 0,
     refresh_minutes INTEGER NOT NULL DEFAULT 0,
+    -- The color picked in Gofer when the provider didn't take it; sync
+    -- leaves it alone.
+    chosen_color TEXT NOT NULL DEFAULT '',
     UNIQUE (account_id, remote_id)
 );
 
@@ -2078,4 +2081,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (154);
+INSERT OR REPLACE INTO schema_version (version) VALUES (155);

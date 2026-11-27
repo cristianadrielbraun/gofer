@@ -5105,7 +5105,7 @@ func (db *DB) attachCalendarSources(ctx context.Context, userID string, accounts
 	byAccount := make(map[string][]models.AccountCalendarSource)
 	for _, source := range sources {
 		view := models.AccountCalendarSource{
-			ID: source.ID, Name: source.Name, Color: source.Color, IsHidden: source.IsHidden,
+			ID: source.ID, Name: source.Name, Color: source.ShownColor(), ColorInGoferOnly: source.ChosenColor != "", IsHidden: source.IsHidden,
 			Provider: source.Provider, Undeletable: source.UndeletableReason(),
 			AccessRole: source.AccessRole, CreatedInGofer: source.CreatedInGofer,
 			SyncState: source.SyncState, SyncAttempt: source.SyncAttempt, SyncError: source.SyncError,
@@ -5122,7 +5122,7 @@ func (db *DB) attachCalendarSources(ctx context.Context, userID string, accounts
 	}
 	otherByAccount := make(map[string][]models.AccountCalendarSource)
 	for _, source := range others {
-		otherByAccount[source.AccountID] = append(otherByAccount[source.AccountID], models.AccountCalendarSource{ID: source.ID, Name: source.Name, Color: source.Color})
+		otherByAccount[source.AccountID] = append(otherByAccount[source.AccountID], models.AccountCalendarSource{ID: source.ID, Name: source.Name, Color: source.ShownColor()})
 	}
 	for i := range accounts {
 		accounts[i].CalendarSources = byAccount[accounts[i].ID]

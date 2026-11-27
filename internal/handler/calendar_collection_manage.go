@@ -230,15 +230,25 @@ func (h *Handler) handleCalendarSourceManage(w http.ResponseWriter, r *http.Requ
 // delete its provider won't do. Removing one just from the account's own
 // list is allowed.
 func syncedCalendarSource(ctx context.Context, db *storage.DB, owner, sourceID string, change calendarChange) (storage.CalendarSource, error) {
+	source, err := selectedCalendarSource(ctx, db, owner, sourceID)
+	if err != nil {
+		return source, err
+	}
+	if reason := source.UndeletableReason(); reason != "" && change.name == "" && !change.personal {
+		return source, errCalendarUndeletable(reason)
+	}
+	return source, nil
+}
+
+// selectedCalendarSource is one of the owner's synced calendars, or
+// sql.ErrNoRows.
+func selectedCalendarSource(ctx context.Context, db *storage.DB, owner, sourceID string) (storage.CalendarSource, error) {
 	sources, err := db.ListSelectedCalendarSources(ctx, owner)
 	if err != nil {
 		return storage.CalendarSource{}, err
 	}
 	for _, source := range sources {
 		if source.ID == sourceID {
-			if reason := source.UndeletableReason(); reason != "" && change.name == "" && !change.personal {
-				return source, errCalendarUndeletable(reason)
-			}
 			return source, nil
 		}
 	}
@@ -256,7 +266,35 @@ func (h *Handler) manageUserCalendar(ctx context.Context, owner, sourceID string
 	}); err != nil {
 		return err
 	}
-	err := h.userIMAP.RunAccountService(ctx, owner, source.AccountID, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
+	if err := h.withUserCalendarLogin(ctx, owner, source, func(ctx context.Context, login calendarManageLogin) error {
+		return manageCalendarSource(ctx, source, login, change)
+	}); err != nil {
+		return err
+	}
+	if name == "" {
+		// Unticked at once, in case the list read below can't drop it.
+		var ids []string
+		if err := h.userAccounts.WithUser(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
+			var err error
+			_, ids, err = calendarSourceSelection(ctx, db, owner, sourceID, false)
+			return err
+		}); err == nil {
+			if err := h.userAccounts.SetCalendarSourcesSelected(ctx, owner, source.AccountID, ids); err != nil {
+				log.Printf("owned calendar: untick deleted calendar %s: %v", sourceID, err)
+			}
+		}
+	}
+	h.calendarListRead.Store(source.AccountID, time.Now())
+	if _, err := h.runUserCalendarDiscovery(ctx, owner, source.AccountID, nil, nil, true); err != nil {
+		log.Printf("owned calendar: refresh calendar list %s: %v", source.AccountID, err)
+	}
+	return nil
+}
+
+// withUserCalendarLogin signs in to a synced calendar's provider from the
+// per-user store, as its account's calendar work, and makes change there.
+func (h *Handler) withUserCalendarLogin(ctx context.Context, owner string, source storage.CalendarSource, change func(context.Context, calendarManageLogin) error) error {
+	return h.userIMAP.RunAccountService(ctx, owner, source.AccountID, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 		snapshot, err := h.userAccounts.SnapshotCalendarDiscovery(ctx, owner, source.AccountID)
 		if err != nil {
 			return err
@@ -292,29 +330,8 @@ func (h *Handler) manageUserCalendar(ctx context.Context, owner, sourceID string
 			}
 			login.token = authorization.Token()
 		}
-		return request.recordRetry(ctx, manageCalendarSource(ctx, source, login, change))
+		return request.recordRetry(ctx, change(ctx, login))
 	})
-	if err != nil {
-		return err
-	}
-	if name == "" {
-		// Unticked at once, in case the list read below can't drop it.
-		var ids []string
-		if err := h.userAccounts.WithUser(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
-			var err error
-			_, ids, err = calendarSourceSelection(ctx, db, owner, sourceID, false)
-			return err
-		}); err == nil {
-			if err := h.userAccounts.SetCalendarSourcesSelected(ctx, owner, source.AccountID, ids); err != nil {
-				log.Printf("owned calendar: untick deleted calendar %s: %v", sourceID, err)
-			}
-		}
-	}
-	h.calendarListRead.Store(source.AccountID, time.Now())
-	if _, err := h.runUserCalendarDiscovery(ctx, owner, source.AccountID, nil, nil, true); err != nil {
-		log.Printf("owned calendar: refresh calendar list %s: %v", source.AccountID, err)
-	}
-	return nil
 }
 
 // manageCalendar is the shared store's rename or delete.
@@ -324,17 +341,9 @@ func (h *Handler) manageCalendar(ctx context.Context, userID, sourceID string, c
 	if err != nil {
 		return err
 	}
-	credential := h.calendarCredentialsForSource(ctx, userID, source)
-	login := calendarManageLogin{baseURL: credential.baseURL, username: credential.username, password: credential.password, jmap: credential.jmap}
-	if source.Provider == providers.ProviderGmail || source.Provider == providers.ProviderOutlook {
-		if h.mailCredentials() == nil {
-			return errors.New("Mailbox OAuth is not configured for this Gofer instance.")
-		}
-		if login.token, err = h.mailCredentials().GetCalendarCreateTokenForAccount(ctx, source.AccountID, source.Provider); err != nil {
-			return err
-		}
-	} else if credential.err != nil {
-		return credential.err
+	login, err := h.sharedCalendarLogin(ctx, userID, source)
+	if err != nil {
+		return err
 	}
 	if err := manageCalendarSource(ctx, source, login, change); err != nil {
 		return err
@@ -351,4 +360,23 @@ func (h *Handler) manageCalendar(ctx context.Context, userID, sourceID string, c
 		log.Printf("calendar list %s: %v", source.AccountID, err)
 	}
 	return nil
+}
+
+// sharedCalendarLogin signs in to a synced calendar's provider from the
+// shared store.
+func (h *Handler) sharedCalendarLogin(ctx context.Context, userID string, source storage.CalendarSource) (calendarManageLogin, error) {
+	credential := h.calendarCredentialsForSource(ctx, userID, source)
+	login := calendarManageLogin{baseURL: credential.baseURL, username: credential.username, password: credential.password, jmap: credential.jmap}
+	if source.Provider == providers.ProviderGmail || source.Provider == providers.ProviderOutlook {
+		if h.mailCredentials() == nil {
+			return login, errors.New("Mailbox OAuth is not configured for this Gofer instance.")
+		}
+		var err error
+		if login.token, err = h.mailCredentials().GetCalendarCreateTokenForAccount(ctx, source.AccountID, source.Provider); err != nil {
+			return login, err
+		}
+	} else if credential.err != nil {
+		return login, credential.err
+	}
+	return login, nil
 }

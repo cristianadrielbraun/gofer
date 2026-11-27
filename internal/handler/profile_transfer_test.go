@@ -81,6 +81,11 @@ func seedProfileSource(t *testing.T, h *Handler) (imapID, outlookID string) {
 				t.Fatalf("hide calendar: %v", err)
 			}
 		}
+		if source.RemoteID == "/cal/work/" {
+			if err := h.db.SetCalendarSourceColor(ctx, "default", source.ID, storage.CalendarColorChange{Color: "#ef4444"}); err != nil {
+				t.Fatalf("pick a color for the calendar: %v", err)
+			}
+		}
 	}
 
 	if _, err := h.db.Write().Exec(`
@@ -246,11 +251,16 @@ func TestProfileImportAddsAccountsWaitingForReconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	hidden := map[string]bool{}
+	chosen := map[string]string{}
 	for _, source := range imported {
 		hidden[source.Name] = source.IsHidden
+		chosen[source.Name] = source.ChosenColor
 	}
 	if !hidden["Holidays"] || hidden["Work"] {
 		t.Fatalf("calendar visibility = %v", hidden)
+	}
+	if chosen["Work"] != "#ef4444" || chosen["Holidays"] != "" {
+		t.Fatalf("calendar colors picked in Gofer = %v", chosen)
 	}
 	if len(edit.Signatures) != 1 || edit.SignatureSettings.NewSignatureID != edit.Signatures[0].ID || !edit.SignatureSettings.NewEnabled {
 		t.Fatalf("signatures = %+v, settings = %+v", edit.Signatures, edit.SignatureSettings)

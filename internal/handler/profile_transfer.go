@@ -159,6 +159,8 @@ type profileCalendar struct {
 	Primary     bool   `json:"primary,omitempty"`
 	Selected    bool   `json:"selected,omitempty"`
 	Hidden      bool   `json:"hidden,omitempty"`
+	// ChosenColor is a color picked in Gofer that the provider didn't take.
+	ChosenColor string `json:"chosen_color,omitempty"`
 }
 
 type profileAccountSignatures struct {
@@ -354,6 +356,7 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 			exported.Calendar.Calendars = append(exported.Calendar.Calendars, profileCalendar{
 				RemoteID: source.RemoteID, Name: source.Name, Description: source.Description, TimeZone: source.TimeZone,
 				Color: source.Color, AccessRole: source.AccessRole, Primary: source.IsPrimary, Selected: source.IsSelected, Hidden: source.IsHidden,
+				ChosenColor: source.ChosenColor,
 			})
 		}
 	}
@@ -1054,6 +1057,7 @@ func importProfileAccountServices(ctx context.Context, store *config.AccountStor
 		sources = append(sources, storage.CalendarSource{
 			RemoteID: source.RemoteID, Name: source.Name, Description: source.Description, TimeZone: source.TimeZone,
 			Color: source.Color, AccessRole: source.AccessRole, IsPrimary: source.Primary, IsHidden: source.Hidden,
+			ChosenColor: source.ChosenColor,
 		})
 	}
 	return db.AddImportedCalendarSources(ctx, owner, id, profileCalendarProvider(account), sources)
@@ -1609,7 +1613,7 @@ func (h *Handler) replaceProfileAccountServices(ctx context.Context, owner, id s
 		}
 		for _, source := range calendar.Calendars {
 			if !known[source.RemoteID] {
-				missing = append(missing, storage.CalendarSource{RemoteID: source.RemoteID, Name: source.Name, Description: source.Description, TimeZone: source.TimeZone, Color: source.Color, AccessRole: source.AccessRole, IsPrimary: source.Primary, IsHidden: source.Hidden})
+				missing = append(missing, storage.CalendarSource{RemoteID: source.RemoteID, Name: source.Name, Description: source.Description, TimeZone: source.TimeZone, Color: source.Color, AccessRole: source.AccessRole, IsPrimary: source.Primary, IsHidden: source.Hidden, ChosenColor: source.ChosenColor})
 			}
 		}
 		if err := db.AddImportedCalendarSources(ctx, owner, id, profileCalendarProvider(account), missing); err != nil {

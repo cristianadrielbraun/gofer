@@ -18227,10 +18227,10 @@ document.addEventListener("click", function (event) {
 function offerFullCalendarAccess(data, action) {
   var name = data.calendarSourceName || goferT("js.calendar.source.this")
   var personal = action === "rename-mine" || action === "remove"
-  var doing = { "delete": "delete", "rename-mine": "rename_mine", remove: "remove" }[action] || "rename"
+  var doing = { "delete": "delete", "rename-mine": "rename_mine", remove: "remove", color: "color" }[action] || "rename"
   window.goferConfirm({
     title: goferT("js.calendar.access.title." + doing, { calendar: name }),
-    message: goferT(personal ? "js.calendar.access.personal" : "js.calendar.access.owned", { calendar: name }),
+    message: goferT(action === "color" ? "js.calendar.access.color" : personal ? "js.calendar.access.personal" : "js.calendar.access.owned", { calendar: name }),
     confirmLabel: goferT("js.calendar.access.allow"),
   }).then(function (accepted) {
     if (!accepted) return
@@ -18322,6 +18322,163 @@ document.addEventListener("click", function (event) {
   }).catch(function (error) {
     showGoferToast({ title: rename ? goferT("js.calendar.source.rename_failed") : personal ? goferT("js.calendar.source.remove_failed") : goferT("js.calendar.source.delete_failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
+})
+
+// Color… in a synced calendar's menu opens the calendar color picker at the
+// calendar's dot. A color picked there is saved at once: on the calendar's
+// provider where Gofer can change it there, otherwise only in Gofer, which
+// the picker's note says beforehand. A calendar showing a color only Gofer
+// has can go back to its own. The calendar's dot and its menu take the new
+// color at once, and the calendar's events follow.
+var calendarColorTarget = null
+
+function normalizeCalendarColor(color) {
+  color = (color || "").trim().toLowerCase()
+  return /^#[0-9a-f]{6}$/.test(color) ? color : ""
+}
+
+function calendarColorElements(id) {
+  var found = { picker: document.querySelector("[data-calendar-color-picker]") }
+  document.querySelectorAll("[data-calendar-color-dot]").forEach(function (dot) {
+    if (dot.getAttribute("data-calendar-color-dot") === id) found.dot = dot
+  })
+  document.querySelectorAll("[data-calendar-source-color]").forEach(function (item) {
+    if (item.getAttribute("data-calendar-source-color") === id) found.item = item
+  })
+  return found
+}
+
+function setCalendarColorStatus(picker, message, isError) {
+  var status = picker && picker.querySelector("[data-color-picker-status]")
+  if (!status) return
+  status.textContent = message || ""
+  status.classList.toggle("text-destructive", !!isError)
+  status.classList.toggle("text-muted-foreground", !isError)
+}
+
+// paintCalendarColorPicker shows the calendar data describes: its name and
+// color, the note for its provider, and the way back to its own color when
+// only Gofer has the one it shows.
+function paintCalendarColorPicker(picker, data) {
+  var color = normalizeCalendarColor(data.calendarColor)
+  var name = picker.querySelector("[data-color-picker-name]")
+  if (name) name.textContent = data.calendarSourceName || ""
+  var preview = picker.querySelector("[data-calendar-color-preview]")
+  if (preview) preview.style.backgroundColor = color || "var(--primary)"
+  picker.querySelectorAll("[data-color-picker-option]").forEach(function (swatch) {
+    var active = normalizeCalendarColor(swatch.getAttribute("data-color-picker-option")) === color
+    swatch.setAttribute("data-account-color-active", active ? "true" : "false")
+    swatch.setAttribute("aria-pressed", active ? "true" : "false")
+  })
+  var input = picker.querySelector("[data-color-picker-custom]")
+  if (input) input.value = color || "#2563eb"
+  var code = picker.querySelector("[data-color-picker-code]")
+  if (code && input) code.textContent = input.value
+  picker.querySelectorAll("[data-calendar-color-note]").forEach(function (note) {
+    note.hidden = note.getAttribute("data-calendar-color-note") !== (data.calendarColorNote || "")
+  })
+  var reset = picker.querySelector("[data-calendar-color-reset]")
+  if (reset) reset.hidden = data.calendarColorInGofer !== "true"
+  setCalendarColorStatus(picker, "", false)
+}
+
+function setCalendarColorSaving(picker, saving) {
+  picker.querySelectorAll("[data-color-picker-option], [data-color-picker-custom], [data-calendar-color-reset]").forEach(function (control) {
+    control.disabled = !!saving
+    control.classList.toggle("opacity-60", !!saving)
+  })
+}
+
+function saveCalendarColor(rawColor) {
+  var target = calendarColorTarget
+  var picker = document.querySelector("[data-calendar-color-picker]")
+  if (!target || !picker) return
+  var color = rawColor === "" ? "" : normalizeCalendarColor(rawColor)
+  if (rawColor !== "" && !color) return
+  setCalendarColorSaving(picker, true)
+  setCalendarColorStatus(picker, goferT("js.settings.status.saving"), false)
+  fetch("/api/calendar/sources/" + encodeURIComponent(target.id) + "/color", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ color: color }),
+  }).then(function (response) {
+    if (response.ok) return response.json()
+    return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.calendar.color.failed")) })
+  }).then(function (result) {
+    var shown = normalizeCalendarColor(result && result.color)
+    target.data.calendarColor = shown
+    target.data.calendarColorInGofer = result && result.in_gofer_only ? "true" : "false"
+    if (result && result.in_gofer_only) target.data.calendarColorNote = result.reason || ""
+    var found = calendarColorElements(target.id)
+    if (found.dot) found.dot.style.backgroundColor = shown || "var(--primary)"
+    if (found.item) {
+      found.item.setAttribute("data-calendar-color", shown)
+      found.item.setAttribute("data-calendar-color-in-gofer", target.data.calendarColorInGofer)
+      found.item.setAttribute("data-calendar-color-note", target.data.calendarColorNote || "")
+    }
+    scheduleCalendarCacheRefresh()
+    if (calendarColorTarget !== target) return
+    // The picker stays open to try other colors. A provider that refused the
+    // color shows the note that says so.
+    paintCalendarColorPicker(picker, target.data)
+    setCalendarColorStatus(picker, goferT("js.settings.status.saved"), false)
+    var status = picker.querySelector("[data-color-picker-status]")
+    var saved = status && status.textContent
+    setTimeout(function () {
+      if (status && status.textContent === saved) setCalendarColorStatus(picker, "", false)
+    }, 1800)
+  }).catch(function (error) {
+    if (calendarColorTarget === target) setCalendarColorStatus(picker, error && error.message ? error.message : goferT("js.calendar.color.failed"), true)
+  }).finally(function () {
+    setCalendarColorSaving(picker, false)
+  })
+}
+
+document.addEventListener("click", function (event) {
+  var item = event.target.closest && event.target.closest("[data-calendar-source-color]")
+  if (!item) return
+  event.preventDefault()
+  var id = item.getAttribute("data-calendar-source-color")
+  var found = calendarColorElements(id)
+  if (!found.picker || !found.dot || !window.tui || !window.tui.popover) return
+  calendarColorTarget = { id: id, data: Object.assign({}, item.dataset) }
+  paintCalendarColorPicker(found.picker, calendarColorTarget.data)
+  // After this click is over, which closes the menu and anything else open.
+  setTimeout(function () { window.tui.popover.open("calendar-color-popover", found.dot) }, 0)
+})
+
+document.addEventListener("click", function (event) {
+  var picker = event.target.closest && event.target.closest("[data-calendar-color-picker]")
+  if (!picker) return
+  var swatch = event.target.closest("[data-color-picker-option]")
+  if (swatch) {
+    event.preventDefault()
+    saveCalendarColor(swatch.getAttribute("data-color-picker-option"))
+    return
+  }
+  if (event.target.closest("[data-calendar-color-reset]")) {
+    event.preventDefault()
+    saveCalendarColor("")
+    return
+  }
+  if (event.target.closest("[data-calendar-color-allow-access]") && calendarColorTarget) {
+    event.preventDefault()
+    if (window.tui && window.tui.popover) window.tui.popover.close("calendar-color-popover")
+    offerFullCalendarAccess(calendarColorTarget.data, "color")
+  }
+})
+
+document.addEventListener("change", function (event) {
+  var input = event.target.closest && event.target.closest("[data-calendar-color-picker] [data-color-picker-custom]")
+  if (input) saveCalendarColor(input.value)
+})
+
+// A color picker's color code follows its custom color as it is picked, in
+// every picker (the account marker's too).
+document.addEventListener("input", function (event) {
+  var input = event.target.closest && event.target.closest("[data-color-picker-custom]")
+  var code = input && input.parentElement && input.parentElement.querySelector("[data-color-picker-code]")
+  if (code) code.textContent = input.value
 })
 
 // Import events… and Export calendar… open their dialogs, from the New event
