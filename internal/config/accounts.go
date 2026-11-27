@@ -93,19 +93,19 @@ func (s *AccountStore) getConfig(ctx context.Context, accountID string, checkAll
 	var cfg models.AccountConfig
 	cfg.AccountID = accountID
 	var owner sql.NullString
-	var email, proxyID string
+	var email, proxyID, groupID string
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT provider, provider_account_id,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode,
 		        username, auth_method, smtp_username, jmap_session_url,
-		        user_id, email_address, proxy_id
+		        user_id, email_address, proxy_id, group_id
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&cfg.Provider, &cfg.ProviderAccountID,
 		&cfg.IMAPHost, &cfg.IMAPPort, &cfg.IMAPTLSMode,
 		&cfg.SMTPHost, &cfg.SMTPPort, &cfg.SMTPTLSMode,
 		&cfg.Username, &cfg.AuthMethod, &cfg.SmtpUsername, &cfg.JMAPSessionURL,
-		&owner, &email, &proxyID)
+		&owner, &email, &proxyID, &groupID)
 	if err != nil {
 		return nil, fmt.Errorf("query account config: %w", err)
 	}
@@ -113,7 +113,15 @@ func (s *AccountStore) getConfig(ctx context.Context, accountID string, checkAll
 	// and only a connection needs its proxy: settings can still be read
 	// when the proxy can't.
 	if checkAllowlist {
-		if cfg.Proxy, err = s.ResolveProxyChoice(ctx, owner.String, proxyID); err != nil {
+		chain := []string{proxyID}
+		if groupID != "" && owner.String != "" {
+			groups, err := s.db.GetGroupProxyChain(ctx, owner.String, groupID)
+			if err != nil {
+				return nil, fmt.Errorf("account %s: %w", accountID, err)
+			}
+			chain = append(chain, groups...)
+		}
+		if cfg.Proxy, err = s.ResolveProxyChain(ctx, owner.String, chain...); err != nil {
 			return nil, fmt.Errorf("account %s: %w", accountID, err)
 		}
 		if err := s.checkMailAllowlist(ctx, owner.String, storage.MailAllowlistMailbox{Provider: cfg.Provider, Email: email, Username: cfg.Username,
@@ -181,20 +189,21 @@ func (s *AccountStore) applyJMAPTransportPolicy(ctx context.Context, cfg *models
 func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*models.EditAccountData, error) {
 	var data models.EditAccountData
 	data.AccountID = accountID
-	var emailSyncEnabled int
+	var bgSyncEnabled, emailSyncEnabled int
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT provider, provider_account_id, email_address, display_name, sender_name,
 		        imap_host, imap_port, imap_tls_mode,
-		        smtp_host, smtp_port, smtp_tls_mode, COALESCE(email_sync_enabled, 1),
-		        username, auth_method, COALESCE(smtp_username, ''), jmap_session_url, proxy_id
+		        smtp_host, smtp_port, smtp_tls_mode, COALESCE(background_sync_enabled, 1), COALESCE(email_sync_enabled, 1),
+		        username, auth_method, COALESCE(smtp_username, ''), jmap_session_url, proxy_id, group_id
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName, &data.SenderName,
 		&data.IMAPHost, &data.IMAPPort, &data.IMAPTLSMode,
-		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode, &emailSyncEnabled,
-		&data.Username, &data.AuthMethod, &data.SmtpUsername, &data.JMAPSessionURL, &data.ProxyID)
+		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode, &bgSyncEnabled, &emailSyncEnabled,
+		&data.Username, &data.AuthMethod, &data.SmtpUsername, &data.JMAPSessionURL, &data.ProxyID, &data.GroupID)
 	if err != nil {
 		return nil, fmt.Errorf("query account edit data: %w", err)
 	}
+	data.BackgroundSyncEnabled = bgSyncEnabled == 1
 	data.EmailSyncEnabled = emailSyncEnabled == 1
 	data.SameSmtpAuth = data.SmtpUsername == "" || data.SmtpUsername == data.Username
 	userID, err := s.db.GetAccountUserID(ctx, accountID)
@@ -792,8 +801,18 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 		return nil, err
 	}
 	req.ProxyID = strings.TrimSpace(req.ProxyID)
-	if err := s.checkProxyChoice(ctx, userID, req.ProxyID); err != nil {
+	if err := s.CheckProxyChoice(ctx, userID, req.ProxyID); err != nil {
 		return nil, err
+	}
+	req.GroupID = strings.TrimSpace(req.GroupID)
+	if req.GroupID != "" {
+		exists, err := s.db.AccountGroupExists(ctx, userID, req.GroupID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, storage.ErrAccountGroupNotFound
+		}
 	}
 	if purgeDeleting {
 		if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
@@ -821,16 +840,22 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 		  imap_host, imap_port, imap_tls_mode,
 		  smtp_host, smtp_port, smtp_tls_mode,
 		  username, encrypted_password, auth_method,
-		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled, proxy_id, sort_order)
-		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		        (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM accounts WHERE user_id = ?)`
+		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled, background_sync_enabled, proxy_id, group_id, sort_order)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		        (SELECT MAX(v) + 1 FROM (
+		            SELECT -1 AS v
+		            UNION ALL
+		            SELECT COALESCE(MAX(sort_order), -1) FROM accounts WHERE user_id = ? AND group_id = ?
+		            UNION ALL
+		            SELECT COALESCE(MAX(sort_order), -1) FROM account_groups WHERE user_id = ? AND COALESCE(parent_id, '') = ?
+		        ))`
 	args := []any{
 		id, userID, req.Provider, req.ProviderAccountID, req.EmailAddress, req.DisplayName, color, initials,
 		req.IMAPHost, req.IMAPPort, req.IMAPTLSMode,
 		req.SMTPHost, req.SMTPPort, req.SMTPTLSMode,
 		req.Username, encrypted, req.AuthMethod,
-		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled), req.ProxyID,
-		userID}
+		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled), boolInt(!req.BackgroundSyncDisabled), req.ProxyID, req.GroupID,
+		userID, req.GroupID, userID, req.GroupID}
 	if !purgeDeleting {
 		// The single local writer makes this check/insert atomic for concurrent
 		// UUID reservations. The same email may belong to different user stores.
@@ -1145,6 +1170,10 @@ func (s *AccountStore) SetLocalFoldersHidden(ctx context.Context, userID, accoun
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (s *AccountStore) SetBackgroundSyncEnabled(ctx context.Context, userID, accountID string, enabled bool) error {
+	return s.db.SetAccountBackgroundSyncEnabled(ctx, userID, accountID, enabled)
 }
 
 func (s *AccountStore) SetEmailSyncEnabled(ctx context.Context, userID, accountID string, enabled bool) error {
@@ -1651,7 +1680,7 @@ func (s *AccountStore) GetAccountByIDForUser(ctx context.Context, userID, accoun
 
 func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID string) (*models.Account, error) {
 	var a models.Account
-	var emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
+	var bgSyncEnabled, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 	where := "a.id = ?"
 	args := []any{accountID}
 	if userID != "" {
@@ -1659,7 +1688,7 @@ func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID str
 		args = append(args, userID)
 	}
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.color, a.initials, COALESCE(a.email_sync_enabled, 1),
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.group_id, a.color, a.initials, COALESCE(a.background_sync_enabled, 1), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
@@ -1672,13 +1701,14 @@ func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID str
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE `+where+` AND COALESCE(a.is_deleting, 0) = 0`, args...,
-	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &a.DAVService, &a.DAVLogin, &a.DAVServer)
+	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.GroupID, &a.Color, &a.Initials, &bgSyncEnabled, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &a.DAVService, &a.DAVLogin, &a.DAVServer)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	a.BackgroundSyncEnabled = bgSyncEnabled == 1
 	a.EmailSyncEnabled = emailSyncEnabled == 1
 	a.ContactSyncEnabled = contactSyncEnabled == 1
 	a.CalendarSyncEnabled = calendarSyncEnabled == 1

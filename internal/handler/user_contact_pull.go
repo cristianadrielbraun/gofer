@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -439,20 +440,30 @@ func (h *Handler) handleUserSyncAccountContacts(w http.ResponseWriter, r *http.R
 		}
 	}
 	var accounts []contactSyncAccount
+	hasAnyContactAccount := false
+	singleAccount := strings.TrimSpace(r.FormValue("account_id")) != ""
 	for _, id := range ids {
 		snapshot, err := h.userAccounts.SnapshotServices(r.Context(), owner, id)
 		if err != nil {
-			if r.FormValue("account_id") != "" {
+			if singleAccount {
 				userContactSetupError(w, r, err)
 				return
 			}
 			continue
 		}
 		if snapshot.ContactConfig().Enabled {
+			hasAnyContactAccount = true
+			if !singleAccount && !snapshot.BackgroundSyncEnabled() {
+				continue
+			}
 			accounts = append(accounts, contactSyncAccount{ID: id, Email: snapshot.Identity().EmailAddress, Provider: snapshot.ContactConfig().Provider})
 		}
 	}
 	if len(accounts) == 0 {
+		if !singleAccount && hasAnyContactAccount {
+			htmlStatus(w, r, http.StatusBadRequest, i18n.T(r.Context(), "contacts.sync.all_paused"))
+			return
+		}
 		htmlStatus(w, r, http.StatusBadRequest, "Connect an account with contact sync before syncing contacts.")
 		return
 	}

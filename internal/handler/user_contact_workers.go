@@ -321,6 +321,22 @@ func (w *userContactWorkers) process(parent context.Context, job userContactJob)
 		w.report(ctx, "reserve provider pull", err)
 		return
 	}
+	bgEnabled := true
+	if checkErr := w.h.userAccounts.WithUser(ctx, job.owner, func(_ *config.AccountStore, db *storage.DB) error {
+		bgEnabled = db.IsBackgroundSyncEnabled(ctx, job.account)
+		return nil
+	}); checkErr != nil {
+		w.report(ctx, "read background sync state", checkErr)
+		return
+	}
+	if !bgEnabled {
+		updated, completeErr := w.h.userStorage.CompleteServiceAccount(ctx, job.owner, job.account, storage.ScheduledContacts, revision, time.Now().Add(24*time.Hour))
+		w.report(ctx, "defer paused provider pull", completeErr)
+		if completeErr == nil && !updated {
+			w.signal(true)
+		}
+		return
+	}
 	_, pullErr := w.h.SyncUserContactAccount(ctx, job.owner, job.account)
 	w.report(ctx, "pull provider contacts", pullErr)
 	if ctx.Err() != nil {

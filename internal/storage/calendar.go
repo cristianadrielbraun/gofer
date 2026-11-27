@@ -442,9 +442,10 @@ func (db *DB) listSelectedCalendarSources(ctx context.Context, userID string, in
 		WHERE (? = 1 OR source.user_id = ?)
 		  AND account.user_id = source.user_id
 		  AND COALESCE(account.is_deleting, 0) = 0
+		  AND (? = 0 OR COALESCE(account.background_sync_enabled, 1) = 1)
 		  AND source.is_deleted = 0
 		  AND source.is_selected = 1
-		ORDER BY source.is_primary DESC, source.name COLLATE NOCASE, source.remote_id`, calendarBoolInt(instance), userID)
+		ORDER BY source.is_primary DESC, source.name COLLATE NOCASE, source.remote_id`, calendarBoolInt(instance), userID, calendarBoolInt(instance))
 	if err != nil {
 		return nil, err
 	}

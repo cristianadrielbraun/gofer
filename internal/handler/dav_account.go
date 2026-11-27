@@ -297,7 +297,9 @@ func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request)
 	owner := h.userID(r.Context())
 	req := &models.CreateAccountRequest{
 		Provider: providers.ProviderDAV, DisplayName: form.name, Username: form.username, Password: form.password,
-		ProxyID: strings.TrimSpace(r.FormValue("proxy")),
+		ProxyID:                strings.TrimSpace(r.FormValue("proxy")),
+		GroupID:                strings.TrimSpace(r.FormValue("group_id")),
+		BackgroundSyncDisabled: parseBackgroundSyncDisabled(r),
 	}
 	var account *models.Account
 	if h.userAccounts == nil {
@@ -324,10 +326,12 @@ func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := h.userStorage.WithAccountActivityForUser(r.Context(), owner, account.ID, func() error {
-		return h.userAccountHooks.Created(r.Context(), account.ID)
-	}); err != nil {
-		log.Printf("routed account %s created but its sync could not be started: %v", account.ID, err)
+	if !req.BackgroundSyncDisabled {
+		if err := h.userStorage.WithAccountActivityForUser(r.Context(), owner, account.ID, func() error {
+			return h.userAccountHooks.Created(r.Context(), account.ID)
+		}); err != nil {
+			log.Printf("routed account %s created but its sync could not be started: %v", account.ID, err)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -381,6 +385,23 @@ func (h *Handler) handleUpdateDAVAccount(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		userAccountError(w, r, err)
 		return
+	}
+	if r.FormValue("background_sync_present") == "1" || r.FormValue("background_sync") != "" {
+		bgEnabled := !parseBackgroundSyncDisabled(r)
+		if bgEnabled != saved.BackgroundSyncEnabled {
+			if h.userAccounts == nil {
+				err = h.db.SetAccountBackgroundSyncEnabled(r.Context(), owner, id, bgEnabled)
+			} else {
+				err = h.userAccounts.WithAccountForUser(r.Context(), owner, id, func(_ *config.AccountStore, db *storage.DB) error {
+					return db.SetAccountBackgroundSyncEnabled(r.Context(), owner, id, bgEnabled)
+				})
+			}
+			if err != nil {
+				userAccountError(w, r, err)
+				return
+			}
+			h.applyAccountsBackgroundSync(r.Context(), owner, []string{id}, bgEnabled)
+		}
 	}
 	if saved.ReconnectPending {
 		// It came from a profile; with its password it syncs again, with the
@@ -499,7 +520,9 @@ func (h *Handler) saveDAVAccountServices(ctx context.Context, owner, id string, 
 		if err := h.userAccounts.SetCalendarSourcesSelected(ctx, owner, id, selected); err != nil {
 			return err
 		}
-		h.wakeUserCalendarAccount(ctx, owner, id)
+		if data.BackgroundSyncEnabled {
+			h.wakeUserCalendarAccount(ctx, owner, id)
+		}
 		return nil
 	}
 	var books []models.ContactAddressBook
@@ -509,17 +532,22 @@ func (h *Handler) saveDAVAccountServices(ctx context.Context, owner, id string, 
 			books = append(books, book)
 		}
 	}
+	bgEnabled := true
 	err := h.userIMAP.RunAccountService(ctx, owner, id, mail.AccountServiceContacts, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 		snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
 		if err != nil {
 			return err
 		}
+		bgEnabled = snapshot.BackgroundSyncEnabled()
 		cfg := models.ContactSyncConfig{Provider: providers.ProviderCardDAV, Enabled: true,
 			BaseURL: found.serverURL, Username: form.username, AddressBooks: books}
 		return h.userAccounts.SaveContactServices(ctx, snapshot, cfg, "")
 	})
 	if err != nil {
 		return err
+	}
+	if !bgEnabled {
+		return nil
 	}
 	return h.WakeUserContactAccount(ctx, owner, id)
 }
@@ -559,20 +587,22 @@ func (h *Handler) saveSharedDAVAccountServices(ctx context.Context, owner, id st
 	if err := h.accountStore.SaveContactSyncConfig(ctx, owner, id, cfg, ""); err != nil {
 		return err
 	}
-	go func() {
-		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if _, err := h.SyncContactAccount(bg, id); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
-			log.Printf("contacts sync %s after saving its address books: %v", id, err)
-		}
-	}()
+	if h.db.IsBackgroundSyncEnabled(ctx, id) {
+		go func() {
+			bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if _, err := h.SyncContactAccount(bg, id); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+				log.Printf("contacts sync %s after saving its address books: %v", id, err)
+			}
+		}()
+	}
 	return nil
 }
 
 // davAccountDialogData fills the dialog of an account with no mail from its
 // saved settings.
 func davAccountDialogData(data models.EditAccountData) views.DAVAccountDialogData {
-	dialog := views.DAVAccountDialogData{AccountID: data.AccountID, Service: davAccountService(data), Name: data.DisplayName, Username: data.Username, NeedsPassword: data.ReconnectPending}
+	dialog := views.DAVAccountDialogData{AccountID: data.AccountID, Service: davAccountService(data), Name: data.DisplayName, Username: data.Username, NeedsPassword: data.ReconnectPending, BackgroundSyncEnabled: data.BackgroundSyncEnabled}
 	checked := davSavedChoices(data)
 	if dialog.Service == davServiceCalendar {
 		dialog.ServerURL = data.CalendarSync.CalDAVBaseURL
@@ -657,12 +687,14 @@ func (h *Handler) handleAddAccountMail(w http.ResponseWriter, r *http.Request) {
 		h.renderAddMailNextStep(w, r, owner, id)
 		return
 	}
-	if err := h.userStorage.WithAccountActivityForUser(r.Context(), owner, id, func() error {
-		return h.userAccountHooks.Updated(r.Context(), id)
-	}); err != nil {
-		log.Printf("routed account %s got mail but its sync could not be started: %v", id, err)
-		http.Error(w, i18n.T(r.Context(), "server.error.email_added_synchronization_could_not_be_started"), http.StatusServiceUnavailable)
-		return
+	if existing.BackgroundSyncEnabled {
+		if err := h.userStorage.WithAccountActivityForUser(r.Context(), owner, id, func() error {
+			return h.userAccountHooks.Updated(r.Context(), id)
+		}); err != nil {
+			log.Printf("routed account %s got mail but its sync could not be started: %v", id, err)
+			http.Error(w, i18n.T(r.Context(), "server.error.email_added_synchronization_could_not_be_started"), http.StatusServiceUnavailable)
+			return
+		}
 	}
 	h.renderAddMailNextStep(w, r, owner, id)
 }

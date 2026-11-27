@@ -6,32 +6,39 @@ import (
 )
 
 type Account struct {
-	ID                  string
-	Provider            string
-	MailService         string // "icloud" for an IMAP account on iCloud Mail
+	ID          string
+	Provider    string
+	MailService string // "icloud" for an IMAP account on iCloud Mail
 	// Name labels the account in Gofer. It is also the name the account's
 	// own address sends under unless SenderName is set; see FromName.
-	Name                string
-	Email               string
+	Name  string
+	Email string
 	// SenderName is the name the account's own address sends under, when
 	// it should differ from Name.
 	SenderName string
 	// DefaultIdentityID is the identity new messages start from; empty
 	// starts them from the account's own address.
-	DefaultIdentityID   string
-	Color               string
-	Initials            string
-	IsActive            bool
-	IsDeleting          bool
+	DefaultIdentityID string
+	SortOrder         int
+	// GroupID is the account_groups id the account sits in, or "" at the top
+	// level. GroupPath lists its enclosing groups from outermost to immediate
+	// parent.
+	GroupID    string
+	GroupPath  []AccountGroupRef
+	Color      string
+	Initials   string
+	IsActive   bool
+	IsDeleting bool
 	// Hidden is set when the user hid the account, which so far only Local
 	// folders can be: it leaves the sidebar and the places mail can go.
-	Hidden              bool
-	EmailSyncEnabled    bool
-	EmailSyncError      string
-	EmailSyncErrorAt    string
-	ContactSyncEnabled  bool
-	ContactSyncProvider string
-	CalendarSyncEnabled bool
+	Hidden                bool
+	BackgroundSyncEnabled bool
+	EmailSyncEnabled      bool
+	EmailSyncError        string
+	EmailSyncErrorAt      string
+	ContactSyncEnabled    bool
+	ContactSyncProvider   string
+	CalendarSyncEnabled   bool
 	// DAVService is "calendar" or "contacts" for an account with no mail, the
 	// one service it is for. DAVLogin and DAVServer are its username and the
 	// CalDAV or CardDAV server it signs in to.
@@ -57,8 +64,8 @@ type Account struct {
 	// MissingFolderRoles are the roles, such as "trash", no folder of an IMAP
 	// account has, once its folders have been listed.
 	MissingFolderRoles []string
-	Folders             []Folder
-	Labels              []Label
+	Folders            []Folder
+	Labels             []Label
 
 	// CalendarFullAccess is set for a Google account that allowed Gofer to
 	// manage all its calendars, not only the ones Gofer created.
@@ -88,6 +95,30 @@ func (a Account) DefaultIdentity() (Identity, bool) {
 		}
 	}
 	return Identity{}, false
+}
+
+// AccountGroupRef is one step on the path of groups an account sits inside,
+// from the outermost group down to its immediate parent.
+type AccountGroupRef struct {
+	ID        string
+	Name      string
+	SortOrder int
+}
+
+// AccountGroup is a group of connected accounts, which may sit inside another
+// group and pick a proxy for the accounts under it.
+type AccountGroup struct {
+	ID        string
+	ParentID  string
+	Name      string
+	SortOrder int
+	ProxyID   string
+	Depth     int
+	// ProxyState describes how the group connects, for the Accounts settings
+	// card; ProxyActive is set when it routes through a proxy rather than
+	// connecting directly.
+	ProxyState  string
+	ProxyActive bool
 }
 
 // AccountCalendarSource is sidebar metadata, not account sync configuration.
@@ -145,32 +176,32 @@ type Folder struct {
 }
 
 type Email struct {
-	ID                string
-	AccountID         string
-	AccountColor      string
-	FolderID          string
-	FolderRole        string
+	ID           string
+	AccountID    string
+	AccountColor string
+	FolderID     string
+	FolderRole   string
 	// SearchLocation names the account and folder path on search results.
 	SearchLocation string
 	// SearchGroupStart marks a search result whose location differs from the
 	// result before it, so the location shows once above each run.
 	SearchGroupStart bool
-	From              Contact
-	To                []Contact
-	CC                []Contact
-	BCC               []Contact
-	Subject           string
-	Preview           string
-	Body              template.HTML
-	HTMLBody          string
-	OriginalHTMLBody  string
-	TextBody          string
-	Date              string
-	DateWithTime      string
-	DateFull          string
-	IsRead            bool
-	IsStarred         bool
-	HasAttachment     bool
+	From             Contact
+	To               []Contact
+	CC               []Contact
+	BCC              []Contact
+	Subject          string
+	Preview          string
+	Body             template.HTML
+	HTMLBody         string
+	OriginalHTMLBody string
+	TextBody         string
+	Date             string
+	DateWithTime     string
+	DateFull         string
+	IsRead           bool
+	IsStarred        bool
+	HasAttachment    bool
 	// AttachmentCount counts this message's attachments, not inline images.
 	AttachmentCount   int
 	Labels            []Label
@@ -207,8 +238,8 @@ type Contact struct {
 	IsDeleted bool
 	// TrashedAt is when the contact went to the Trash, and TrashPurgeAt when
 	// it is deleted for good from there, formatted for showing.
-	TrashedAt        string
-	TrashPurgeAt     string
+	TrashedAt    string
+	TrashPurgeAt string
 	// DeletedFrom are the places, "account:<id>" or "book:<id>", that
 	// deleted a contact with Gofer Sync on, while it waits to be resolved.
 	DeletedFrom      []string
@@ -466,25 +497,25 @@ type EmailFilters struct {
 }
 
 type ThreadItem struct {
-	ID                string
-	AccountID         string
-	AccountColor      string
-	From              Contact
-	To                []Contact
-	CC                []Contact
-	Subject           string
-	Preview           string
-	TextBody          string
-	Date              string
-	DateWithTime      string
-	DateFull          string
-	IsRead            bool
-	IsStarred         bool
-	IsDraft           bool
-	HasAttachment     bool
-	FolderName        string
-	FolderID          string
-	FolderRole        string
+	ID            string
+	AccountID     string
+	AccountColor  string
+	From          Contact
+	To            []Contact
+	CC            []Contact
+	Subject       string
+	Preview       string
+	TextBody      string
+	Date          string
+	DateWithTime  string
+	DateFull      string
+	IsRead        bool
+	IsStarred     bool
+	IsDraft       bool
+	HasAttachment bool
+	FolderName    string
+	FolderID      string
+	FolderRole    string
 	// ElsewhereFolder names the folder the message is filed in when an
 	// expanded conversation's list isn't that folder, like Sent in Inbox.
 	ElsewhereFolder   string

@@ -91,6 +91,9 @@ func (h *Handler) syncCalendarScopedWindow(ctx context.Context, userID string, s
 		if (provider != "" && source.Provider != provider) || (accountID != "" && source.AccountID != accountID) {
 			continue
 		}
+		if accountID == "" && source.Provider != storage.CalendarSourceProviderICS && source.AccountID != "" && !h.db.IsBackgroundSyncEnabled(ctx, source.AccountID) {
+			continue
+		}
 		matched = true
 		if err := ctx.Err(); err != nil {
 			return total, err

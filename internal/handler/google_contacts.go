@@ -144,6 +144,10 @@ func (h *Handler) handleSyncAccountContacts(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if len(accounts) == 0 {
+		if accountID == "" && h.hasPausedContactSyncAccounts(ctx, userID) {
+			htmlStatus(w, r, http.StatusBadRequest, i18n.T(ctx, "contacts.sync.all_paused"))
+			return
+		}
 		htmlStatus(w, r, http.StatusBadRequest, "Connect an account with contact sync before syncing contacts.")
 		return
 	}
@@ -206,7 +210,7 @@ func (h *Handler) contactSyncAccounts(ctx context.Context, userID, accountID str
 		       CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_provider
 		FROM accounts a
 		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
-		WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+		WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.background_sync_enabled, 1) = 1
 		ORDER BY a.email_address COLLATE NOCASE`, userID)
 	if err != nil {
 		return nil, err
@@ -224,6 +228,27 @@ func (h *Handler) contactSyncAccounts(ctx context.Context, userID, accountID str
 		}
 	}
 	return accounts, rows.Err()
+}
+
+func (h *Handler) hasPausedContactSyncAccounts(ctx context.Context, userID string) bool {
+	rows, err := h.db.Read().QueryContext(ctx, `
+		SELECT a.id, a.email_address,
+		       CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_provider
+		FROM accounts a
+		LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
+		WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.background_sync_enabled, 1) = 0
+		ORDER BY a.email_address COLLATE NOCASE`, userID)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var account contactSyncAccount
+		if err := rows.Scan(&account.ID, &account.Email, &account.Provider); err == nil && h.accountSupportsContactSync(ctx, userID, account) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) pullContactAccount(ctx context.Context, userID string, account contactSyncAccount) (int, error) {

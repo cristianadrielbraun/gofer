@@ -375,6 +375,33 @@ func (w *userCalendarWorkers) process(parent context.Context, job userCalendarJo
 	if ctx.Err() != nil {
 		return
 	}
+	bgEnabled := true
+	err = w.h.userAccounts.WithAccountForUser(ctx, job.owner, job.account, func(_ *config.AccountStore, db *storage.DB) error {
+		bgEnabled = db.IsBackgroundSyncEnabled(ctx, job.account)
+		return nil
+	})
+	if err != nil {
+		w.report(ctx, "read background sync state", err)
+		return
+	}
+	if !bgEnabled {
+		next := time.Now().Add(w.options.RecoveryInterval)
+		_ = w.h.userAccounts.WithAccountForUser(ctx, job.owner, job.account, func(_ *config.AccountStore, db *storage.DB) error {
+			if pending, listErr := db.ListAccountCalendarReplyFollowups(ctx, job.owner, job.account, 1); listErr == nil && len(pending) != 0 {
+				retry := time.Now().Add(5 * time.Second)
+				if retry.Before(next) {
+					next = retry
+				}
+			}
+			return nil
+		})
+		updated, completeErr := w.h.userStorage.CompleteServiceAccount(ctx, job.owner, job.account, storage.ScheduledCalendar, revision, next)
+		w.report(ctx, "defer paused calendar account", completeErr)
+		if completeErr == nil && !updated {
+			w.signal(true)
+		}
+		return
+	}
 	incomingErr := w.h.runUserCalendarIncoming(ctx, job.owner, job.account)
 	w.report(ctx, "apply verified guest replies", incomingErr)
 	if ctx.Err() != nil {

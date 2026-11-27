@@ -59,7 +59,7 @@ func (o *SyncOrchestrator) sweepOutlookSubscriptions(ctx context.Context, now ti
 	if o.outlookSubs == nil {
 		return
 	}
-	ids, err := o.db.GetAllEmailSyncAccountIDs(ctx)
+	ids, err := o.db.GetAllBackgroundEmailSyncAccountIDs(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			log.Printf("outlook webhook: list accounts: %v", err)
@@ -102,7 +102,7 @@ func (o *SyncOrchestrator) ReceiveOutlookNotifications(notifications []OutlookNo
 	ctx := o.accountLifecycleContext(context.Background())
 	go func() {
 		for _, accountID := range changed[OutlookPushMail] {
-			if o.db.IsEmailSyncEnabled(ctx, accountID) {
+			if o.db.IsEmailSyncEnabled(ctx, accountID) && o.db.IsBackgroundSyncEnabled(ctx, accountID) {
 				o.requestPushSync(ctx, accountID)
 			}
 		}
@@ -120,6 +120,14 @@ func (o *SyncOrchestrator) ReceiveOutlookNotifications(notifications []OutlookNo
 // OutlookPushStatus reports the account's subscription for the settings page.
 func (o *SyncOrchestrator) OutlookPushStatus(accountID string) OutlookPushStatus {
 	return o.outlookSubs.status(accountID, time.Now().UTC())
+}
+
+// WakeOutlookSubscriptions asks the subscription loop to reconcile Outlook
+// webhook subscriptions promptly after an account's sync setting changes.
+func (o *SyncOrchestrator) WakeOutlookSubscriptions() {
+	if o != nil && o.outlookSubs != nil {
+		o.outlookSubs.nudge()
+	}
 }
 
 // CheckOutlookPush makes a new subscription for the account now, which shows

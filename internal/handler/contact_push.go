@@ -69,6 +69,9 @@ func (h *Handler) syncContactsAfterPush(accountID string) {
 func (h *Handler) pullContactsAfterPush(accountID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), contactPushTimeout)
 	defer cancel()
+	if !h.db.IsBackgroundSyncEnabled(ctx, accountID) {
+		return
+	}
 	for {
 		_, err := h.SyncContactAccount(ctx, accountID)
 		if !errors.Is(err, errContactSyncAlreadyRunning) {

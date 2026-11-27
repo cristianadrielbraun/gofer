@@ -548,6 +548,19 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/{id}/duplicate", h.handleDuplicateContact)
 	mux.HandleFunc("POST /api/accounts/discover", h.handleDiscoverAccount)
 	mux.HandleFunc("POST /api/accounts/order", h.handleAccountOrder)
+	mux.HandleFunc("GET /api/account-groups/new", h.handleNewAccountGroup)
+	mux.HandleFunc("POST /api/account-groups", h.handleCreateAccountGroup)
+	mux.HandleFunc("GET /api/account-groups/{id}/edit", h.handleEditAccountGroup)
+	mux.HandleFunc("POST /api/account-groups/{id}", h.handleUpdateAccountGroup)
+	mux.HandleFunc("DELETE /api/account-groups/{id}", h.handleDeleteAccountGroup)
+	mux.HandleFunc("GET /api/account-groups/{id}/proxy/manage", h.handleManageAccountGroupProxy)
+	mux.HandleFunc("POST /api/account-groups/{id}/proxy", h.handleSaveAccountGroupProxy)
+	mux.HandleFunc("GET /api/account-groups/{id}/accounts/manage", h.handleManageAccountGroupAccounts)
+	mux.HandleFunc("POST /api/account-groups/{id}/accounts", h.handleSaveAccountGroupAccounts)
+	mux.HandleFunc("POST /api/account-groups/{id}/background-sync", h.handleSaveAccountGroupBackgroundSync)
+	mux.HandleFunc("GET /api/accounts/{id}/group/manage", h.handleManageAccountGroupMembership)
+	mux.HandleFunc("POST /api/accounts/{id}/group", h.handleSaveAccountGroupMembership)
+	mux.HandleFunc("POST /api/accounts/{id}/background-sync", h.handleSaveAccountBackgroundSync)
 	mux.HandleFunc("GET /api/accounts/server-check", h.handleAccountServerCheck)
 	mux.HandleFunc("POST /api/accounts/test", h.handleTestNewAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/test-changes", h.handleTestAccountChanges)
@@ -3071,7 +3084,7 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	// Discovery connects through the proxy the new account will use.
-	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"))
+	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"), r.FormValue("group_id"))
 	if err != nil {
 		writeJSONError(w, r, http.StatusBadRequest, i18n.T(r.Context(), "account_proxy.gone"))
 		return
@@ -3147,7 +3160,7 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := accountRequestFromForm(r)
-	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), req.ProxyID)
+	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), req.ProxyID, req.GroupID)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html")
 		views.AccountFormError(i18n.T(r.Context(), "account_proxy.gone")).Render(r.Context(), w)
@@ -3184,19 +3197,24 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		message := fmt.Sprintf("Failed to create account: %v", err)
 		if errors.Is(err, config.ErrMailboxExists) {
 			message = "This mailbox is already connected to Gofer."
+		} else if errors.Is(err, storage.ErrAccountGroupNotFound) {
+			views.AccountFormError(i18n.T(r.Context(), "account_group.error.parent_gone")).Render(r.Context(), w)
+			return
 		}
 		views.AccountFormError(serverText(r.Context(), message)).Render(r.Context(), w)
 		return
 	}
 
-	h.syncer.StartAccount(r.Context(), account.ID)
-	go func() {
-		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if _, err := h.SyncContactAccount(bg, account.ID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
-			log.Printf("contacts sync %s after account create: %v", account.ID, err)
-		}
-	}()
+	if !req.BackgroundSyncDisabled {
+		h.syncer.StartAccount(r.Context(), account.ID)
+		go func() {
+			bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if _, err := h.SyncContactAccount(bg, account.ID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+				log.Printf("contacts sync %s after account create: %v", account.ID, err)
+			}
+		}()
+	}
 
 	editData, err := h.accountStore.GetEditData(r.Context(), account.ID)
 	if err != nil {
@@ -3327,7 +3345,7 @@ func (h *Handler) handleUpdateAccountService(w http.ResponseWriter, r *http.Requ
 			http.Error(w, i18n.T(r.Context(), "server.error.could_not_update_contact_sync"), http.StatusInternalServerError)
 			return
 		}
-		if enabled {
+		if enabled && h.db.IsBackgroundSyncEnabled(ctx, accountID) {
 			go func() {
 				bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 				defer cancel()
@@ -3782,13 +3800,17 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
-	displayAccounts, err := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
+	displayAccounts, err := h.db.GetAccountsIncludingDeleting(ctx, userID)
 	if err != nil {
 		displayAccounts = accounts
 	}
+	if groups, groupErr := h.loadAccountGroupsForView(ctx, h.db, userID); groupErr == nil {
+		ctx = views.WithAccountGroups(ctx, groups)
+	}
 	syncSettings := h.buildSyncSettings(ctx, accounts)
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	uiSettings := h.db.GetUISettings(ctx, userID)
 	signatureData := h.buildAccountSignatureData(ctx, accounts)
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -3823,15 +3845,19 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	accounts, _ := h.db.GetAccounts(ctx, h.userID(ctx))
+	userID := h.userID(ctx)
+	accounts, _ := h.db.GetAccounts(ctx, userID)
 	displayAccounts := accounts
 	if tab == "accounts" {
-		if includingDeleting, err := h.db.GetAccountsIncludingDeleting(ctx, h.userID(ctx)); err == nil {
+		if includingDeleting, err := h.db.GetAccountsIncludingDeleting(ctx, userID); err == nil {
 			displayAccounts = includingDeleting
+		}
+		if groups, groupErr := h.loadAccountGroupsForView(ctx, h.db, userID); groupErr == nil {
+			ctx = views.WithAccountGroups(ctx, groups)
 		}
 	}
 	syncSettings := h.buildSyncSettings(ctx, accounts)
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
+	uiSettings := h.db.GetUISettings(ctx, userID)
 	signatureData := h.buildAccountSignatureData(ctx, accounts)
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -5431,12 +5457,16 @@ func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleSyncMail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := h.userID(ctx)
-	accountIDs, err := h.db.GetEmailSyncAccountIDs(ctx, userID)
+	accountIDs, err := h.db.GetBackgroundEmailSyncAccountIDs(ctx, userID)
 	if err != nil {
 		htmlStatus(w, r, http.StatusInternalServerError, "Could not find email-sync accounts.")
 		return
 	}
 	if len(accountIDs) == 0 {
+		if allIDs, allErr := h.db.GetEmailSyncAccountIDs(ctx, userID); allErr == nil && len(allIDs) > 0 {
+			htmlStatus(w, r, http.StatusBadRequest, i18n.T(ctx, "mail.sync.all_paused"))
+			return
+		}
 		htmlStatus(w, r, http.StatusBadRequest, "Connect an email account before syncing mail.")
 		return
 	}
@@ -7832,11 +7862,25 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		"return_to":     accountOAuthReturnPath(r.FormValue("return_to")),
 	}
 	addProxyChoiceToFlow(r, formData)
+	addBackgroundSyncToFlow(r, formData)
 
 	user := auth.GetCurrentUser(r.Context())
 	if user == nil || strings.TrimSpace(user.ID) == "" {
 		http.Error(w, i18n.T(r.Context(), "server.error.authenticated_user_required"), http.StatusUnauthorized)
 		return
+	}
+	if formData["flow_action"] == "reconnect" && h.db != nil {
+		var existingID string
+		err := h.db.Read().QueryRowContext(
+			r.Context(),
+			`SELECT id FROM accounts WHERE user_id = ? AND provider = ? AND email_address = ? COLLATE NOCASE AND auth_method = 'oauth2' AND COALESCE(is_deleting, 0) = 0`,
+			user.ID,
+			provider,
+			strings.TrimSpace(formData["email_address"]),
+		).Scan(&existingID)
+		if err == nil && existingID != "" {
+			formData["account_id"] = existingID
+		}
 	}
 	// Signing in goes through the proxy the account will use.
 	proxyCtx, err := h.oauthFlowProxyContext(r.Context(), user.ID, formData)
@@ -7916,6 +7960,8 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	req := providers.GmailAccountRequest(info.Email, displayName, info.Sub)
 	req.Password = "_oauth2_"
 	req.ProxyID = formData["proxy"]
+	req.GroupID = formData["group_id"]
+	req.BackgroundSyncDisabled = formData["background_sync"] == "false"
 
 	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(r.Context(), userID, req)
@@ -7941,20 +7987,22 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 
 	h.closeBodyClient(accountID)
 	h.syncer.RestartAccount(accountID)
-	go func() {
-		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if _, err := h.SyncContactAccount(bg, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
-			log.Printf("contacts sync %s after gmail connect: %v", accountID, err)
-		}
-	}()
-	go func() {
-		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if _, err := h.discoverGoogleCalendarSources(bg, userID, accountID, token.AccessToken, nil); err != nil {
-			log.Printf("calendar discovery %s after gmail connect: %v", accountID, err)
-		}
-	}()
+	if h.db.IsBackgroundSyncEnabled(r.Context(), accountID) {
+		go func() {
+			bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if _, err := h.SyncContactAccount(bg, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+				log.Printf("contacts sync %s after gmail connect: %v", accountID, err)
+			}
+		}()
+		go func() {
+			bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if _, err := h.discoverGoogleCalendarSources(bg, userID, accountID, token.AccessToken, nil); err != nil {
+				log.Printf("calendar discovery %s after gmail connect: %v", accountID, err)
+			}
+		}()
+	}
 
 	http.Redirect(w, r, accountOAuthSuccessRedirect(formData), http.StatusSeeOther)
 }
@@ -8014,6 +8062,8 @@ func (h *Handler) finishMicrosoftAccount(ctx context.Context, flow *mailauth.Acc
 	req := providers.OutlookAccountRequest(outlookEmail, displayName, providerAccountID)
 	req.Password = "_oauth2_"
 	req.ProxyID = formData["proxy"]
+	req.GroupID = formData["group_id"]
+	req.BackgroundSyncDisabled = formData["background_sync"] == "false"
 
 	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(ctx, userID, req)
@@ -8038,13 +8088,15 @@ func (h *Handler) finishMicrosoftAccount(ctx context.Context, flow *mailauth.Acc
 
 	h.closeBodyClient(accountID)
 	h.syncer.RestartAccount(accountID)
-	go func() {
-		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if _, err := h.SyncContactAccount(bg, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
-			log.Printf("contacts sync %s after outlook connect: %v", accountID, err)
-		}
-	}()
+	if h.db.IsBackgroundSyncEnabled(ctx, accountID) {
+		go func() {
+			bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if _, err := h.SyncContactAccount(bg, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+				log.Printf("contacts sync %s after outlook connect: %v", accountID, err)
+			}
+		}()
+	}
 	return accountOAuthSuccessRedirect(formData)
 }
 

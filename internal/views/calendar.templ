@@ -75,6 +75,7 @@ templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSetti
 }
 
 templ CalendarShell(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
+	{{ ctx = WithUISettings(ctx, uiSettings) }}
 	<div id="app-shell" class="app-shell flex h-screen overflow-hidden">
 		@MobileTopBar()
 		@CalendarSidebar(accounts, PanelSetting(uiSettings, "calendar", "sidebar_width", "256px"))
@@ -150,23 +151,7 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 					</a>
 				</div>
 			} else {
-				for _, account := range configuredAccounts {
-					<div class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-sidebar-foreground">
-						<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
-						<div class="min-w-0 flex-1">
-							<div class="truncate font-medium">{ calendarAccountName(ctx, account) }</div>
-							<div class="truncate text-[11px] text-sidebar-foreground">{ i18n.T(ctx, "calendar.account_kind", "provider", calendarAccountProviderLabel(account)) }</div>
-						</div>
-					</div>
-					<div class="mb-2 space-y-0.5" role="group" aria-label={ i18n.T(ctx, "calendar.calendars_for", "account", calendarAccountName(ctx, account)) }>
-						for _, source := range account.CalendarSources {
-							@calendarSourceRow(account, source, loading)
-						}
-					</div>
-					if len(account.OtherCalendarSources) > 0 {
-						@CalendarOtherSources(account, loading)
-					}
-				}
+				@SidebarCalendarAccountNodes(buildSidebarAccountTree(configuredAccounts), uiSettingsFromContext(ctx), loading)
 			}
 			if subscriptions, home := calendarSubscriptions(accounts); len(subscriptions) > 0 {
 				<div class="flex items-center gap-2.5 rounded-md py-2 pl-2.5 pr-2.5 text-[13px] text-sidebar-foreground" data-calendar-subscriptions>
@@ -955,6 +940,7 @@ templ CalendarAgendaPane(month CalendarMonthData) {
 
 // The sidebar comes first, as in MailAppPartial.
 templ CalendarAppPartial(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
+	{{ ctx = WithUISettings(ctx, uiSettings) }}
 	@CalendarSidebarBody(accounts)
 	<div id="sidebar-sync-controls">
 		@SidebarSyncControls(accounts, "calendar")

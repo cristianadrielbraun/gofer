@@ -1495,29 +1495,24 @@ templ SettingsSuppressedContacts(contacts []models.Contact, totalCount int) {
 }
 
 templ SettingsAccountsTab(accounts []models.Account) {
-	<div class="settings-card mt-6 bg-card rounded-lg border p-6 space-y-5">
+	{{ groups := AccountGroupsFromContext(ctx) }}
+	{{ treeItems := buildSettingsAccountTree(groups, accounts) }}
+	<div id="settings-accounts-section" class="settings-card mt-6 bg-card rounded-lg border p-6 space-y-5">
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 			<div class="min-w-0">
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.accounts.title") }</h3>
 				<p class="text-xs text-muted-foreground leading-relaxed">{ i18n.T(ctx, "settings.accounts.description") }</p>
 			</div>
-			@SettingsAddAccountButton()
+			<div class="flex shrink-0 flex-wrap items-center gap-2">
+				@SettingsNewAccountGroupButton()
+				@SettingsAddAccountButton()
+			</div>
 		</div>
-		if len(connectedAccounts(accounts)) == 0 {
+		if len(connectedAccounts(accounts)) == 0 && len(groups) == 0 {
 			@SettingsNoAccounts()
 		}
-		if len(accounts) > 0 {
-			<div class="space-y-3" data-account-order-list>
-				for _, a := range accounts {
-					if accountIsLocalFolders(a) {
-						if !a.IsDeleting {
-							@SettingsLocalFoldersCard(a)
-						}
-					} else {
-						@SettingsAccountCard(a)
-					}
-				}
-			</div>
+		if len(treeItems) > 0 {
+			@SettingsAccountTreeList(treeItems, "")
 		}
 	</div>
 }
@@ -2043,6 +2038,11 @@ templ SettingsAccountCard(account models.Account) {
 							if accountHasNoMail(account) {
 								@AccountNoMailBadge(account)
 							}
+							if !account.BackgroundSyncEnabled && !account.IsDeleting {
+								<span class="inline-flex shrink-0 items-center rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" data-account-sync-paused>
+									{ i18n.T(ctx, "settings.account.background_sync.paused_badge") }
+								</span>
+							}
 						</div>
 						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ accountAddressIn(ctx, account) }</p>
 						if account.ReconnectPending && !account.IsDeleting {
@@ -2066,6 +2066,29 @@ templ SettingsAccountCard(account models.Account) {
 						if accountHasNoMail(account) {
 							@AccountAddMailButton(account.ID, account.Name, accountReconnectButtonClass)
 						}
+						<form
+							hx-post={ fmt.Sprintf("/api/accounts/%s/background-sync", account.ID) }
+							hx-target="#settings-content #settings-accounts-section"
+							hx-swap="outerHTML"
+							hx-trigger="change"
+							class="inline-flex h-[30px] items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 text-xs"
+							title={ i18n.T(ctx, "settings.account.background_sync.description") }
+							data-account-background-sync-form={ account.ID }
+						>
+							<input type="hidden" name="background_sync_present" value="1"/>
+							<label for={ "account-bg-sync-" + account.ID } class="hidden cursor-pointer select-none text-muted-foreground sm:inline">
+								{ i18n.T(ctx, "settings.account.background_sync.short") }
+							</label>
+							@switchcomp.Switch(switchcomp.Props{
+								ID:      "account-bg-sync-" + account.ID,
+								Name:    "background_sync",
+								Value:   "true",
+								Checked: account.BackgroundSyncEnabled,
+								Attributes: templ.Attributes{
+									"aria-label": i18n.T(ctx, "settings.account.background_sync.aria", "account", account.Name),
+								},
+							})
+						</form>
 						<button
 							type="button"
 							data-account-primary-action="edit"
@@ -2601,6 +2624,18 @@ templ SettingsAccountActionsMenu(account models.Account) {
 				@OutlookReauthForm(account)
 			}
 			@dropdown.Separator()
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    fmt.Sprintf("/api/accounts/%s/group/manage", account.ID),
+					"hx-target": "#edit-account-container",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				@icon.FolderInput(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_group.move_to_group") }
+			}
 			@SettingsAccountMoveItem("up")
 			@SettingsAccountMoveItem("down")
 			@dropdown.Separator()
@@ -3918,6 +3953,7 @@ templ GmailAccountDialog() {
 			}
 			<form id="gmail-form" method="POST" action="/api/accounts/oauth2/authorize" class="px-1 pt-2 pb-4 space-y-4">
 				<input type="hidden" name="flow_action" value="add"/>
+				<input type="hidden" name="group_id" value="" data-add-account-group-input/>
 				<div>
 					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.add_account.email") }</label>
 					@input.Input(input.Props{
@@ -3936,6 +3972,7 @@ templ GmailAccountDialog() {
 					})
 				</div>
 				@AccountProxyChoiceLoader("")
+				@AccountBackgroundSyncField("gmail-account-background-sync", true, true)
 				<input type="hidden" name="imap_host" value="imap.gmail.com"/>
 				<input type="hidden" name="imap_port" value="993"/>
 				<input type="hidden" name="imap_tls_mode" value="tls"/>
@@ -3975,6 +4012,7 @@ templ OutlookAccountDialog() {
 			}
 			<form id="outlook-form" method="POST" action="/api/accounts/oauth2/authorize" class="px-1 pt-2 pb-4 space-y-4">
 				<input type="hidden" name="flow_action" value="add"/>
+				<input type="hidden" name="group_id" value="" data-add-account-group-input/>
 				<div>
 					<label class="text-xs font-medium text-muted-foreground mb-1.5 block">{ i18n.T(ctx, "settings.add_account.email") }</label>
 					@input.Input(input.Props{
@@ -3993,6 +4031,7 @@ templ OutlookAccountDialog() {
 					})
 				</div>
 				@AccountProxyChoiceLoader("")
+				@AccountBackgroundSyncField("outlook-account-background-sync", true, true)
 				<input type="hidden" name="provider" value="outlook"/>
 				<hr class="border-border"/>
 				<div class="rounded-lg bg-accent/50 border border-border p-3">
@@ -4078,6 +4117,7 @@ templ AddAccountDialog() {
 					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 600%">
 						<form id="account-form" hx-post="/api/accounts" hx-target="#add-contacts-content" hx-swap="innerHTML" class="contents">
 						<input type="hidden" name="mail_service" value=""/>
+						<input type="hidden" name="group_id" value="" data-add-account-group-input/>
 						<div class="w-1/6 shrink-0 px-1" data-wizard-step="0">
 							<div class="account-wizard-panel">
 							<div class="account-wizard-scroll" data-wizard-service-content="email">
@@ -4396,6 +4436,7 @@ templ AccountWizardAddSidebar() {
 		@AccountWizardAddEmailSection()
 		@AccountWizardTopStep("wizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
 		@AccountWizardTopStep("wizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), true, true, "", "calendar", false, false, nil)
+		@AccountWizardAddBackgroundSyncRow()
 		// Adding mail to an account, the row is that account's own (see
 		// startAddMail), so it stays in a container of its own to swap.
 		<div id="add-account-proxy-row">
@@ -4422,8 +4463,107 @@ templ AccountWizardEditSidebar(data models.EditAccountData) {
 		}
 		@AccountWizardTopStep("editWizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), false, true, data.AccountID, "contacts", data.ContactSync.Enabled || data.ReconnectContacts, false, nil)
 		@AccountWizardTopStep("editWizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), false, true, data.AccountID, "calendar", data.CalendarSync.Enabled || data.ReconnectCalendar, false, nil)
+		@AccountWizardEditBackgroundSyncRow(data)
 		@AccountProxyChoiceSidebarLoader(data.AccountID, "")
 	</aside>
+}
+
+templ AccountBackgroundSyncField(id string, checked bool, resetOnAdd bool) {
+	{{ attrs := templ.Attributes{} }}
+	if resetOnAdd {
+		{{ attrs["data-add-account-bg-sync"] = "" }}
+	}
+	<div class="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+		<div class="min-w-0">
+			<label for={ id } class="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-foreground">
+				@icon.RefreshCw(icon.Props{Class: "size-3.5 text-muted-foreground"})
+				<span>{ i18n.T(ctx, "settings.account.background_sync.label") }</span>
+			</label>
+			<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">{ i18n.T(ctx, "settings.account.background_sync.description") }</p>
+		</div>
+		<div class="shrink-0">
+			<input type="hidden" name="background_sync_present" value="1"/>
+			@switchcomp.Switch(switchcomp.Props{
+				ID:         id,
+				Name:       "background_sync",
+				Value:      "true",
+				Checked:    checked,
+				Attributes: attrs,
+			})
+		</div>
+	</div>
+}
+
+templ AccountWizardAddBackgroundSyncRow() {
+	<div class="account-wizard-section" data-add-account-only>
+		<div class="account-wizard-section-heading">
+			<div class="account-wizard-section-title cursor-default">
+				<span class="account-wizard-index">
+					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+				</span>
+				<span class="block min-w-0 flex-1">
+					<span class="flex h-6 items-center gap-2">
+						<label for="add-account-background-sync" class="block min-w-0 flex-1 cursor-pointer truncate text-sm font-semibold">
+							{ i18n.T(ctx, "settings.account.background_sync.label") }
+						</label>
+						<span class="flex shrink-0 items-center">
+							<input type="hidden" name="background_sync_present" form="account-form" value="1"/>
+							@switchcomp.Switch(switchcomp.Props{
+								ID:      "add-account-background-sync",
+								Name:    "background_sync",
+								Value:   "true",
+								Checked: true,
+								Attributes: templ.Attributes{
+									"form":                     "account-form",
+									"data-add-account-bg-sync": "",
+								},
+							})
+						</span>
+					</span>
+					<span class="block text-xs leading-snug text-muted-foreground">
+						{ i18n.T(ctx, "settings.account.background_sync.wizard_hint") }
+					</span>
+				</span>
+			</div>
+		</div>
+	</div>
+}
+
+templ AccountWizardEditBackgroundSyncRow(data models.EditAccountData) {
+	<form
+		hx-post={ fmt.Sprintf("/api/accounts/%s/background-sync", data.AccountID) }
+		hx-vals='{"inline":"1"}'
+		hx-swap="none"
+		hx-trigger="change"
+		class="account-wizard-section"
+	>
+		<input type="hidden" name="background_sync_present" value="1"/>
+		<div class="account-wizard-section-heading">
+			<div class="account-wizard-section-title cursor-default">
+				<span class="account-wizard-index">
+					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+				</span>
+				<span class="block min-w-0 flex-1">
+					<span class="flex h-6 items-center gap-2">
+						<label for={ "edit-account-background-sync-" + data.AccountID } class="block min-w-0 flex-1 cursor-pointer truncate text-sm font-semibold">
+							{ i18n.T(ctx, "settings.account.background_sync.label") }
+						</label>
+						<span class="flex shrink-0 items-center">
+							@switchcomp.Switch(switchcomp.Props{
+								ID:      "edit-account-background-sync-" + data.AccountID,
+								Name:    "background_sync",
+								Value:   "true",
+								Checked: data.BackgroundSyncEnabled,
+							})
+						</span>
+					</span>
+					<span class="block text-xs leading-snug text-muted-foreground">
+						{ i18n.T(ctx, "settings.account.background_sync.wizard_hint") }
+					</span>
+				</span>
+			</div>
+		</div>
+	</form>
 }
 
 // AccountWizardEmailSection lists the mail steps, which end with a step that

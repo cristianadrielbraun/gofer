@@ -106,8 +106,14 @@ func (db *DB) CreateLocalFoldersAccount(ctx context.Context, userID, id string) 
 	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address, display_name, color, initials,
 		  imap_host, imap_port, smtp_host, smtp_port, auth_method, email_sync_enabled, provider_push_enabled, sort_order)
 		SELECT ?, ?, ?, '', ?, '#64748b', 'LF', '', 0, '', 0, 'none', 1, 0,
-		       (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM accounts WHERE user_id IS ?)`,
-		id, owner, localProvider, LocalFoldersName, owner); err != nil {
+		       (SELECT MAX(v) + 1 FROM (
+		           SELECT -1 AS v
+		           UNION ALL
+		           SELECT COALESCE(MAX(sort_order), -1) FROM accounts WHERE user_id IS ? AND group_id = ''
+		           UNION ALL
+		           SELECT COALESCE(MAX(sort_order), -1) FROM account_groups WHERE user_id IS ? AND COALESCE(parent_id, '') = ''
+		       ))`,
+		id, owner, localProvider, LocalFoldersName, owner, owner); err != nil {
 		return fmt.Errorf("create local folders account: %w", err)
 	}
 	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
