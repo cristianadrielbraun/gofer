@@ -1554,7 +1554,6 @@
   "calendar.color.title": "Cor da agenda",
   "calendar.color.google_access": "Só o Gofer vai mostrar a cor que você escolher. O Google Agenda também poderá mostrá-la quando o Gofer tiver acesso total à agenda.",
   "calendar.color.allow_access": "Permitir acesso total à agenda",
-  "calendar.color.note_provider": "Só o Gofer vai mostrar a cor que você escolher.",
   "calendar.color.note_reconnect": "Só o Gofer vai mostrar a cor que você escolher. Para alterá-la também no Outlook, reconecte a conta pelo menu de ações dela em Configurações.",
   "calendar.color.note_refused": "O provedor da agenda não aceitou esta cor, então só o Gofer a mostra.",
   "calendar.color.reset": "Usar a cor da própria agenda",

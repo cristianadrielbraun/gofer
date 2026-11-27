@@ -2913,7 +2913,7 @@ func calendarColorPickerNotes() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, note := range []string{"provider", "reconnect", "refused"} {
+		for _, note := range []string{"reconnect", "refused"} {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "<p class=\"flex items-start gap-2 text-xs text-muted-foreground\" data-calendar-color-note=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

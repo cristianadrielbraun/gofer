@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -485,6 +487,93 @@ func TestCalendarColorOnCalDAV(t *testing.T) {
 		t.Fatalf("pick while the server fails: %d %s, %+v", rec.Code, rec.Body.String(), home())
 	}
 	dav.answer = "404"
+	if rec, _ := pick("#ffc000"); rec.Code != http.StatusNotFound {
+		t.Fatalf("pick on a calendar gone from the server: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A JMAP calendar's color goes to its server, which says in the same
+// request the color it kept. A server that refuses it, or keeps another,
+// leaves the color kept in Gofer; a calendar it no longer has is gone.
+func TestCalendarColorOnJMAP(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	fake := &jmapCalendarsTestServer{password: "saved-secret", colors: map[string]string{"c1": "#16A765"}}
+	fake.set("s1", map[string]string{})
+	server := httptest.NewServer(fake.handler())
+	t.Cleanup(server.Close)
+	address, _ := url.Parse(server.URL)
+	port, _ := strconv.Atoi(address.Port())
+	if err := db.AddPlaintextTransportException(t.Context(), "http", address.Hostname(), port, "administrator"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddPrivateTargetException(t.Context(), "http", address.Hostname(), port, "administrator"); err != nil {
+		t.Fatal(err)
+	}
+	account, err := h.accountStore.CreateAccount(t.Context(), "owner", &models.CreateAccountRequest{
+		Provider: "jmap", EmailAddress: "lena@example.test", DisplayName: "Lena",
+		JMAPSessionURL: server.URL + "/.well-known/jmap", Username: "lena@example.test", Password: "saved-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"calendar_protocol": {"jmap"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts/"+account.ID+"/calendar/discover", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", account.ID)
+	rec := httptest.NewRecorder()
+	h.handleDiscoverAccountCalendars(rec, ownerRequest(req))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discovery = %d %s", rec.Code, rec.Body.String())
+	}
+	personal := func() storage.CalendarSource {
+		t.Helper()
+		sources, err := db.ListCalendarSourcesForAccount(t.Context(), "owner", account.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, source := range sources {
+			if source.Name == "Personal" {
+				return source
+			}
+		}
+		t.Fatalf("no Personal calendar in %+v", sources)
+		return storage.CalendarSource{}
+	}
+	if err := db.SetCalendarSourceSelection(t.Context(), "owner", account.ID, []string{personal().ID}); err != nil {
+		t.Fatal(err)
+	}
+	pick := func(color string) (*httptest.ResponseRecorder, calendarColorResult) {
+		t.Helper()
+		id := personal().ID
+		req := httptest.NewRequest(http.MethodPost, "/api/calendar/sources/"+id+"/color", strings.NewReader(fmt.Sprintf(`{"color":%q}`, color)))
+		req.SetPathValue("id", id)
+		rec := httptest.NewRecorder()
+		h.handleCalendarSourceColor(rec, ownerRequest(req))
+		var result calendarColorResult
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rec, result
+	}
+
+	if rec, result := pick("#2563eb"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#2563eb"}) {
+		t.Fatalf("pick on JMAP: %d %s", rec.Code, rec.Body.String())
+	}
+	if fake.colors["c1"] != "#2563EB" || personal().Color != "#2563eb" || personal().ChosenColor != "" {
+		t.Fatalf("taken by the server: it keeps %q, Gofer %+v", fake.colors["c1"], personal())
+	}
+	for _, answer := range []string{"forbidden", "invalidProperties", "ignore"} {
+		fake.colorAnswer = answer
+		if rec, result := pick("#ef4444"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#ef4444", InGoferOnly: true, Reason: calendarColorRefused}) {
+			t.Fatalf("pick the server answers %q: %d %s", answer, rec.Code, rec.Body.String())
+		}
+		if source := personal(); source.Color != "#2563eb" || source.ChosenColor != "#ef4444" {
+			t.Fatalf("kept in Gofer after %q: %+v", answer, source)
+		}
+	}
+	fake.colorAnswer = "notFound"
 	if rec, _ := pick("#ffc000"); rec.Code != http.StatusNotFound {
 		t.Fatalf("pick on a calendar gone from the server: %d %s", rec.Code, rec.Body.String())
 	}

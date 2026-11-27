@@ -15,6 +15,8 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -24,9 +26,6 @@ const (
 	// calendarColorGoogleAccess: Google changes the account's calendar list
 	// only with full calendar access.
 	calendarColorGoogleAccess = "google_access"
-	// calendarColorProvider: Gofer doesn't change colors on this calendar's
-	// provider.
-	calendarColorProvider = "provider"
 	// calendarColorReconnect: the account's sign-in can't change its
 	// calendars until it is reconnected.
 	calendarColorReconnect = "reconnect"
@@ -50,9 +49,8 @@ type calendarColorResult struct {
 // #rrggbb. A Google calendar's color goes to the account's Google calendar
 // list, which Google allows only with full calendar access, an Outlook
 // calendar's to Outlook, which needs the account's calendar write access,
-// and a CalDAV calendar's to its server.
-// Without the access, when the provider refuses it,
-// and on providers Gofer doesn't change colors on, Gofer keeps the color
+// and a CalDAV or JMAP calendar's to its server.
+// Without the access, or when the provider refuses it, Gofer keeps the color
 // itself and says so. An empty color goes back to the provider's. A
 // temporary failure on the provider changes nothing.
 func (h *Handler) handleCalendarSourceColor(w http.ResponseWriter, r *http.Request) {
@@ -146,8 +144,21 @@ func (h *Handler) changeCalendarColor(ctx context.Context, owner, sourceID, colo
 		default:
 			return calendarColorResult{}, err
 		}
+	case source.Provider == storage.CalendarSourceProviderJMAP:
+		err := h.onCalendarProvider(ctx, owner, source, func(ctx context.Context, login calendarManageLogin) error {
+			return setJMAPCalendarColor(ctx, source, login, color)
+		})
+		switch {
+		case err == nil:
+			change.OnProvider = true
+		case errors.Is(err, errCalendarColorRefused):
+			result.Reason = calendarColorRefused
+		default:
+			return calendarColorResult{}, err
+		}
 	default:
-		result.Reason = calendarColorProvider
+		// Nowhere to send it: Gofer keeps it.
+		result.Reason = calendarColorRefused
 	}
 	result.InGoferOnly = result.Reason != ""
 	if h.userStorage != nil {
@@ -292,6 +303,33 @@ func setCalDAVCalendarColor(ctx context.Context, source storage.CalendarSource, 
 		return err
 	}
 	if !strings.EqualFold(kept, color) {
+		return errCalendarColorRefused
+	}
+	return nil
+}
+
+// setJMAPCalendarColor sets a JMAP calendar's color, checking the color the
+// server says it kept. The server refusing it, or keeping another, is
+// errCalendarColorRefused; a calendar it no longer has is sql.ErrNoRows.
+func setJMAPCalendarColor(ctx context.Context, source storage.CalendarSource, login calendarManageLogin, color string) error {
+	id, collection, ok := jmapCalendarDAVParse(source.RemoteID)
+	if !ok || collection != "" || login.jmap == nil {
+		return errors.New("this calendar's JMAP id can't be read")
+	}
+	kept, err := mail.SetJMAPCalendarColor(ctx, login.jmap, login.password, id, color)
+	var refusal *jmap.SetError
+	if errors.As(err, &refusal) {
+		switch refusal.Type {
+		case "notFound":
+			return sql.ErrNoRows
+		case "forbidden", "invalidProperties", "invalidPatch":
+			return errCalendarColorRefused
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(kept), color) {
 		return errCalendarColorRefused
 	}
 	return nil

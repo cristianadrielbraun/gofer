@@ -1554,7 +1554,6 @@
   "calendar.color.title": "Kalenderfarbe",
   "calendar.color.google_access": "Die gewählte Farbe zeigt nur Gofer. Google Kalender kann sie ebenfalls zeigen, sobald Gofer vollen Kalenderzugriff hat.",
   "calendar.color.allow_access": "Vollen Kalenderzugriff erlauben",
-  "calendar.color.note_provider": "Die gewählte Farbe zeigt nur Gofer.",
   "calendar.color.note_reconnect": "Die gewählte Farbe zeigt nur Gofer. Um sie auch in Outlook zu ändern, verbinde das Konto in den Einstellungen über sein Aktionsmenü erneut.",
   "calendar.color.note_refused": "Der Anbieter des Kalenders hat diese Farbe nicht übernommen, daher zeigt nur Gofer sie.",
   "calendar.color.reset": "Kalenderfarbe des Anbieters verwenden",

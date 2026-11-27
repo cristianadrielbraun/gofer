@@ -480,7 +480,7 @@ templ calendarColorPickerNotes() {
 				}
 			</div>
 		</div>
-		for _, note := range []string{"provider", "reconnect", "refused"} {
+		for _, note := range []string{"reconnect", "refused"} {
 			<p class="flex items-start gap-2 text-xs text-muted-foreground" data-calendar-color-note={ note } hidden>
 				@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
 				<span>{ i18n.T(ctx, "calendar.color.note_"+note) }</span>

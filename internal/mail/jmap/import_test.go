@@ -292,8 +292,25 @@ func TestCalendarAndAddressBookSets(t *testing.T) {
 		t.Fatalf("delete address book = %v, %v", err, args())
 	}
 
+	// A color change reads back, in the same request, the color kept.
+	colored := importServer(t, `{"methodResponses": [["Calendar/set", {"accountId": "a1", "updated": {"c1": null}}, "0"], ["Calendar/get", {"accountId": "a1", "list": [{"id": "c1", "color": "#2563EB"}]}, "1"]], "sessionState": "s1"}`, &calls)
+	kept, err := (&Client{HTTP: colored.Client()}).SetCalendarColor(context.Background(), &Session{APIURL: colored.URL}, "a1", "c1", "#2563eb")
+	if err != nil || kept != "#2563EB" || len(calls) != 2 || args()["update"].(map[string]any)["c1"].(map[string]any)["color"] != "#2563eb" {
+		t.Fatalf("set calendar color = %q, %v, %v", kept, err, args())
+	}
+	var get map[string]any
+	_ = json.Unmarshal(calls[1][1], &get)
+	if get["ids"].([]any)[0] != "c1" || get["properties"].([]any)[1] != "color" {
+		t.Fatalf("color read back with %v", get)
+	}
+	notColored := importServer(t, `{"methodResponses": [["Calendar/set", {"accountId": "a1", "notUpdated": {"c1": {"type": "forbidden"}}}, "0"], ["Calendar/get", {"accountId": "a1", "list": [{"id": "c1", "color": null}]}, "1"]], "sessionState": "s1"}`, &calls)
+	var refusal *SetError
+	if _, err := (&Client{HTTP: notColored.Client()}).SetCalendarColor(context.Background(), &Session{APIURL: notColored.URL}, "a1", "c1", "#2563eb"); !errors.As(err, &refusal) || refusal.Type != "forbidden" {
+		t.Fatalf("refused color = %v", err)
+	}
+
 	refused := importServer(t, `{"methodResponses": [["Calendar/set", {"accountId": "a1", "notDestroyed": {"c1": {"type": "forbidden", "description": "default calendar"}}}, "0"]], "sessionState": "s1"}`, &calls)
-	err := (&Client{HTTP: refused.Client()}).DestroyCalendar(context.Background(), &Session{APIURL: refused.URL}, "a1", "c1")
+	err = (&Client{HTTP: refused.Client()}).DestroyCalendar(context.Background(), &Session{APIURL: refused.URL}, "a1", "c1")
 	if err == nil || !strings.Contains(err.Error(), "did not delete the calendar") || !strings.Contains(err.Error(), "default calendar") {
 		t.Fatalf("refused delete = %v", err)
 	}

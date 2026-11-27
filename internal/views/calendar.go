@@ -515,10 +515,9 @@ func calendarPersonalItemAttributes(state, action string, account models.Account
 // calendarColorNote says why only Gofer would show a color picked for a
 // synced calendar: "google_access" for a Google account that hasn't allowed
 // Gofer full calendar access, which changing its calendar list needs,
-// "reconnect" for a Microsoft account whose sign-in can't change its
-// calendars until it is reconnected, or "provider" for JMAP, where Gofer
-// doesn't change calendar colors yet. It is empty when the provider
-// takes the color too.
+// or "reconnect" for a Microsoft account whose sign-in can't change its
+// calendars until it is reconnected. It is empty when the provider takes
+// the color too, as far as Gofer can tell before trying.
 func calendarColorNote(account models.Account, source models.AccountCalendarSource) string {
 	switch source.Provider {
 	case "gmail":
@@ -531,10 +530,8 @@ func calendarColorNote(account models.Account, source models.AccountCalendarSour
 			return "reconnect"
 		}
 		return ""
-	case "caldav", "ics":
-		return ""
 	}
-	return "provider"
+	return ""
 }
 
 // calendarColorItemAttributes are a synced calendar's Color… item, with

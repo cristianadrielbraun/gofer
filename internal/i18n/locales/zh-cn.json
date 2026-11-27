@@ -1554,7 +1554,6 @@
   "calendar.color.title": "日历颜色",
   "calendar.color.google_access": "你选择的颜色只会在 Gofer 中显示。Gofer 获得完全的日历访问权限后，Google 日历也能显示它。",
   "calendar.color.allow_access": "允许完全访问日历",
-  "calendar.color.note_provider": "你选择的颜色只会在 Gofer 中显示。",
   "calendar.color.note_reconnect": "你选择的颜色只会在 Gofer 中显示。要在 Outlook 中也更改它，请在设置中从此账户的操作菜单重新连接。",
   "calendar.color.note_refused": "日历的提供方没有接受此颜色，因此只有 Gofer 会显示它。",
   "calendar.color.reset": "使用日历自身的颜色",

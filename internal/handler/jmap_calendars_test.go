@@ -135,13 +135,17 @@ func TestJMAPCalendarSourcesKeepRightsAndDefault(t *testing.T) {
 // jmapCalendarsTestServer serves a JMAP account with two calendars to any
 // username with the password; events are JSON keyed by id, all in calendar
 // "c1", and state is the account's event state. Calendar/set adds calendars,
-// named in created.
+// named in created, and changes their colors, kept in colors, as
+// colorAnswer says: "" keeps the color, "ignore" keeps the old one, or a
+// SetError type refuses it.
 type jmapCalendarsTestServer struct {
-	password string
-	mu       sync.Mutex
-	state    string
-	events   map[string]string
-	created  []string
+	password    string
+	mu          sync.Mutex
+	state       string
+	events      map[string]string
+	created     []string
+	colors      map[string]string
+	colorAnswer string
 }
 
 func (f *jmapCalendarsTestServer) set(state string, events map[string]string) {
@@ -166,54 +170,81 @@ func (f *jmapCalendarsTestServer) handler() http.Handler {
 			MethodCalls [][]json.RawMessage `json:"methodCalls"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&request)
-		var name string
-		var args struct {
-			IDs    []string                  `json:"ids"`
-			Filter map[string]string         `json:"filter"`
-			Create map[string]map[string]any `json:"create"`
-		}
-		_ = json.Unmarshal(request.MethodCalls[0][0], &name)
-		_ = json.Unmarshal(request.MethodCalls[0][1], &args)
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		var answer any
-		switch name {
-		case "Calendar/get":
-			list := []any{
-				map[string]any{"id": "c1", "name": "Personal", "isDefault": true, "timeZone": "Europe/Prague", "myRights": map[string]bool{"mayReadItems": true, "mayWriteAll": true}},
-				map[string]any{"id": "c2", "name": "Holidays", "myRights": map[string]bool{"mayReadItems": true}},
-			}
-			for i, name := range f.created {
-				list = append(list, map[string]any{"id": fmt.Sprintf("new%d", i), "name": name, "myRights": map[string]bool{"mayReadItems": true, "mayWriteAll": true}})
-			}
-			answer = map[string]any{"accountId": "a1", "state": "c", "list": list}
-		case "Calendar/set":
-			created := map[string]any{}
-			for key, calendar := range args.Create {
-				created[key] = map[string]string{"id": fmt.Sprintf("new%d", len(f.created))}
-				f.created = append(f.created, fmt.Sprint(calendar["name"]))
-			}
-			answer = map[string]any{"accountId": "a1", "created": created}
-		case "CalendarEvent/get":
-			list := []json.RawMessage{}
-			for _, id := range args.IDs {
-				if event, ok := f.events[id]; ok {
-					list = append(list, json.RawMessage(event))
-				}
-			}
-			answer = map[string]any{"accountId": "a1", "state": f.state, "list": list, "notFound": []string{}}
-		case "CalendarEvent/query":
-			ids := []string{}
-			if args.Filter["inCalendar"] == "c1" {
-				for id := range f.events {
-					ids = append(ids, id)
-				}
-				slices.Sort(ids)
-			}
-			answer = map[string]any{"accountId": "a1", "ids": ids, "position": 0, "total": len(ids)}
+		responses := []any{}
+		for _, call := range request.MethodCalls {
+			var name, callID string
+			_ = json.Unmarshal(call[0], &name)
+			_ = json.Unmarshal(call[2], &callID)
+			responses = append(responses, []any{name, f.answer(name, call[1]), callID})
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"methodResponses": []any{[]any{name, answer, "0"}}, "sessionState": "s"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"methodResponses": responses, "sessionState": "s"})
 	})
+}
+
+// answer is the fake's answer to one method call.
+func (f *jmapCalendarsTestServer) answer(name string, raw json.RawMessage) any {
+	var args struct {
+		IDs    []string                  `json:"ids"`
+		Filter map[string]string         `json:"filter"`
+		Create map[string]map[string]any `json:"create"`
+		Update map[string]map[string]any `json:"update"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	var answer any
+	switch name {
+	case "Calendar/get":
+		list := []any{
+			map[string]any{"id": "c1", "name": "Personal", "isDefault": true, "timeZone": "Europe/Prague", "color": f.colors["c1"], "myRights": map[string]bool{"mayReadItems": true, "mayWriteAll": true}},
+			map[string]any{"id": "c2", "name": "Holidays", "color": f.colors["c2"], "myRights": map[string]bool{"mayReadItems": true}},
+		}
+		for i, name := range f.created {
+			list = append(list, map[string]any{"id": fmt.Sprintf("new%d", i), "name": name, "myRights": map[string]bool{"mayReadItems": true, "mayWriteAll": true}})
+		}
+		answer = map[string]any{"accountId": "a1", "state": "c", "list": list}
+	case "Calendar/set":
+		created := map[string]any{}
+		for key, calendar := range args.Create {
+			created[key] = map[string]string{"id": fmt.Sprintf("new%d", len(f.created))}
+			f.created = append(f.created, fmt.Sprint(calendar["name"]))
+		}
+		updated, notUpdated := map[string]any{}, map[string]any{}
+		for id, patch := range args.Update {
+			color, ok := patch["color"].(string)
+			switch {
+			case !ok || f.colorAnswer == "ignore":
+				updated[id] = nil
+			case f.colorAnswer != "":
+				notUpdated[id] = map[string]string{"type": f.colorAnswer}
+			default:
+				if f.colors == nil {
+					f.colors = map[string]string{}
+				}
+				f.colors[id] = strings.ToUpper(color)
+				updated[id] = nil
+			}
+		}
+		answer = map[string]any{"accountId": "a1", "created": created, "updated": updated, "notUpdated": notUpdated}
+	case "CalendarEvent/get":
+		list := []json.RawMessage{}
+		for _, id := range args.IDs {
+			if event, ok := f.events[id]; ok {
+				list = append(list, json.RawMessage(event))
+			}
+		}
+		answer = map[string]any{"accountId": "a1", "state": f.state, "list": list, "notFound": []string{}}
+	case "CalendarEvent/query":
+		ids := []string{}
+		if args.Filter["inCalendar"] == "c1" {
+			for id := range f.events {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+		}
+		answer = map[string]any{"accountId": "a1", "ids": ids, "position": 0, "total": len(ids)}
+	}
+	return answer
 }
 
 func TestJMAPCalendarDiscoveryAndSyncForTheSharedStore(t *testing.T) {

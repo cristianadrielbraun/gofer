@@ -38,7 +38,7 @@ func TestCalendarColorMenuItem(t *testing.T) {
 		{models.Account{}, models.AccountCalendarSource{Provider: "outlook"}, ""},
 		{models.Account{CalendarCreateNeedsReconnect: true}, models.AccountCalendarSource{Provider: "outlook"}, "reconnect"},
 		{models.Account{}, models.AccountCalendarSource{Provider: "caldav"}, ""},
-		{models.Account{}, models.AccountCalendarSource{Provider: "jmap"}, "provider"},
+		{models.Account{}, models.AccountCalendarSource{Provider: "jmap"}, ""},
 	} {
 		if got := calendarColorNote(test.account, test.source); got != test.want {
 			t.Fatalf("%s with full access %v = %q, want %q", test.source.Provider, test.account.CalendarFullAccess, got, test.want)
@@ -68,9 +68,9 @@ func TestCalendarColorPicker(t *testing.T) {
 	for _, want := range []string{
 		`id="calendar-color-popover"`, "data-calendar-color-picker", "data-calendar-color-preview", "Calendar color",
 		`data-color-picker-option="#2563eb"`, `id="calendar-color-custom"`, "data-color-picker-custom", "data-color-picker-status",
-		`data-calendar-color-note="google_access"`, `data-calendar-color-note="provider"`, "data-calendar-color-allow-access",
+		`data-calendar-color-note="google_access"`, "data-calendar-color-allow-access",
 		`data-calendar-color-note="reconnect"`, `data-calendar-color-note="refused"`, "reconnect the account from its actions menu",
-		"Allow full calendar access", "Only Gofer will show the color you pick.", "data-calendar-color-reset",
+		"Allow full calendar access", "data-calendar-color-reset",
 		"Use the calendar&#39;s own color",
 	} {
 		if !strings.Contains(picker, want) {

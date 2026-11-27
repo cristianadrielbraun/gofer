@@ -54,6 +54,16 @@ func RenameJMAPCalendar(ctx context.Context, cfg *models.AccountConfig, password
 	return client.RenameCalendar(ctx, session, account, id, name)
 }
 
+// SetJMAPCalendarColor changes a JMAP calendar's color and returns the
+// color the server kept; see jmap.Client.SetCalendarColor.
+func SetJMAPCalendarColor(ctx context.Context, cfg *models.AccountConfig, password, id, color string) (string, error) {
+	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return "", err
+	}
+	return client.SetCalendarColor(ctx, session, account, id, color)
+}
+
 func DeleteJMAPCalendar(ctx context.Context, cfg *models.AccountConfig, password, id string) error {
 	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
 	if err != nil {

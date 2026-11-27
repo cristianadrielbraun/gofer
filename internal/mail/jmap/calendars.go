@@ -89,6 +89,43 @@ func (c *Client) RenameCalendar(ctx context.Context, session *Session, accountID
 	return c.updateOne(ctx, session, CapabilityCalendars, "Calendar/set", accountID, id, "calendar", map[string]any{"name": name})
 }
 
+// SetCalendarColor runs Calendar/set to change a calendar's color, and
+// Calendar/get in the same request to read the color the server kept, which
+// it returns. A server that refuses the change answers a *SetError; a
+// calendar it no longer has, notFound.
+func (c *Client) SetCalendarColor(ctx context.Context, session *Session, accountID, id, color string) (string, error) {
+	responses, err := c.Call(ctx, session, []string{CapabilityCalendars},
+		Invocation{Name: "Calendar/set", Args: map[string]any{
+			"accountId": accountID,
+			"update":    map[string]any{id: map[string]any{"color": color}},
+		}, CallID: "0"},
+		Invocation{Name: "Calendar/get", Args: map[string]any{
+			"accountId": accountID, "ids": []string{id}, "properties": []string{"id", "color"},
+		}, CallID: "1"})
+	if err != nil {
+		return "", err
+	}
+	var updated struct {
+		NotUpdated map[string]SetError `json:"notUpdated"`
+	}
+	if err := responses.Get("0", &updated); err != nil {
+		return "", fmt.Errorf("Calendar/set: %w", err)
+	}
+	if failure, ok := updated.NotUpdated[id]; ok {
+		return "", &failure
+	}
+	var kept GetResponse[Calendar]
+	if err := responses.Get("1", &kept); err != nil {
+		return "", fmt.Errorf("Calendar/get: %w", err)
+	}
+	for _, calendar := range kept.List {
+		if calendar.ID == id {
+			return calendar.Color, nil
+		}
+	}
+	return "", &SetError{Type: "notFound"}
+}
+
 // DestroyCalendar runs Calendar/set to delete a calendar with its events.
 func (c *Client) DestroyCalendar(ctx context.Context, session *Session, accountID, id string) error {
 	return c.destroyOne(ctx, session, CapabilityCalendars, "Calendar/set", accountID, id, "calendar", "onDestroyRemoveEvents")
