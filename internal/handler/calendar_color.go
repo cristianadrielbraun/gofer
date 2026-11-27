@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -46,8 +48,9 @@ type calendarColorResult struct {
 
 // handleCalendarSourceColor saves a color picked for a synced calendar, as
 // #rrggbb. A Google calendar's color goes to the account's Google calendar
-// list, which Google allows only with full calendar access, and an Outlook
-// calendar's to Outlook, which needs the account's calendar write access.
+// list, which Google allows only with full calendar access, an Outlook
+// calendar's to Outlook, which needs the account's calendar write access,
+// and a CalDAV calendar's to its server.
 // Without the access, when the provider refuses it,
 // and on providers Gofer doesn't change colors on, Gofer keeps the color
 // itself and says so. An empty color goes back to the provider's. A
@@ -122,6 +125,18 @@ func (h *Handler) changeCalendarColor(ctx context.Context, owner, sourceID, colo
 		}
 		err := h.onCalendarProvider(ctx, owner, source, func(ctx context.Context, login calendarManageLogin) error {
 			return setOutlookCalendarColor(ctx, source, login.token, color)
+		})
+		switch {
+		case err == nil:
+			change.OnProvider = true
+		case errors.Is(err, errCalendarColorRefused):
+			result.Reason = calendarColorRefused
+		default:
+			return calendarColorResult{}, err
+		}
+	case source.Provider == storage.CalendarSourceProviderCalDAV:
+		err := h.onCalendarProvider(ctx, owner, source, func(ctx context.Context, login calendarManageLogin) error {
+			return setCalDAVCalendarColor(ctx, source, login, color)
 		})
 		switch {
 		case err == nil:
@@ -234,6 +249,86 @@ func setOutlookCalendarColor(ctx context.Context, source storage.CalendarSource,
 		return errCalendarColorRefused
 	}
 	return err
+}
+
+// setCalDAVCalendarColor sets a CalDAV calendar's calendar-color, the
+// property Apple's apps started and most servers keep, then reads it back,
+// since a server can accept a property it doesn't keep. The server refusing
+// it, or not keeping it, is errCalendarColorRefused; a calendar gone from the
+// server is sql.ErrNoRows.
+func setCalDAVCalendarColor(ctx context.Context, source storage.CalendarSource, login calendarManageLogin, color string) error {
+	target, err := resolveCalDAVHref(login.baseURL, source.RemoteID)
+	if err != nil {
+		return err
+	}
+	body := `<?xml version="1.0" encoding="utf-8"?><d:propertyupdate xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/"><d:set><d:prop><a:calendar-color>` +
+		xmlEscapeText(color) + `</a:calendar-color></d:prop></d:set></d:propertyupdate>`
+	status, wire, err := davCollectionDo(ctx, calDAVHTTPTransport, "PROPPATCH", target, login.username, login.password, body)
+	switch status {
+	case http.StatusNotFound, http.StatusGone:
+		return sql.ErrNoRows
+	case http.StatusForbidden, http.StatusMethodNotAllowed, http.StatusConflict, http.StatusNotImplemented:
+		return errCalendarColorRefused
+	}
+	if err != nil {
+		return err
+	}
+	if status == http.StatusMultiStatus {
+		// A 207 can still refuse the property itself.
+		multi, err := decodeDAVMultiStatus(bytes.NewReader(wire))
+		if err != nil {
+			return fmt.Errorf("the server did not confirm the calendar's color: %w", err)
+		}
+		for _, response := range multi.Responses {
+			for _, propStat := range response.PropStats {
+				if !strings.Contains(propStat.Status, " 200 ") {
+					return errCalendarColorRefused
+				}
+			}
+		}
+	}
+	kept, err := readCalDAVCalendarColor(ctx, target, login)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(kept, color) {
+		return errCalendarColorRefused
+	}
+	return nil
+}
+
+// readCalDAVCalendarColor reads a CalDAV calendar's calendar-color as
+// #rrggbb, or empty when it has none.
+func readCalDAVCalendarColor(ctx context.Context, target string, login calendarManageLogin) (string, error) {
+	body := `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/"><d:prop><a:calendar-color/></d:prop></d:propfind>`
+	req, err := newCardDAVRequest(ctx, "PROPFIND", target, login.username, login.password, strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", `application/xml; charset="utf-8"`)
+	req.Header.Set("Depth", "0")
+	resp, err := calendarDeleteClient(calDAVHTTPTransport).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMultiStatus {
+		return "", fmt.Errorf("the server didn't say the calendar's color: %s", resp.Status)
+	}
+	multi, err := decodeDAVMultiStatus(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	for _, response := range multi.Responses {
+		for _, propStat := range response.PropStats {
+			if strings.Contains(propStat.Status, " 200 ") {
+				if color := calDAVCalendarColor(propStat.Prop.CalendarColor); color != "" {
+					return color, nil
+				}
+			}
+		}
+	}
+	return "", nil
 }
 
 // calendarTextColor is black or white, whichever reads better on color,

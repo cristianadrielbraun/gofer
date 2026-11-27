@@ -37,7 +37,7 @@ func TestCalendarColorMenuItem(t *testing.T) {
 		{full, models.AccountCalendarSource{Provider: "gmail"}, ""},
 		{models.Account{}, models.AccountCalendarSource{Provider: "outlook"}, ""},
 		{models.Account{CalendarCreateNeedsReconnect: true}, models.AccountCalendarSource{Provider: "outlook"}, "reconnect"},
-		{models.Account{}, models.AccountCalendarSource{Provider: "caldav"}, "provider"},
+		{models.Account{}, models.AccountCalendarSource{Provider: "caldav"}, ""},
 		{models.Account{}, models.AccountCalendarSource{Provider: "jmap"}, "provider"},
 	} {
 		if got := calendarColorNote(test.account, test.source); got != test.want {

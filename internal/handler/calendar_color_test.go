@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -351,6 +353,140 @@ func TestCalendarColorOnOutlook(t *testing.T) {
 	}
 	if len(api.changes) != 0 {
 		t.Fatalf("Microsoft was asked without write access: %v", api.changes)
+	}
+}
+
+// fakeCalDAVCalendarColors keeps CalDAV calendars' calendar-color and
+// answers PROPPATCH and PROPFIND for it, as answer says: "" takes the color,
+// "property" refuses the property in a 207, "ignore" says yes and keeps
+// nothing, or a status answers the whole request.
+type fakeCalDAVCalendarColors struct {
+	mu      sync.Mutex
+	colors  map[string]string
+	answer  string
+	changes []string
+}
+
+func (f *fakeCalDAVCalendarColors) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	body, _ := io.ReadAll(r.Body)
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	switch r.Method {
+	case "PROPPATCH":
+		f.changes = append(f.changes, r.URL.Path+" "+string(body))
+		if status, err := strconv.Atoi(f.answer); err == nil {
+			w.WriteHeader(status)
+			return
+		}
+		state := "200 OK"
+		if f.answer == "property" {
+			state = "403 Forbidden"
+		}
+		if f.answer == "" {
+			start := strings.Index(string(body), "<a:calendar-color>") + len("<a:calendar-color>")
+			end := strings.Index(string(body), "</a:calendar-color>")
+			// Apple's apps keep the alpha too.
+			f.colors[r.URL.Path] = strings.ToUpper(string(body)[start:end]) + "FF"
+		}
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/"><d:response><d:href>%s</d:href><d:propstat><d:prop><a:calendar-color/></d:prop><d:status>HTTP/1.1 %s</d:status></d:propstat></d:response></d:multistatus>`, r.URL.Path, state)
+	case "PROPFIND":
+		if r.Header.Get("Depth") != "0" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:a="http://apple.com/ns/ical/"><d:response><d:href>%s</d:href><d:propstat><d:prop><a:calendar-color>%s</a:calendar-color></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, r.URL.Path, f.colors[r.URL.Path])
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// A CalDAV calendar's color goes to its server and is read back. A server
+// that refuses it, in a 207 or as a whole, or says yes but doesn't keep it,
+// leaves the color kept in Gofer; a failure on the server changes nothing,
+// and a calendar gone from it is gone.
+func TestCalendarColorOnCalDAV(t *testing.T) {
+	dav := &fakeCalDAVCalendarColors{colors: map[string]string{"/calendars/home/": "#16A765FF"}}
+	server := httptest.NewServer(dav)
+	defer server.Close()
+	allowLocalDAVServers(t)
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default');
+		INSERT INTO accounts (id, user_id, provider, email_address, display_name, auth_method) VALUES ('imap-account', 'default', 'imap', 'robin@example.com', 'Robin', 'plain');`); err != nil {
+		t.Fatal(err)
+	}
+	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accountStore.SaveCalDAVConfig(t.Context(), "default", "imap-account", server.URL, "dav-user", "dav-pass", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceCalendarSources(t.Context(), "default", "imap-account", "caldav", []storage.CalendarSource{
+		{RemoteID: server.URL + "/calendars/home/", Name: "Home", Color: "#16a765", IsPrimary: true, IsSelected: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{db: db, accountStore: accountStore}
+	home := func() storage.CalendarSource {
+		t.Helper()
+		sources, err := db.ListCalendarSourcesForAccount(t.Context(), "default", "imap-account")
+		if err != nil || len(sources) != 1 {
+			t.Fatalf("sources = %+v, %v", sources, err)
+		}
+		return sources[0]
+	}
+	pick := func(color string) (*httptest.ResponseRecorder, calendarColorResult) {
+		t.Helper()
+		id := home().ID
+		req := httptest.NewRequest(http.MethodPost, "/api/calendar/sources/"+id+"/color", strings.NewReader(fmt.Sprintf(`{"color":%q}`, color)))
+		req.SetPathValue("id", id)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default", Username: "default"}))
+		rec := httptest.NewRecorder()
+		h.handleCalendarSourceColor(rec, req)
+		var result calendarColorResult
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rec, result
+	}
+
+	if rec, result := pick("#2563EB"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#2563eb"}) {
+		t.Fatalf("pick on CalDAV: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(dav.changes) != 1 || !strings.Contains(dav.changes[0], "<a:calendar-color>#2563eb</a:calendar-color>") || dav.colors["/calendars/home/"] != "#2563EBFF" {
+		t.Fatalf("the server saw %v and keeps %q", dav.changes, dav.colors["/calendars/home/"])
+	}
+	if source := home(); source.Color != "#2563eb" || source.ChosenColor != "" {
+		t.Fatalf("taken by the server: %+v", source)
+	}
+
+	for _, answer := range []string{"property", "ignore", "403", "405"} {
+		dav.answer = answer
+		if rec, result := pick("#ef4444"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#ef4444", InGoferOnly: true, Reason: calendarColorRefused}) {
+			t.Fatalf("pick the server answers %q: %d %s", answer, rec.Code, rec.Body.String())
+		}
+		if source := home(); source.Color != "#2563eb" || source.ChosenColor != "#ef4444" {
+			t.Fatalf("kept in Gofer after %q: %+v", answer, source)
+		}
+	}
+
+	dav.answer = "500"
+	if rec, _ := pick("#ffc000"); rec.Code != http.StatusBadGateway || home().ChosenColor != "#ef4444" {
+		t.Fatalf("pick while the server fails: %d %s, %+v", rec.Code, rec.Body.String(), home())
+	}
+	dav.answer = "404"
+	if rec, _ := pick("#ffc000"); rec.Code != http.StatusNotFound {
+		t.Fatalf("pick on a calendar gone from the server: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

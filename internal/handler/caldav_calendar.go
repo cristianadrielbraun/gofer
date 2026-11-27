@@ -355,13 +355,7 @@ func listCalDAVCalendars(ctx context.Context, homeURL, username, password, userI
 			name = calDAVCalendarName(remoteID)
 		}
 		isPrimary := len(calendars) == 0
-		color := strings.TrimSpace(prop.CalendarColor)
-		if len(color) == 9 {
-			color = color[:7]
-		}
-		if !isCalendarHexColor(color) {
-			color = ""
-		}
+		color := calDAVCalendarColor(prop.CalendarColor)
 		accessRole := "unknown"
 		if prop.CurrentUserPrivileges != nil {
 			accessRole = "reader"
@@ -418,6 +412,19 @@ func calDAVCalendarName(calendarURL string) string {
 		return "Calendar"
 	}
 	return name
+}
+
+// calDAVCalendarColor is a CalDAV calendar's calendar-color as #rrggbb, or
+// empty: Apple's apps write #RRGGBBAA, whose alpha Gofer leaves out.
+func calDAVCalendarColor(raw string) string {
+	color := strings.TrimSpace(raw)
+	if len(color) == 9 {
+		color = color[:7]
+	}
+	if !isCalendarHexColor(color) {
+		return ""
+	}
+	return color
 }
 
 func resolveCalDAVHref(baseURL, href string) (string, error) {
