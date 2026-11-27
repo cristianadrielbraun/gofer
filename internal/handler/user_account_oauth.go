@@ -31,6 +31,7 @@ func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http
 	owner := h.userID(r.Context())
 	form := map[string]string{"provider": provider, "email_address": strings.TrimSpace(r.FormValue("email_address")), "display_name": r.FormValue("display_name"), "flow_action": accountOAuthFlowAction(r.FormValue("flow_action")), "return_to": accountOAuthReturnPath(r.FormValue("return_to"))}
 	addProxyChoiceToFlow(r, form)
+	addBackgroundSyncToFlow(r, form)
 	// Refuse a provider or address the allowed mail lists leave out before
 	// sending the person to sign in.
 	if code := h.oauthMailAllowlistFailure(r.Context(), owner, provider, form["email_address"]); code != "" {
@@ -151,6 +152,8 @@ func (h *Handler) finishUserAccountOAuth(w http.ResponseWriter, ctx context.Cont
 			created := id == ""
 			if created {
 				req.ProxyID = flow.FormData["proxy"]
+				req.GroupID = flow.FormData["group_id"]
+				req.BackgroundSyncDisabled = flow.FormData["background_sync"] == "false"
 				account, err := h.userAccounts.CreateAccount(ctx, owner, req)
 				if err != nil {
 					var pending *config.PendingAccountCreationError
@@ -190,6 +193,9 @@ func (h *Handler) finishUserAccountOAuth(w http.ResponseWriter, ctx context.Cont
 				}
 				failure = "oauth_sync_failed"
 				if created {
+					if flow.FormData["background_sync"] == "false" {
+						return nil
+					}
 					return h.userAccountHooks.Created(ctx, id)
 				}
 				return h.userAccountHooks.Updated(ctx, id)

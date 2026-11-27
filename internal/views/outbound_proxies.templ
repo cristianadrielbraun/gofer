@@ -298,16 +298,22 @@ templ outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outbou
 }
 
 // AccountProxyDialog is where a person picks the proxy one of their accounts
-// connects through, opened from the gear of a wizard's Proxy row.
+// or account groups connects through.
 templ AccountProxyDialog(data models.AccountProxyData) {
 	@dialog.Dialog(dialog.Props{ID: "account-proxy-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-lg"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					{ i18n.T(ctx, "account_proxy.title") }
+					if data.GroupID != "" {
+						{ i18n.T(ctx, "account_group.proxy_title") }
+					} else {
+						{ i18n.T(ctx, "account_proxy.title") }
+					}
 				}
 				@dialog.Description() {
-					if data.AccountID == "" {
+					if data.GroupID != "" {
+						{ i18n.T(ctx, "account_group.proxy_description", "group", data.Name) }
+					} else if data.AccountID == "" {
 						{ i18n.T(ctx, "account_proxy.description_new") }
 					} else {
 						{ i18n.T(ctx, "account_proxy.description", "email", data.Email) }
@@ -320,6 +326,12 @@ templ AccountProxyDialog(data models.AccountProxyData) {
 }
 
 func accountProxyDefaultLabel(ctx context.Context, data models.AccountProxyData) string {
+	if data.InheritedGroup != "" {
+		if data.InheritedProxy == "" {
+			return i18n.T(ctx, "account_proxy.inherit_group_direct", "group", data.InheritedGroup)
+		}
+		return i18n.T(ctx, "account_proxy.inherit_group_named", "group", data.InheritedGroup, "name", data.InheritedProxy)
+	}
 	if data.Default == "" {
 		return i18n.T(ctx, "account_proxy.default_direct")
 	}
@@ -346,13 +358,28 @@ templ AccountProxyPanel(data models.AccountProxyData) {
 	<form
 		id="account-proxy-panel"
 		class="min-h-0 flex-1 space-y-4"
-		if data.AccountID != "" {
+		if data.GroupID != "" {
+			hx-post={ "/api/account-groups/" + data.GroupID + "/proxy" }
+			hx-target="#account-proxy-panel"
+			hx-swap="outerHTML"
+		}
+		if data.GroupID == "" && data.AccountID != "" {
 			hx-post={ "/api/accounts/" + data.AccountID + "/proxy" }
 			hx-target="#account-proxy-panel"
 			hx-swap="outerHTML"
 		}
 	>
-		if data.AccountID != "" {
+		if data.GroupID != "" {
+			<div class="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
+				<div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-muted-foreground">
+					@icon.Folder(icon.Props{Class: "size-4"})
+				</div>
+				<div class="min-w-0 flex-1">
+					<p class="truncate text-sm font-medium">{ data.Name }</p>
+					<p class="truncate text-xs text-muted-foreground">{ i18n.T(ctx, "account_group.proxy_scope_note") }</p>
+				</div>
+			</div>
+		} else if data.AccountID != "" {
 			<div class="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
 				<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(data.Color) } data-account-marker={ data.AccountID }></div>
 				<div class="min-w-0 flex-1">
@@ -368,7 +395,7 @@ templ AccountProxyPanel(data models.AccountProxyData) {
 				{{ choice = "" }}
 			}
 			@selectbox.SelectBox() {
-				@selectbox.Trigger(selectbox.TriggerProps{Name: "proxy", Class: "w-full", DisableClear: true, Attributes: templ.Attributes{"value": choice, "aria-label": i18n.T(ctx, "account_proxy.label")}}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "proxy", Class: "w-full", DisableClear: true, Required: true, Attributes: templ.Attributes{"value": choice, "aria-label": i18n.T(ctx, "account_proxy.label")}}) {
 					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "account_proxy.label")})
 				}
 				@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Proxies) < 8}) {
@@ -386,7 +413,11 @@ templ AccountProxyPanel(data models.AccountProxyData) {
 					}
 				}
 			}
-			<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "account_proxy.help") }</p>
+			if data.GroupID != "" {
+				<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "account_group.proxy_help") }</p>
+			} else {
+				<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "account_proxy.help") }</p>
+			}
 			if len(data.Proxies) == 0 {
 				<p class="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
 					@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
@@ -404,7 +435,11 @@ templ AccountProxyPanel(data models.AccountProxyData) {
 			}
 		</div>
 		if data.Saved {
-			<p role="status" class="text-sm text-emerald-800 dark:text-emerald-200">{ i18n.T(ctx, "account_proxy.saved") }</p>
+			if data.GroupID != "" {
+				<p role="status" class="text-sm text-emerald-800 dark:text-emerald-200">{ i18n.T(ctx, "account_group.proxy_saved") }</p>
+			} else {
+				<p role="status" class="text-sm text-emerald-800 dark:text-emerald-200">{ i18n.T(ctx, "account_proxy.saved") }</p>
+			}
 		}
 		if data.Error != "" {
 			<p role="alert" class="text-sm text-destructive">{ data.Error }</p>
@@ -413,7 +448,7 @@ templ AccountProxyPanel(data models.AccountProxyData) {
 			@dialog.Close() {
 				<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">{ i18n.T(ctx, "common.close") }</button>
 			}
-			if data.AccountID == "" {
+			if data.AccountID == "" && data.GroupID == "" {
 				// Adding an account: the choice goes back to the wizard.
 				<button type="button" data-account-proxy-apply class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "account_proxy.apply") }</button>
 			} else {
@@ -426,7 +461,7 @@ templ AccountProxyPanel(data models.AccountProxyData) {
 // accountProxyChoiceOffered reports whether a person has any choice to make:
 // a default proxy, or proxies of their own or for them.
 func accountProxyChoiceOffered(data models.AccountProxyData) bool {
-	return len(data.Proxies) > 0 || data.Default != ""
+	return len(data.Proxies) > 0 || data.Default != "" || data.InheritedGroup != ""
 }
 
 // AccountProxyChoiceSidebarLoader loads the Proxy row into an account
@@ -435,13 +470,13 @@ func accountProxyChoiceOffered(data models.AccountProxyData) bool {
 // the wizard's form, form: for the account being added, or, adding mail to
 // an account, that account's own, which the row also saves.
 templ AccountProxyChoiceSidebarLoader(accountID, form string) {
-	<div hx-get={ "/api/accounts/proxy-choice?sidebar=1&account=" + accountID + "&form=" + form } hx-trigger="intersect once" hx-swap="outerHTML" data-account-proxy-choice-loader></div>
+	<div hx-get={ "/api/accounts/proxy-choice?sidebar=1&account=" + accountID + "&form=" + form } hx-trigger="intersect once" hx-target="this" hx-swap="outerHTML" data-account-proxy-choice-loader></div>
 }
 
 // AccountProxyChoiceLoader loads the Connect through field of an account
 // dialog when it opens, for the account named, or for one being added.
 templ AccountProxyChoiceLoader(accountID string) {
-	<div hx-get={ "/api/accounts/proxy-choice?account=" + accountID } hx-trigger="intersect once" hx-swap="outerHTML" data-account-proxy-choice-loader></div>
+	<div hx-get={ "/api/accounts/proxy-choice?account=" + accountID } hx-trigger="intersect once" hx-target="this" hx-swap="innerHTML" class="empty:hidden" data-account-proxy-choice-loader></div>
 }
 
 // AccountProxyChoiceField is the Connect through field of the account
@@ -471,7 +506,7 @@ templ AccountProxyChoiceField(data models.AccountProxyData) {
 				{ i18n.T(ctx, "account_proxy.label") }
 			</label>
 			@selectbox.SelectBox() {
-				@selectbox.Trigger(selectbox.TriggerProps{Name: "proxy", Form: form, Class: "w-full", DisableClear: true, Attributes: attributes}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "proxy", Form: form, Class: "w-full", DisableClear: true, Required: true, Attributes: attributes}) {
 					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "account_proxy.label")})
 				}
 				@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Proxies) < 8}) {
@@ -489,7 +524,9 @@ templ AccountProxyChoiceField(data models.AccountProxyData) {
 					}
 				}
 			}
-			if data.AccountID == "" {
+			if data.ForGroup {
+				<p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{ i18n.T(ctx, "account_group.proxy_help") }</p>
+			} else if data.AccountID == "" {
 				<p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{ i18n.T(ctx, "account_proxy.adding_help") }</p>
 			} else {
 				<p id={ "account-proxy-choice-status-" + data.AccountID } class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground" aria-live="polite">{ i18n.T(ctx, "account_proxy.editing_help") }</p>
@@ -519,6 +556,12 @@ func accountProxyRowState(ctx context.Context, data models.AccountProxyData) (bo
 	case "direct":
 		return false, i18n.T(ctx, "account_proxy.direct")
 	case "":
+		if data.InheritedGroup != "" {
+			if data.InheritedProxy == "" {
+				return false, i18n.T(ctx, "account_proxy.inherit_group_direct", "group", data.InheritedGroup)
+			}
+			return true, i18n.T(ctx, "account_proxy.inherit_group_named", "group", data.InheritedGroup, "name", data.InheritedProxy)
+		}
 		if data.Default == "" {
 			return false, i18n.T(ctx, "account_proxy.direct")
 		}
@@ -532,6 +575,13 @@ func accountProxyRowState(ctx context.Context, data models.AccountProxyData) (bo
 	return false, i18n.T(ctx, "account_proxy.direct")
 }
 
+func accountProxyRowSwitchTarget(data models.AccountProxyData) string {
+	if data.InheritedGroup != "" {
+		return data.InheritedProxy
+	}
+	return data.Default
+}
+
 // AccountProxySidebarRow is the Proxy setting of an account's wizard, in its
 // sidebar: it is the whole account's, its mail, contacts and calendars. The
 // switch turns the proxy on, the default one, or off for a direct
@@ -540,7 +590,7 @@ func accountProxyRowState(ctx context.Context, data models.AccountProxyData) (bo
 templ AccountProxySidebarRow(data models.AccountProxyData) {
 	if accountProxyChoiceOffered(data) {
 		{{ on, state := accountProxyRowState(ctx, data) }}
-		<div class="account-wizard-section" data-account-proxy-row data-account-id={ data.AccountID } data-default-name={ data.Default } data-account-proxy-form={ data.Form }>
+		<div class="account-wizard-section" data-account-proxy-row data-account-id={ data.AccountID } data-default-name={ accountProxyRowSwitchTarget(data) } data-account-proxy-form={ data.Form }>
 			<div class="account-wizard-section-heading">
 				<div class="account-wizard-section-title cursor-default">
 					<span class="account-wizard-index">

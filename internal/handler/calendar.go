@@ -21,6 +21,7 @@ func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	h.renderMailboxView(w, r, &ctx, func(local *Handler) (templ.Component, error) {
 		userID := local.userID(ctx)
 		uiSettings := local.db.GetUISettings(ctx, userID)
+		ctx = views.WithUISettings(ctx, uiSettings)
 		accounts, _ := local.db.GetAccounts(ctx, userID)
 		h.markCalendarFullAccess(ctx, userID, accounts)
 		month := calendarDataFromRequest(r, uiSettings)
@@ -32,7 +33,14 @@ func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			applyCalendarSyncSummary(r.Context(), &month, sources)
 			windowStart, windowEnd := calendarVisibleWindow(month)
 			if r.URL.Query().Get("cache") != "1" {
+				bgByAccount := make(map[string]bool, len(accounts))
+				for _, acc := range accounts {
+					bgByAccount[acc.ID] = acc.BackgroundSyncEnabled
+				}
 				for _, source := range sources {
+					if source.Provider != storage.CalendarSourceProviderICS && source.AccountID != "" && !bgByAccount[source.AccountID] {
+						continue
+					}
 					if calendarSourceNeedsRefresh(source, windowStart, windowEnd, time.Now(), local.calendarSyncInterval(ctx, userID)) {
 						month.AutoSync = true
 						break

@@ -93,6 +93,9 @@ type profileAccount struct {
 	SMTPUsername   string `json:"smtp_username,omitempty"`
 	JMAPSessionURL string `json:"jmap_session_url,omitempty"`
 	EmailSync      bool   `json:"email_sync"`
+	// BackgroundSyncPaused is set when automatic background checks were paused
+	// for the account; older exports leave background sync enabled.
+	BackgroundSyncPaused bool `json:"background_sync_paused,omitempty"`
 	// ScheduledChecks is set when the account chose scheduled checks over
 	// its provider's notifications; older exports leave notifications on.
 	ScheduledChecks bool                      `json:"scheduled_checks,omitempty"`
@@ -306,24 +309,25 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 		return profileAccount{}, err
 	}
 	exported := profileAccount{
-		Ref:               ref,
-		Provider:          data.Provider,
-		ProviderAccountID: data.ProviderAccountID,
-		EmailAddress:      data.EmailAddress,
-		DisplayName:       data.DisplayName,
-		SenderName:        data.SenderName,
-		Color:             account.Color,
-		AuthMethod:        data.AuthMethod,
-		IMAPHost:          data.IMAPHost,
-		IMAPPort:          data.IMAPPort,
-		IMAPTLSMode:       data.IMAPTLSMode,
-		SMTPHost:          data.SMTPHost,
-		SMTPPort:          data.SMTPPort,
-		SMTPTLSMode:       data.SMTPTLSMode,
-		Username:          data.Username,
-		SMTPUsername:      data.SmtpUsername,
-		JMAPSessionURL:    data.JMAPSessionURL,
-		EmailSync:         data.EmailSyncEnabled,
+		Ref:                  ref,
+		Provider:             data.Provider,
+		ProviderAccountID:    data.ProviderAccountID,
+		EmailAddress:         data.EmailAddress,
+		DisplayName:          data.DisplayName,
+		SenderName:           data.SenderName,
+		Color:                account.Color,
+		AuthMethod:           data.AuthMethod,
+		IMAPHost:             data.IMAPHost,
+		IMAPPort:             data.IMAPPort,
+		IMAPTLSMode:          data.IMAPTLSMode,
+		SMTPHost:             data.SMTPHost,
+		SMTPPort:             data.SMTPPort,
+		SMTPTLSMode:          data.SMTPTLSMode,
+		Username:             data.Username,
+		SMTPUsername:         data.SmtpUsername,
+		JMAPSessionURL:       data.JMAPSessionURL,
+		EmailSync:            data.EmailSyncEnabled,
+		BackgroundSyncPaused: !data.BackgroundSyncEnabled,
 	}
 	push, err := db.ProviderPushEnabled(ctx, account.ID)
 	if err != nil {
@@ -935,6 +939,9 @@ func (h *Handler) importProfileAccount(ctx context.Context, owner string, accoun
 		if err := db.SetProviderPushEnabled(ctx, owner, id, !account.ScheduledChecks); err != nil {
 			return err
 		}
+		if err := db.SetAccountBackgroundSyncEnabled(ctx, owner, id, !account.BackgroundSyncPaused); err != nil {
+			return err
+		}
 		if err := importProfileAccountServices(ctx, store, db, owner, id, account); err != nil {
 			return err
 		}
@@ -1438,6 +1445,9 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 		if err := db.SetProviderPushEnabled(ctx, owner, id, !account.ScheduledChecks); err != nil {
 			return err
 		}
+		if err := db.SetAccountBackgroundSyncEnabled(ctx, owner, id, !account.BackgroundSyncPaused); err != nil {
+			return err
+		}
 		if waiting {
 			if err := importProfileAccountServices(ctx, store, db, owner, id, account); err != nil {
 				return err
@@ -1463,7 +1473,7 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 	if h.syncer == nil {
 		return nil
 	}
-	if account.EmailSync && !waiting {
+	if account.EmailSync && !account.BackgroundSyncPaused && !waiting {
 		h.syncer.RestartAccount(id)
 	} else {
 		h.syncer.StopAccount(id)

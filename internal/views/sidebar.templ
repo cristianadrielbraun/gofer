@@ -210,11 +210,7 @@ templ ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSett
 		<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
 			@ContactsSidebarItem("", i18n.T(ctx, "contacts.all"), filters)
 			@ContactsSidebarItem("stored_in:local", i18n.T(ctx, "contacts.local"), filters)
-			for _, account := range accounts {
-				if contactSidebarAccountVisible(account) {
-					@ContactsSidebarAccountSection(account, filters, uiSettings)
-				}
-			}
+			@SidebarContactsAccountNodes(buildSidebarAccountTree(filterContactsSidebarAccounts(accounts)), filters, uiSettings)
 		</nav>
 		// Below the scrolling address books, always in view.
 		<div class="shrink-0 px-3 pb-2" data-contacts-sidebar-trash>
@@ -985,11 +981,7 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettin
 		if uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" {
 			@SidebarUnifiedSection(accounts, activeFolder, uiSettings, filters)
 		}
-		for _, account := range accounts {
-			if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden {
-				@SidebarAccountSection(account, activeFolder, uiSettings, filters)
-			}
-		}
+		@SidebarMailAccountNodes(buildSidebarAccountTree(filterMailSidebarAccounts(accounts)), activeFolder, uiSettings, filters)
 	</nav>
 }
 

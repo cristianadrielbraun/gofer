@@ -129,6 +129,9 @@ func calendarListSources(ctx context.Context, db *storage.DB, owner, accountID s
 		if seen[source.AccountID] || (accountID != "" && source.AccountID != accountID) {
 			continue
 		}
+		if accountID == "" && source.AccountID != "" && !db.IsBackgroundSyncEnabled(ctx, source.AccountID) {
+			continue
+		}
 		seen[source.AccountID] = true
 		out = append(out, source)
 	}

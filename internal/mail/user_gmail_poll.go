@@ -244,7 +244,7 @@ func (s *UserIMAP) pollActiveGmailAccount(job userActivePollJob) error {
 			if err != nil {
 				return err
 			}
-			if scope.config.AuthMethod != "oauth2" || scope.tokens == nil || !scope.account.EmailSyncEnabled {
+			if scope.config.AuthMethod != "oauth2" || scope.tokens == nil || !scope.account.EmailSyncEnabled || !scope.account.BackgroundSyncEnabled {
 				interval = gmailAPIPollMaxBackoff
 				return nil
 			}
@@ -313,7 +313,7 @@ func (s *UserIMAP) checkUserGmailProfile(ctx context.Context, scope *userIMAPSco
 	if err == nil {
 		err = o.outlookRequest(ctx, token, func(access string) error {
 			if err := scope.call(ctx, func(db *storage.DB) error {
-				if !db.IsEmailSyncEnabled(ctx, scope.id) {
+				if !db.IsEmailSyncEnabled(ctx, scope.id) || !db.IsBackgroundSyncEnabled(ctx, scope.id) {
 					return errors.New("mail receiving was disabled during Gmail polling")
 				}
 				return nil
@@ -336,7 +336,7 @@ func (s *UserIMAP) checkUserGmailProfile(ctx context.Context, scope *userIMAPSco
 	changed := false
 	pollErr := err
 	publishErr := scope.call(ctx, func(db *storage.DB) error {
-		if !db.IsEmailSyncEnabled(ctx, scope.id) {
+		if !db.IsEmailSyncEnabled(ctx, scope.id) || !db.IsBackgroundSyncEnabled(ctx, scope.id) {
 			return errors.New("mail receiving was disabled during Gmail polling")
 		}
 		if pollErr == nil {

@@ -3505,6 +3505,34 @@ func (db *DB) GetProviderEmailSyncAccountIDs(ctx context.Context, userID, provid
 	return ids, rows.Err()
 }
 
+// GetProviderBackgroundEmailSyncAccountIDs lists the user's accounts of one
+// provider that receive mail automatically in the background.
+func (db *DB) GetProviderBackgroundEmailSyncAccountIDs(ctx context.Context, userID, provider string) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE user_id = ?
+		  AND provider = ?
+		  AND COALESCE(is_deleting, 0) = 0
+		  AND COALESCE(email_sync_enabled, 1) = 1
+		  AND COALESCE(background_sync_enabled, 1) = 1
+		ORDER BY id`, strings.TrimSpace(userID), provider)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (db *DB) GetLabelAdminStatus(ctx context.Context, userID string) (models.LabelAdminStatus, error) {
 	return db.getLabelAdminStatus(ctx, "accounts.user_id = ?", []any{strings.TrimSpace(userID)})
 }
@@ -4343,6 +4371,26 @@ func (db *DB) GetEmailSyncAccountIDs(ctx context.Context, userID string) ([]stri
 	return ids, rows.Err()
 }
 
+// GetBackgroundEmailSyncAccountIDs lists the user's active mail accounts whose
+// automatic background sync is enabled.
+func (db *DB) GetBackgroundEmailSyncAccountIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 AND COALESCE(email_sync_enabled, 1) = 1 AND COALESCE(background_sync_enabled, 1) = 1 AND provider != 'local' ORDER BY id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (db *DB) GetAllAccountIDs(ctx context.Context) ([]string, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT a.id FROM accounts a JOIN users u ON u.id = a.user_id
@@ -4367,6 +4415,30 @@ func (db *DB) GetAllEmailSyncAccountIDs(ctx context.Context) ([]string, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT a.id FROM accounts a JOIN users u ON u.id = a.user_id
 		WHERE COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
+		  AND a.provider != 'local' AND u.status = 'active' ORDER BY a.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// GetAllBackgroundEmailSyncAccountIDs lists active mail accounts across all
+// active users whose automatic background sync is enabled.
+func (db *DB) GetAllBackgroundEmailSyncAccountIDs(ctx context.Context) ([]string, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT a.id FROM accounts a JOIN users u ON u.id = a.user_id
+		WHERE COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
+		  AND COALESCE(a.background_sync_enabled, 1) = 1
 		  AND a.provider != 'local' AND u.status = 'active' ORDER BY a.id`)
 	if err != nil {
 		return nil, err
@@ -4892,7 +4964,7 @@ const DAVAccountColumns = `CASE WHEN a.provider != 'dav' THEN ''
 
 func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.sort_order, a.group_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.background_sync_enabled, 1), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''), COALESCE(a.hidden, 0),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
@@ -4915,9 +4987,9 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
+		var isDeleting, bgSyncEnabled, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod, smtpHost string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.SortOrder, &a.GroupID, &a.Color, &a.Initials, &isDeleting, &bgSyncEnabled, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.Name = i18n.AccountName(ctx, a.Provider, a.Name)
@@ -4925,6 +4997,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 			a.MailService = providers.MailServiceICloud
 		}
 		a.IsDeleting = isDeleting == 1
+		a.BackgroundSyncEnabled = bgSyncEnabled == 1
 		a.EmailSyncEnabled = emailSyncEnabled == 1
 		a.ContactSyncEnabled = contactSyncEnabled == 1
 		a.CalendarSyncEnabled = calendarSyncEnabled == 1
@@ -4961,13 +5034,16 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	if err := db.attachAccountIdentities(ctx, userID, accounts); err != nil {
 		return nil, err
 	}
+	if err := db.attachAccountGroups(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 
 	return accounts, nil
 }
 
 func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.sort_order, a.group_id, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.background_sync_enabled, 1), COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''), COALESCE(a.hidden, 0),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
@@ -4990,9 +5066,9 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
+		var isDeleting, bgSyncEnabled, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.SortOrder, &a.GroupID, &a.Color, &a.Initials, &isDeleting, &bgSyncEnabled, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		a.Name = i18n.AccountName(ctx, a.Provider, a.Name)
@@ -5000,6 +5076,7 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 			a.MailService = providers.MailServiceICloud
 		}
 		a.IsDeleting = isDeleting == 1
+		a.BackgroundSyncEnabled = bgSyncEnabled == 1
 		a.EmailSyncEnabled = emailSyncEnabled == 1
 		a.ContactSyncEnabled = contactSyncEnabled == 1
 		a.CalendarSyncEnabled = calendarSyncEnabled == 1
@@ -5027,6 +5104,9 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		return nil, err
 	}
 	db.attachImportedAccountsPending(ctx, userID, accounts)
+	if err := db.attachAccountGroups(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 
 	return accounts, nil
 }
@@ -8785,6 +8865,7 @@ func defaultUISettings() map[string]string {
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
 		"sidebar_account_collapsed":         "{}",
+		"sidebar_account_group_collapsed":   "{}",
 		"sidebar_folder_collapsed":          "{}",
 		"sidebar_tag_group_collapsed":       "{}",
 		"contacts_auto_create_observed":     "true",

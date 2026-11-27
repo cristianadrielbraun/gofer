@@ -16,8 +16,23 @@ import (
 // sync finds what. A calendar change also reads the account's calendar list
 // again, at most once a minute, since the event may be in a calendar Gofer
 // doesn't know yet.
+func (h *Handler) isAccountBackgroundSyncEnabled(ctx context.Context, accountID string) bool {
+	if h.userStorage == nil {
+		return h.db.IsBackgroundSyncEnabled(ctx, accountID)
+	}
+	enabled := false
+	_ = h.userStorage.WithAccount(ctx, accountID, func(db *storage.DB, _ string) error {
+		enabled = db.IsBackgroundSyncEnabled(ctx, accountID)
+		return nil
+	})
+	return enabled
+}
+
 func (h *Handler) OutlookServiceChanged(ctx context.Context, service mail.OutlookPushService, accountIDs []string) {
 	for _, accountID := range accountIDs {
+		if !h.isAccountBackgroundSyncEnabled(ctx, accountID) {
+			continue
+		}
 		var err error
 		switch {
 		case h.userStorage != nil && service == mail.OutlookPushCalendar:

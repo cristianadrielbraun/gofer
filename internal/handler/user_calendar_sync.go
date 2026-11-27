@@ -263,6 +263,7 @@ func (h *Handler) syncUserCalendarWindow(ctx context.Context, owner string, star
 	}
 	err = h.userIMAP.RunUserServiceWork(ctx, owner, func(ctx context.Context) error {
 		var sources []storage.CalendarSource
+		var bgDisabled map[string]bool
 		if account != "" {
 			state, err := h.userStorage.AccountStateForUser(ctx, owner, account)
 			if err != nil {
@@ -275,7 +276,18 @@ func (h *Handler) syncUserCalendarWindow(ctx context.Context, owner string, star
 		if err := h.userAccounts.WithUser(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
 			var err error
 			sources, err = db.ListSelectedCalendarSources(ctx, owner)
-			return err
+			if err != nil || account != "" {
+				return err
+			}
+			bgDisabled = make(map[string]bool)
+			for _, s := range sources {
+				if s.AccountID != "" && s.Provider != storage.CalendarSourceProviderICS {
+					if _, checked := bgDisabled[s.AccountID]; !checked {
+						bgDisabled[s.AccountID] = !db.IsBackgroundSyncEnabled(ctx, s.AccountID)
+					}
+				}
+			}
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -283,6 +295,9 @@ func (h *Handler) syncUserCalendarWindow(ctx context.Context, owner string, star
 		var failures []error
 		for _, source := range sources {
 			if account != "" && source.AccountID != account {
+				continue
+			}
+			if account == "" && source.Provider != storage.CalendarSourceProviderICS && source.AccountID != "" && bgDisabled[source.AccountID] {
 				continue
 			}
 			matched = true

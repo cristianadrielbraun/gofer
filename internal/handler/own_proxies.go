@@ -24,11 +24,11 @@ const ownProxiesBase = "/settings/security"
 // manages: its own, or, for the handler of people's own stores, the central
 // one.
 func (h *Handler) proxyStore() *config.AccountStore {
-	if h.accountStore != nil {
-		return h.accountStore
-	}
 	if h.userAccounts != nil {
 		return h.userAccounts.Proxies()
+	}
+	if h.accountStore != nil {
+		return h.accountStore
 	}
 	return nil
 }

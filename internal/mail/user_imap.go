@@ -572,9 +572,9 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair, backgroun
 				return mutationErr
 			}
 		}
-		var enabled, push int
+		var enabled, bgEnabled, push int
 		if err := scope.call(ctx, func(db *storage.DB) error {
-			return db.Read().QueryRowContext(ctx, `SELECT COALESCE(email_sync_enabled,1),provider_push_enabled FROM accounts WHERE id=?`, id).Scan(&enabled, &push)
+			return db.Read().QueryRowContext(ctx, `SELECT COALESCE(email_sync_enabled,1),COALESCE(background_sync_enabled,1),provider_push_enabled FROM accounts WHERE id=?`, id).Scan(&enabled, &bgEnabled, &push)
 		}); err != nil {
 			return err
 		}
@@ -588,6 +588,14 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair, backgroun
 			}
 			return mutationErr
 		}
+		if background && bgEnabled != 1 {
+			s.mu.Lock()
+			s.stopWatchesLocked(id)
+			s.mu.Unlock()
+			s.dropOutlookSubscription(ctx, scope)
+			interval = 24 * time.Hour
+			return mutationErr
+		}
 		// Fresh orchestration state for one bounded session, sharing only services.
 		o := NewSyncOrchestrator(nil, nil, s.blobs, scope.tokens)
 		o.imapScope = scope
@@ -599,10 +607,19 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair, backgroun
 		}
 		receiveErr = err
 		if err == nil {
-			s.keepOutlookSubscription(ctx, o, scope, push == 1)
-			err = s.reconcileWatches(ctx, scope)
+			if bgEnabled == 1 {
+				s.keepOutlookSubscription(ctx, o, scope, push == 1)
+				err = s.reconcileWatches(ctx, scope)
+			} else {
+				s.mu.Lock()
+				s.stopWatchesLocked(id)
+				s.mu.Unlock()
+				s.dropOutlookSubscription(ctx, scope)
+			}
 		}
-		if (scope.config.Provider == providers.ProviderIMAP || scope.config.Provider == providers.ProviderJMAP) && scope.config.AuthMethod == "plain" {
+		if bgEnabled != 1 {
+			interval = 24 * time.Hour
+		} else if (scope.config.Provider == providers.ProviderIMAP || scope.config.Provider == providers.ProviderJMAP) && scope.config.AuthMethod == "plain" {
 			interval = s.pollIntervalFor(owner, id, interval)
 		}
 		err = errors.Join(err, mutationErr)

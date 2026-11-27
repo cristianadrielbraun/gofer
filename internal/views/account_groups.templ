@@ -1,0 +1,702 @@
+package views
+
+import (
+	"fmt"
+	"net/url"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+templ SettingsNewAccountGroupButton() {
+	@button.Button(button.Props{
+		Variant: button.VariantOutline,
+		Size:    button.SizeSm,
+		Class:   "shrink-0",
+		Attributes: templ.Attributes{
+			"type":      "button",
+			"hx-get":    "/api/account-groups/new",
+			"hx-target": "#edit-account-container",
+			"hx-swap":   "innerHTML",
+		},
+	}) {
+		@icon.FolderPlus(icon.Props{Class: "size-4"})
+		{ i18n.T(ctx, "account_group.new") }
+	}
+}
+
+templ SettingsAccountTreeList(items []settingsAccountTreeItem, parentGroupID string) {
+	<div class="space-y-3" data-account-order-list data-group-id={ parentGroupID }>
+		for _, item := range items {
+			if item.IsGroup {
+				@SettingsAccountGroupCard(item.Group, item.Children)
+			} else if accountIsLocalFolders(item.Account) {
+				if !item.Account.IsDeleting {
+					@SettingsLocalFoldersCard(item.Account)
+				}
+			} else {
+				@SettingsAccountCard(item.Account)
+			}
+		}
+	</div>
+}
+
+templ SettingsAccountGroupCard(group models.AccountGroup, children []settingsAccountTreeItem) {
+	{{ totalAccounts, enabledAccounts := settingsGroupBackgroundSyncCounts(children) }}
+	<div
+		id={ fmt.Sprintf("account-group-card-%s", group.ID) }
+		data-settings-account-group
+		data-group-id={ group.ID }
+		data-group-name={ group.Name }
+		class="transition-[opacity,transform] duration-200 ease-out"
+	>
+		<div class="settings-account-group-card rounded-lg border border-border/70 bg-muted/15 p-3.5 space-y-3">
+			<div class="flex items-start justify-between gap-3" data-account-group-header>
+				<div class="flex min-w-0 items-center gap-2.5">
+					@OrderHandle("data-account-order-handle", i18n.T(ctx, "account_group.reorder_label", "group", group.Name))
+					<div class="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent/80 text-muted-foreground">
+						@icon.Folder(icon.Props{Class: "size-4"})
+					</div>
+					<div class="min-w-0">
+						<div class="flex min-w-0 flex-wrap items-center gap-2">
+							<p class="min-w-0 truncate text-sm font-semibold text-foreground">{ group.Name }</p>
+							if group.ProxyState != "" {
+								<button
+									type="button"
+									hx-get={ fmt.Sprintf("/api/account-groups/%s/proxy/manage", group.ID) }
+									hx-target="#account-proxy-dialog-container"
+									hx-swap="innerHTML"
+									class={
+										"inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+										templ.KV("border-emerald-500/25 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300", group.ProxyActive),
+										templ.KV("border-border bg-background/70 text-muted-foreground hover:text-foreground", !group.ProxyActive),
+									}
+								>
+									@icon.Network(icon.Props{Class: "size-3"})
+									<span class="max-w-36 truncate">{ group.ProxyState }</span>
+								</button>
+							}
+							if totalAccounts > 0 && enabledAccounts == 0 {
+								<span class="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300" data-group-sync-badge="paused">
+									{ i18n.T(ctx, "account_group.sync_paused_badge") }
+								</span>
+							} else if totalAccounts > 0 && enabledAccounts < totalAccounts {
+								<span class="inline-flex items-center gap-1 rounded-md border border-border bg-background/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground" data-group-sync-badge="partial">
+									{ i18n.T(ctx, "account_group.sync_partial_badge", "enabled", i18n.Number(ctx, enabledAccounts), "total", i18n.Number(ctx, totalAccounts)) }
+								</span>
+							}
+						</div>
+					</div>
+				</div>
+				<div class="flex shrink-0 items-center gap-1.5" data-account-actions>
+					if totalAccounts > 0 {
+						<form
+							hx-post={ fmt.Sprintf("/api/account-groups/%s/background-sync", group.ID) }
+							hx-target="#settings-content #settings-accounts-section"
+							hx-swap="outerHTML"
+							hx-trigger="change"
+							class="inline-flex h-[30px] items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 text-xs"
+							title={ i18n.T(ctx, "account_group.background_sync_hint") }
+							data-group-background-sync-form={ group.ID }
+						>
+							<input type="hidden" name="background_sync_present" value="1"/>
+							<label for={ "group-bg-sync-" + group.ID } class="hidden cursor-pointer select-none text-muted-foreground sm:inline">
+								{ i18n.T(ctx, "settings.account.background_sync.short") }
+							</label>
+							@switchcomp.Switch(switchcomp.Props{
+								ID:      "group-bg-sync-" + group.ID,
+								Name:    "background_sync",
+								Value:   "true",
+								Checked: enabledAccounts == totalAccounts,
+								Attributes: templ.Attributes{
+									"aria-label": i18n.T(ctx, "account_group.background_sync_aria", "group", group.Name),
+								},
+							})
+						</form>
+					}
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Size:    button.SizeSm,
+						Class:   "account-action-btn h-[30px] px-2.5 text-xs shadow-none",
+						Attributes: templ.Attributes{
+							"type":      "button",
+							"hx-get":    fmt.Sprintf("/api/account-groups/%s/proxy/manage", group.ID),
+							"hx-target": "#account-proxy-dialog-container",
+							"hx-swap":   "innerHTML",
+						},
+					}) {
+						@icon.Network(icon.Props{Class: "size-3.5"})
+						<span class="hidden sm:inline">{ i18n.T(ctx, "account_proxy.title") }</span>
+					}
+					@SettingsAccountGroupActionsMenu(group, totalAccounts, enabledAccounts)
+				</div>
+			</div>
+			if len(children) > 0 {
+				<div class="border-l-2 border-border/60 pl-3 sm:pl-4">
+					@SettingsAccountTreeList(children, group.ID)
+				</div>
+			} else {
+				<div class="rounded-md border border-dashed border-border/70 bg-background/30 px-3 py-2.5 text-xs text-muted-foreground">
+					{ i18n.T(ctx, "account_group.empty") }
+				</div>
+			}
+		</div>
+		@dialog.Dialog(dialog.Props{ID: fmt.Sprintf("delete-account-group-%s", group.ID)}) {
+			@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+				@dialog.Header() {
+					@dialog.Title() {
+						{ i18n.T(ctx, "account_group.delete_title") }
+					}
+					@dialog.Description() {
+						{ i18n.T(ctx, "account_group.delete_description", "group", group.Name) }
+					}
+				}
+				@dialog.Footer() {
+					@dialog.Close() {
+						<button type="button" class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">
+							{ i18n.T(ctx, "common.cancel") }
+						</button>
+					}
+					<button
+						type="button"
+						class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90"
+						hx-delete={ fmt.Sprintf("/api/account-groups/%s", group.ID) }
+						hx-target="#settings-content #settings-accounts-section"
+						hx-swap="outerHTML"
+						data-tui-dialog-close
+					>
+						@icon.Trash2(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "account_group.delete_confirm") }
+					</button>
+				}
+			}
+		}
+	</div>
+}
+
+templ SettingsAccountGroupActionsMenu(group models.AccountGroup, totalAccounts int, enabledAccounts int) {
+	@dropdown.Dropdown(dropdown.Props{ID: fmt.Sprintf("account-group-actions-menu-%s", group.ID)}) {
+		@dropdown.Trigger() {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Size:    button.SizeIcon,
+				Class:   "account-action-btn size-[30px] text-muted-foreground hover:text-foreground shadow-none",
+				Attributes: templ.Attributes{
+					"aria-label": i18n.T(ctx, "account_group.more_actions", "group", group.Name),
+				},
+			}) {
+				@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+			}
+		}
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-52 normal-case tracking-normal", Attributes: templ.Attributes{"data-account-actions-menu": "group:" + group.ID}}) {
+			if totalAccounts > 0 {
+				if enabledAccounts < totalAccounts {
+					@dropdown.Item(dropdown.ItemProps{
+						Class: "justify-start gap-2",
+						Attributes: templ.Attributes{
+							"type":      "button",
+							"hx-post":   fmt.Sprintf("/api/account-groups/%s/background-sync", group.ID),
+							"hx-vals":   `{"enabled":"true"}`,
+							"hx-target": "#settings-content #settings-accounts-section",
+							"hx-swap":   "outerHTML",
+						},
+					}) {
+						@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "account_group.enable_background_sync") }
+					}
+				}
+				if enabledAccounts > 0 {
+					@dropdown.Item(dropdown.ItemProps{
+						Class: "justify-start gap-2",
+						Attributes: templ.Attributes{
+							"type":      "button",
+							"hx-post":   fmt.Sprintf("/api/account-groups/%s/background-sync", group.ID),
+							"hx-vals":   `{"enabled":"false"}`,
+							"hx-target": "#settings-content #settings-accounts-section",
+							"hx-swap":   "outerHTML",
+						},
+					}) {
+						@icon.Pause(icon.Props{Class: "size-3.5"})
+						{ i18n.T(ctx, "account_group.disable_background_sync") }
+					}
+				}
+				@dropdown.Separator()
+			}
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":                   "button",
+					"data-add-account-group": group.ID,
+				},
+			}) {
+				@icon.Plus(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_group.add_new_account") }
+			}
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    fmt.Sprintf("/api/account-groups/%s/accounts/manage", group.ID),
+					"hx-target": "#edit-account-container",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				@icon.ListChecks(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_group.add_existing_accounts") }
+			}
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    "/api/account-groups/new?parent_id=" + url.QueryEscape(group.ID),
+					"hx-target": "#edit-account-container",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				@icon.FolderPlus(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_group.new_subgroup") }
+			}
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    fmt.Sprintf("/api/account-groups/%s/edit", group.ID),
+					"hx-target": "#edit-account-container",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				@icon.Pencil(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_group.edit") }
+			}
+			@dropdown.Separator()
+			@SettingsAccountMoveItem("up")
+			@SettingsAccountMoveItem("down")
+			@dropdown.Separator()
+			@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("delete-account-group-%s", group.ID)}) {
+				@dropdown.Item(dropdown.ItemProps{
+					Class: "justify-start gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive",
+					Attributes: templ.Attributes{
+						"type": "button",
+					},
+				}) {
+					@icon.Trash2(icon.Props{Class: "size-3.5"})
+					{ i18n.T(ctx, "account_group.delete") }
+				}
+			}
+		}
+	}
+}
+
+templ AccountGroupDialog(data AccountGroupDialogData) {
+	@dialog.Dialog(dialog.Props{ID: "account-group-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					if data.IsCreate {
+						{ i18n.T(ctx, "account_group.create_title") }
+					} else {
+						{ i18n.T(ctx, "account_group.edit_title") }
+					}
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "account_group.dialog_description") }
+				}
+			}
+			@AccountGroupDialogPanel(data)
+		}
+	}
+}
+
+templ AccountGroupDialogPanel(data AccountGroupDialogData) {
+	<form
+		id="account-group-dialog-panel"
+		class="space-y-4"
+		if data.IsCreate {
+			hx-post="/api/account-groups"
+		}
+		if !data.IsCreate {
+			hx-post={ fmt.Sprintf("/api/account-groups/%s", data.Group.ID) }
+		}
+		hx-target="#account-group-dialog-panel"
+		hx-swap="outerHTML"
+	>
+		<div>
+			<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "account_group.name_label") }</label>
+			@input.Input(input.Props{
+				Name:        "name",
+				Type:        input.TypeText,
+				Value:       data.Group.Name,
+				Placeholder: i18n.T(ctx, "account_group.name_placeholder"),
+				Required:    true,
+			})
+		</div>
+		if len(data.Parents) > 0 {
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "account_group.parent_label") }</label>
+				@selectbox.SelectBox() {
+					@selectbox.Trigger(selectbox.TriggerProps{
+						Name:         "parent_id",
+						Class:        "w-full",
+						DisableClear: true,
+						Required:     true,
+						Attributes:   templ.Attributes{"value": data.Group.ParentID, "aria-label": i18n.T(ctx, "account_group.parent_label")},
+					}) {
+						@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "account_group.parent_none")})
+					}
+					@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Parents) < 8}) {
+						@selectbox.Item(selectbox.ItemProps{Value: "", Selected: data.Group.ParentID == ""}) {
+							{ i18n.T(ctx, "account_group.parent_none") }
+						}
+						for _, parent := range data.Parents {
+							@selectbox.Item(selectbox.ItemProps{Value: parent.ID, Selected: data.Group.ParentID == parent.ID}) {
+								{ accountGroupIndentStyle(parent.Depth) }{ parent.Name }
+							}
+						}
+					}
+				}
+			</div>
+		} else {
+			<input type="hidden" name="parent_id" value={ data.Group.ParentID }/>
+		}
+		if data.IsCreate {
+			<div hx-get={ "/api/accounts/proxy-choice?for_group=1&group=" + url.QueryEscape(data.Group.ParentID) + "&choice=" + url.QueryEscape(data.Group.ProxyID) } hx-trigger="load" hx-target="this" hx-swap="innerHTML" class="empty:hidden" data-account-group-proxy-slot></div>
+		}
+		if data.Error != "" {
+			<p role="alert" class="text-xs text-destructive">{ data.Error }</p>
+		}
+		@dialog.Footer() {
+			@dialog.Close() {
+				<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">
+					{ i18n.T(ctx, "common.cancel") }
+				</button>
+			}
+			<button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+				if data.IsCreate {
+					{ i18n.T(ctx, "account_group.create_submit") }
+				} else {
+					{ i18n.T(ctx, "common.save") }
+				}
+			</button>
+		}
+	</form>
+}
+
+templ MoveAccountGroupDialog(data MoveAccountGroupDialogData) {
+	@dialog.Dialog(dialog.Props{ID: "move-account-group-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "account_group.move_title") }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "account_group.move_description", "account", data.Account.Name) }
+				}
+			}
+			@MoveAccountGroupDialogPanel(data)
+		}
+	}
+}
+
+templ MoveAccountGroupDialogPanel(data MoveAccountGroupDialogData) {
+	<form
+		id="move-account-group-dialog-panel"
+		class="space-y-4"
+		hx-post={ fmt.Sprintf("/api/accounts/%s/group", data.Account.ID) }
+		hx-target="#move-account-group-dialog-panel"
+		hx-swap="outerHTML"
+	>
+		<div class="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
+			<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(data.Account.Color) }></div>
+			<div class="min-w-0 flex-1">
+				<p class="truncate text-sm font-medium">{ data.Account.Name }</p>
+				<p class="truncate text-xs text-muted-foreground">{ accountAddressIn(ctx, data.Account) }</p>
+			</div>
+		</div>
+		<div>
+			<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "account_group.select_label") }</label>
+			@selectbox.SelectBox() {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:         "group_id",
+					Class:        "w-full",
+					DisableClear: true,
+					Required:     true,
+					Attributes:   templ.Attributes{"value": data.Account.GroupID, "aria-label": i18n.T(ctx, "account_group.select_label")},
+				}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "account_group.parent_none")})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Groups) < 8}) {
+					@selectbox.Item(selectbox.ItemProps{Value: "", Selected: data.Account.GroupID == ""}) {
+						{ i18n.T(ctx, "account_group.parent_none") }
+					}
+					for _, group := range data.Groups {
+						@selectbox.Item(selectbox.ItemProps{Value: group.ID, Selected: data.Account.GroupID == group.ID}) {
+							{ accountGroupIndentStyle(group.Depth) }{ group.Name }
+						}
+					}
+				}
+			}
+		</div>
+		if data.Error != "" {
+			<p role="alert" class="text-xs text-destructive">{ data.Error }</p>
+		}
+		@dialog.Footer() {
+			@dialog.Close() {
+				<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">
+					{ i18n.T(ctx, "common.cancel") }
+				</button>
+			}
+			<button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+				{ i18n.T(ctx, "common.save") }
+			</button>
+		}
+	</form>
+}
+
+templ AddExistingAccountsToGroupDialog(data AddExistingAccountsDialogData) {
+	@dialog.Dialog(dialog.Props{ID: "add-group-accounts-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "account_group.add_existing_title") }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "account_group.add_existing_description", "group", data.Group.Name) }
+				}
+			}
+			@AddExistingAccountsDialogPanel(data)
+		}
+	}
+}
+
+templ AddExistingAccountsDialogPanel(data AddExistingAccountsDialogData) {
+	{{ tree := buildGroupAccountPickerTree(data) }}
+	<form
+		id="add-group-accounts-dialog-panel"
+		class="space-y-3"
+		data-account-group-picker
+		hx-post={ fmt.Sprintf("/api/account-groups/%s/accounts", data.Group.ID) }
+		hx-target="#add-group-accounts-dialog-panel"
+		hx-swap="outerHTML"
+	>
+		if tree.TotalAccounts == 0 {
+			<div class="rounded-lg border border-dashed border-border bg-background/40 px-4 py-6 text-center text-sm text-muted-foreground">
+				{ i18n.T(ctx, "account_group.add_existing_empty") }
+			</div>
+		} else {
+			<div class="overflow-hidden rounded-lg border border-border bg-background/50">
+				<div class="flex items-center justify-between gap-2 border-b border-border/70 bg-muted/35 px-3 py-2">
+					<label class={ "inline-flex items-center gap-2.5 text-xs font-medium text-foreground select-none", templ.KV("cursor-pointer", tree.SelectableCount > 0), templ.KV("cursor-default opacity-65", tree.SelectableCount == 0) }>
+						@checkbox.Checkbox(checkbox.Props{
+							Checked:  (tree.SelectableCount == 0 && tree.TotalAccounts > 0) || (tree.SelectableCount > 0 && tree.SelectedCount == tree.SelectableCount),
+							Disabled: tree.SelectableCount == 0,
+							Attributes: templ.Attributes{
+								"data-group-picker-all": "",
+								"aria-label":            i18n.T(ctx, "contacts.book_sort.select_all"),
+							},
+						})
+						<span>{ i18n.T(ctx, "contacts.book_sort.select_all") }</span>
+					</label>
+					<span
+						class="text-xs text-muted-foreground"
+						role="status"
+						data-group-picker-count
+						data-empty-label={ i18n.T(ctx, "js.settings.sync.none_selected") }
+					>
+						if tree.SelectableCount == 0 {
+							{ i18n.T(ctx, "account_group.all_in_group") }
+						} else if tree.SelectedCount > 0 {
+							{ i18n.N(ctx, "js.account_group.selected", tree.SelectedCount) }
+						} else {
+							{ i18n.T(ctx, "js.settings.sync.none_selected") }
+						}
+					</span>
+				</div>
+				<div class="max-h-[52dvh] overflow-y-auto p-2 space-y-0.5" role="tree" aria-label={ i18n.T(ctx, "settings.accounts.title") }>
+					@GroupAccountPickerTreeNodes(tree.Nodes, tree.HasGroups)
+				</div>
+			</div>
+		}
+		if data.Error != "" {
+			<p role="alert" class="text-xs text-destructive">{ data.Error }</p>
+		}
+		@dialog.Footer() {
+			@dialog.Close() {
+				<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">
+					{ i18n.T(ctx, "common.cancel") }
+				</button>
+			}
+			<button
+				type="submit"
+				disabled?={ tree.SelectedCount == 0 }
+				data-group-picker-submit
+				class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+			>
+				{ i18n.T(ctx, "account_group.add_existing_submit") }
+			</button>
+		}
+	</form>
+}
+
+templ GroupAccountPickerTreeNodes(nodes []groupAccountPickerNode, showTreeSpacer bool) {
+	for _, node := range nodes {
+		if node.IsGroup {
+			<div data-group-picker-branch role="treeitem" aria-expanded="true">
+				<div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors hover:bg-accent/50" data-group-picker-row>
+					<button
+						type="button"
+						class="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						data-group-picker-toggle
+						aria-expanded="true"
+						aria-label={ node.Group.Name }
+					>
+						@icon.ChevronDown(icon.Props{Class: "group-picker-chevron size-3.5 transition-transform duration-150"})
+					</button>
+					<label class={ "flex min-w-0 flex-1 items-center gap-2 select-none", templ.KV("cursor-pointer", node.SelectableCount > 0), templ.KV("cursor-default opacity-75", node.SelectableCount == 0) }>
+						@checkbox.Checkbox(checkbox.Props{
+							Checked:  node.Checked,
+							Disabled: node.SelectableCount == 0,
+							Attributes: templ.Attributes{
+								"data-group-picker-group": node.Group.ID,
+							},
+						})
+						@icon.Folder(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
+						<span class="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{ node.Group.Name }</span>
+						<span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">{ fmt.Sprintf("%d", node.TotalAccounts) }</span>
+					</label>
+				</div>
+				<div class="ml-4 border-l border-border/75 pl-3 space-y-0.5" role="group" data-group-picker-children>
+					@GroupAccountPickerTreeNodes(node.Children, true)
+				</div>
+			</div>
+		} else {
+			<label
+				role="treeitem"
+				class={
+					"flex items-center gap-1.5 rounded-md px-1.5 py-1.5 select-none transition-colors",
+					templ.KV("cursor-pointer hover:bg-accent/50", !node.AlreadyInTarget),
+					templ.KV("cursor-default opacity-65", node.AlreadyInTarget),
+				}
+			>
+				if showTreeSpacer {
+					<span class="size-5 shrink-0" aria-hidden="true"></span>
+				}
+				<span class="flex min-w-0 flex-1 items-center gap-2.5">
+					@checkbox.Checkbox(checkbox.Props{
+						Name:     accountPickerInputName(node.AlreadyInTarget),
+						Value:    node.Account.ID,
+						Checked:  node.Checked,
+						Disabled: node.AlreadyInTarget,
+						Attributes: templ.Attributes{
+							"data-group-picker-account": "",
+						},
+					})
+					<span class="account-color-marker size-3 shrink-0" style={ accountColorStyle(node.Account.Color) }></span>
+					<span class="min-w-0 flex-1">
+						<span class="block truncate text-sm font-medium text-foreground">{ node.Account.Name }</span>
+						<span class="block truncate text-xs text-muted-foreground">{ accountAddressIn(ctx, node.Account) }</span>
+					</span>
+					if node.AlreadyInTarget {
+						<span class="shrink-0 rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+							{ i18n.T(ctx, "account_group.in_this_group") }
+						</span>
+					}
+				</span>
+			</label>
+		}
+	}
+}
+
+templ SidebarAccountGroupFrame(sectionID string, name string, active bool, collapsed bool) {
+	<div
+		class="mb-1.5"
+		data-sidebar-account-group={ sectionID }
+		data-sidebar-account-group-active?={ active }
+		data-sidebar-account-group-collapsed={ fmt.Sprintf("%t", collapsed) }
+	>
+		<button
+			type="button"
+			class="sidebar-account-toggle flex w-full items-center gap-2 px-2 py-1.5 text-xs font-semibold tracking-wide text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+			data-sidebar-account-group-toggle={ sectionID }
+			aria-expanded={ fmt.Sprintf("%t", !collapsed) }
+		>
+			@icon.Folder(icon.Props{Class: "size-3.5 shrink-0 text-sidebar-foreground/75"})
+			<span class="flex-1 truncate text-left">{ name }</span>
+			@icon.ChevronDown(icon.Props{Class: "sidebar-account-group-chevron size-3.5 shrink-0 text-sidebar-foreground/75 transition-transform duration-200"})
+		</button>
+		<div class="sidebar-account-group-children" data-sidebar-account-group-children={ sectionID }>
+			<div class="sidebar-account-group-children-inner pl-2.5 border-l border-sidebar-border/50 ml-2.5 space-y-1">
+				{ children... }
+			</div>
+		</div>
+	</div>
+}
+
+templ SidebarMailAccountNodes(nodes []sidebarAccountTreeNode, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
+	for _, node := range nodes {
+		if node.IsGroup {
+			{{ sectionID := sidebarAccountGroupSectionID("mail", node.Group.ID) }}
+			{{ active := sidebarMailNodeHasActiveFolder(node, activeFolder, filters) }}
+			{{ collapsed := sidebarAccountGroupCollapsed(uiSettings, sectionID, active) }}
+			@SidebarAccountGroupFrame(sectionID, node.Group.Name, active, collapsed) {
+				@SidebarMailAccountNodes(node.Children, activeFolder, uiSettings, filters)
+			}
+		} else {
+			@SidebarAccountSection(node.Account, activeFolder, uiSettings, filters)
+		}
+	}
+}
+
+templ SidebarContactsAccountNodes(nodes []sidebarAccountTreeNode, filters models.ContactFilters, uiSettings map[string]string) {
+	for _, node := range nodes {
+		if node.IsGroup {
+			{{ sectionID := sidebarAccountGroupSectionID("contacts", node.Group.ID) }}
+			{{ active := sidebarContactsNodeHasActiveItem(node, filters) }}
+			{{ collapsed := sidebarAccountGroupCollapsed(uiSettings, sectionID, active) }}
+			@SidebarAccountGroupFrame(sectionID, node.Group.Name, active, collapsed) {
+				@SidebarContactsAccountNodes(node.Children, filters, uiSettings)
+			}
+		} else {
+			@ContactsSidebarAccountSection(node.Account, filters, uiSettings)
+		}
+	}
+}
+
+templ SidebarCalendarAccountNodes(nodes []sidebarAccountTreeNode, uiSettings map[string]string, loading bool) {
+	for _, node := range nodes {
+		if node.IsGroup {
+			{{ sectionID := sidebarAccountGroupSectionID("calendar", node.Group.ID) }}
+			{{ collapsed := sidebarAccountGroupCollapsed(uiSettings, sectionID, false) }}
+			@SidebarAccountGroupFrame(sectionID, node.Group.Name, false, collapsed) {
+				@SidebarCalendarAccountNodes(node.Children, uiSettings, loading)
+			}
+		} else {
+			@CalendarSidebarAccountBlock(node.Account, loading)
+		}
+	}
+}
+
+templ CalendarSidebarAccountBlock(account models.Account, loading bool) {
+	<div class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-sidebar-foreground">
+		<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
+		<div class="min-w-0 flex-1">
+			<div class="truncate font-medium">{ calendarAccountName(ctx, account) }</div>
+			<div class="truncate text-[11px] text-sidebar-foreground">{ i18n.T(ctx, "calendar.account_kind", "provider", calendarAccountProviderLabel(account)) }</div>
+		</div>
+	</div>
+	<div class="mb-2 space-y-0.5" role="group" aria-label={ i18n.T(ctx, "calendar.calendars_for", "account", calendarAccountName(ctx, account)) }>
+		for _, source := range account.CalendarSources {
+			@calendarSourceRow(account, source, loading)
+		}
+	</div>
+	if len(account.OtherCalendarSources) > 0 {
+		@CalendarOtherSources(account, loading)
+	}
+}

@@ -92,7 +92,7 @@ func (h *Handler) userSignatureHandler(selectHandler func(*Handler) http.Handler
 		}
 		response := &userMutationResponse{header: make(http.Header)}
 		prepare := func(accounts *config.AccountStore, db *storage.DB) error {
-			local := &Handler{db: db, accountStore: accounts, auth: h.auth, signatureGuard: guard}
+			local := &Handler{db: db, accountStore: accounts, userAccounts: h.userAccounts, auth: h.auth, signatureGuard: guard}
 			selectHandler(local)(response, r)
 			return guard(nil)
 		}

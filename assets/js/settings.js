@@ -618,9 +618,14 @@ function saveAccountColor(picker, rawColor, source) {
 // folder moves among the folders next to it, with the folders inside it.
 var accountOrder = {
   list: "[data-account-order-list]",
-  item: "[data-settings-account-card]",
+  item: "[data-settings-account-card], [data-settings-account-group]",
   handle: "[data-account-order-handle]",
-  id: function (item) { return item.getAttribute("data-account-id") },
+  id: function (item) {
+    if (item.hasAttribute("data-settings-account-group")) {
+      return "group:" + item.getAttribute("data-group-id")
+    }
+    return "account:" + item.getAttribute("data-account-id")
+  },
   movable: function (item) { return item.getAttribute("data-account-deleting") !== "true" },
   save: function (list, previous) { saveAccountOrder(list, previous) }
 }
@@ -708,8 +713,11 @@ function syncAccountOrderControls() {
   document.querySelectorAll("[data-account-order-list]").forEach(function (list) {
     var cards = accountOrderCards(list)
     cards.forEach(function (card, i) {
-      var up = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(card.getAttribute("data-account-id")) + '"] [data-account-move="up"]')
-      var down = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(card.getAttribute("data-account-id")) + '"] [data-account-move="down"]')
+      var menuKey = card.hasAttribute("data-settings-account-group")
+        ? "group:" + card.getAttribute("data-group-id")
+        : card.getAttribute("data-account-id")
+      var up = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(menuKey) + '"] [data-account-move="up"]')
+      var down = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(menuKey) + '"] [data-account-move="down"]')
       if (up) up.disabled = i === 0
       if (down) down.disabled = i === cards.length - 1
     })
@@ -723,7 +731,9 @@ function cssEscapeSettings(value) {
 // moveOrderItem puts item before ref (or last among the movable items when
 // ref is null), sliding the items that make room from where they were.
 function moveOrderItem(kind, list, item, ref) {
-  var items = Array.prototype.slice.call(list.querySelectorAll(kind.item))
+  var items = Array.prototype.filter.call(list.querySelectorAll(kind.item), function (c) {
+    return c.parentNode === list
+  })
   var before = items.map(function (c) { return c.getBoundingClientRect().top })
   if (ref) {
     list.insertBefore(item, ref)
@@ -805,7 +815,8 @@ function saveAccountOrder(list, previous) {
   syncAccountOrderControls()
   if (ids.join("\n") === previous.join("\n")) return
   var body = new URLSearchParams()
-  ids.forEach(function (id) { body.append("account_id", id) })
+  body.set("group_id", list.getAttribute("data-group-id") || "")
+  ids.forEach(function (id) { body.append("item", id) })
   fetch("/api/accounts/order", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -894,7 +905,12 @@ function setupAccountOrder() {
     if (!item || item.disabled) return
     var menu = item.closest("[data-account-actions-menu]")
     var id = menu && menu.getAttribute("data-account-actions-menu")
-    var card = id && document.querySelector('[data-settings-account-card][data-account-id="' + cssEscapeSettings(id) + '"]')
+    var card = null
+    if (id && id.indexOf("group:") === 0) {
+      card = document.querySelector('[data-settings-account-group][data-group-id="' + cssEscapeSettings(id.slice(6)) + '"]')
+    } else if (id) {
+      card = document.querySelector('[data-settings-account-card][data-account-id="' + cssEscapeSettings(id) + '"]')
+    }
     if (card) moveOrderItemBy(accountOrder, card, item.getAttribute("data-account-move") === "up" ? -1 : 1)
   })
 
@@ -2760,12 +2776,17 @@ document.addEventListener("htmx:afterSettle", function (e) {
     return value ? value.value : ""
   }
 
+  function addAccountGroupParam() {
+    var gid = window.__goferAddAccountGroupID || ""
+    return gid ? "&group=" + encodeURIComponent(gid) : ""
+  }
+
   function reloadProxyRow(row, choice) {
     if (!row || !window.htmx) return
     var id = row.getAttribute("data-account-id") || ""
     var url = "/api/accounts/proxy-choice?sidebar=1&account=" + encodeURIComponent(id) +
       "&form=" + encodeURIComponent(row.getAttribute("data-account-proxy-form") || "")
-    if (!id) url += "&choice=" + encodeURIComponent(choice === undefined ? rowChoice(row) : choice)
+    if (!id) url += "&choice=" + encodeURIComponent(choice === undefined ? rowChoice(row) : choice) + addAccountGroupParam()
     htmx.ajax("GET", url, { target: row, swap: "outerHTML" })
   }
 
@@ -2788,7 +2809,7 @@ document.addEventListener("htmx:afterSettle", function (e) {
     var id = row.getAttribute("data-account-id") || ""
     var url = id
       ? "/api/accounts/" + encodeURIComponent(id) + "/proxy/manage"
-      : "/api/accounts/proxy-dialog?choice=" + encodeURIComponent(rowChoice(row))
+      : "/api/accounts/proxy-dialog?choice=" + encodeURIComponent(rowChoice(row)) + addAccountGroupParam()
     htmx.ajax("GET", url, { target: "#account-proxy-dialog-container", swap: "innerHTML" })
   }
 
@@ -2837,12 +2858,176 @@ document.addEventListener("htmx:afterSettle", function (e) {
   })
 })()
 
+function syncGroupAccountPicker(picker) {
+  if (!picker) return
+  picker.querySelectorAll("[data-group-picker-branch]").forEach(function (branch) {
+    var groupBox = branch.querySelector("[data-group-picker-group]")
+    if (!groupBox || groupBox.disabled) return
+    var leaves = branch.querySelectorAll("[data-group-picker-account]:not(:disabled)")
+    var checked = 0
+    leaves.forEach(function (leaf) {
+      if (leaf.checked) checked++
+    })
+    var allChecked = leaves.length > 0 && checked === leaves.length
+    groupBox.checked = allChecked
+    groupBox.indeterminate = !allChecked && checked > 0
+  })
+  var allLeaves = picker.querySelectorAll("[data-group-picker-account]:not(:disabled)")
+  var totalChecked = 0
+  allLeaves.forEach(function (leaf) {
+    if (leaf.checked) totalChecked++
+  })
+  var allBox = picker.querySelector("[data-group-picker-all]")
+  if (allBox && !allBox.disabled) {
+    var everyChecked = allLeaves.length > 0 && totalChecked === allLeaves.length
+    allBox.checked = everyChecked
+    allBox.indeterminate = !everyChecked && totalChecked > 0
+  }
+  var countEl = picker.querySelector("[data-group-picker-count]")
+  if (countEl && allLeaves.length > 0) {
+    countEl.textContent = totalChecked > 0 ? goferTn("js.account_group.selected", totalChecked) : (countEl.getAttribute("data-empty-label") || "")
+  }
+  var submitBtn = picker.querySelector("[data-group-picker-submit]")
+  if (submitBtn) {
+    submitBtn.disabled = totalChecked === 0
+  }
+}
+
 // Opens an IMAP account's folder roles dialog once it has been loaded. Saving
 // swaps only its panel, so it stays open.
 document.addEventListener("htmx:afterSettle", function (e) {
-  if (e.target && e.target.querySelector && e.target.querySelector("#folder-roles-dialog") && window.tui && window.tui.dialog) {
+  if (!e.target || !e.target.querySelector || !window.tui || !window.tui.dialog) return
+  if (e.target.querySelector("#folder-roles-dialog")) {
     setTimeout(function () { window.tui.dialog.open("folder-roles-dialog") }, 20)
   }
+  if (e.target.querySelector("#account-group-dialog")) {
+    setTimeout(function () { window.tui.dialog.open("account-group-dialog") }, 20)
+  }
+  if (e.target.querySelector("#move-account-group-dialog")) {
+    setTimeout(function () { window.tui.dialog.open("move-account-group-dialog") }, 20)
+  }
+  if (e.target.querySelector("#add-group-accounts-dialog")) {
+    setTimeout(function () { window.tui.dialog.open("add-group-accounts-dialog") }, 20)
+  }
+  var picker = e.target.matches && e.target.matches("[data-account-group-picker]") ? e.target : e.target.querySelector("[data-account-group-picker]")
+  if (picker) syncGroupAccountPicker(picker)
+})
+
+document.body.addEventListener("accountGroupSaved", function () {
+  var groupDialogWasOpen = !!(window.tui && window.tui.dialog && window.tui.dialog.isOpen && window.tui.dialog.isOpen("account-group-dialog"))
+  var moveDialogWasOpen = !!(window.tui && window.tui.dialog && window.tui.dialog.isOpen && window.tui.dialog.isOpen("move-account-group-dialog"))
+  var addAccountsDialogWasOpen = !!(window.tui && window.tui.dialog && window.tui.dialog.isOpen && window.tui.dialog.isOpen("add-group-accounts-dialog"))
+  if (window.tui && window.tui.dialog) {
+    if (groupDialogWasOpen) {
+      window.tui.dialog.close("account-group-dialog")
+    }
+    if (moveDialogWasOpen) {
+      window.tui.dialog.close("move-account-group-dialog")
+    }
+    if (addAccountsDialogWasOpen) {
+      window.tui.dialog.close("add-group-accounts-dialog")
+    }
+  }
+  var section = document.querySelector("#settings-content #settings-accounts-section")
+  if (window.htmx && section && !groupDialogWasOpen && !moveDialogWasOpen && !addAccountsDialogWasOpen) {
+    // Refresh account and group cards when an inline setting was saved inside an open dialog.
+    if (window.tui && window.tui.dialog && window.tui.dialog.isOpen && (window.tui.dialog.isOpen("account-proxy-dialog") || window.tui.dialog.isOpen("edit-account-dialog") || window.tui.dialog.isOpen("edit-dav-account-dialog"))) {
+      htmx.ajax("GET", "/settings/accounts", { target: section, select: "#settings-accounts-section", swap: "outerHTML" })
+    }
+  }
+})
+
+document.addEventListener("click", function (e) {
+  var toggleBtn = e.target.closest && e.target.closest("[data-group-picker-toggle]")
+  if (!toggleBtn) return
+  var branch = toggleBtn.closest("[data-group-picker-branch]")
+  if (!branch) return
+  var children = null
+  for (var i = 0; i < branch.children.length; i++) {
+    if (branch.children[i].hasAttribute("data-group-picker-children")) {
+      children = branch.children[i]
+      break
+    }
+  }
+  if (!children) return
+  var collapsed = !children.classList.contains("hidden")
+  children.classList.toggle("hidden", collapsed)
+  toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true")
+  branch.setAttribute("aria-expanded", collapsed ? "false" : "true")
+  var chevron = toggleBtn.querySelector(".group-picker-chevron")
+  if (chevron) {
+    chevron.classList.toggle("-rotate-90", collapsed)
+  }
+})
+
+document.addEventListener("change", function (e) {
+  var input = e.target
+  if (!input || !input.closest) return
+  var picker = input.closest("[data-account-group-picker]")
+  if (!picker) return
+  if (input.hasAttribute("data-group-picker-all")) {
+    var checkAll = !!input.checked
+    picker.querySelectorAll("[data-group-picker-account]:not(:disabled)").forEach(function (leaf) {
+      leaf.checked = checkAll
+    })
+    syncGroupAccountPicker(picker)
+    return
+  }
+  if (input.hasAttribute("data-group-picker-group")) {
+    var branch = input.closest("[data-group-picker-branch]")
+    if (branch) {
+      var checkBranch = !!input.checked
+      branch.querySelectorAll("[data-group-picker-account]:not(:disabled)").forEach(function (leaf) {
+        leaf.checked = checkBranch
+      })
+    }
+    syncGroupAccountPicker(picker)
+    return
+  }
+  if (input.hasAttribute("data-group-picker-account")) {
+    syncGroupAccountPicker(picker)
+  }
+})
+
+document.addEventListener("click", function (e) {
+  var addBtn = e.target.closest && e.target.closest("[data-add-account-group]")
+  if (!addBtn) return
+  var gid = addBtn.getAttribute("data-add-account-group") || ""
+  window.__goferAddAccountGroupID = gid
+  document.querySelectorAll("[data-add-account-bg-sync]").forEach(function (sw) {
+    sw.checked = true
+  })
+  document.querySelectorAll("[data-add-account-group-input]").forEach(function (input) {
+    input.value = gid
+    var dialogRoot = input.closest && input.closest("[data-tui-dialog]")
+    var loader = dialogRoot && dialogRoot.querySelector("[data-account-proxy-choice-loader]")
+    if (loader && !loader.closest("#add-account-proxy-row") && window.htmx && !dialogRoot.getAttribute("data-account-id")) {
+      var url = "/api/accounts/proxy-choice?account=" + (gid ? "&group=" + encodeURIComponent(gid) : "")
+      var fresh = loader.cloneNode(false)
+      fresh.removeAttribute("hx-get")
+      fresh.removeAttribute("hx-trigger")
+      loader.replaceWith(fresh)
+      htmx.ajax("GET", url, { target: fresh, swap: "innerHTML" })
+    }
+  })
+  if (gid && !addBtn.closest("[data-settings-add-account]") && window.tui && window.tui.dialog) {
+    window.tui.dialog.open("choose-account-type-dialog")
+  }
+})
+
+document.addEventListener("change", function (e) {
+  var parentInput = e.target
+  if (!parentInput || parentInput.name !== "parent_id") return
+  var panel = parentInput.closest && parentInput.closest("#account-group-dialog-panel")
+  if (!panel || !window.htmx) return
+  var proxySlot = panel.querySelector("[data-account-group-proxy-slot]")
+  if (!proxySlot) return
+  var choiceInput = panel.querySelector('input[name="proxy"]')
+  var choice = choiceInput ? choiceInput.value : ""
+  htmx.ajax("GET", "/api/accounts/proxy-choice?for_group=1&group=" + encodeURIComponent(parentInput.value || "") + "&choice=" + encodeURIComponent(choice), {
+    target: proxySlot,
+    swap: "innerHTML",
+  })
 })
 
 // The Mail operations list reloads when the person's background mail work

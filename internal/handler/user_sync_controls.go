@@ -192,20 +192,30 @@ func (h *Handler) handleUserContactService(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) handleUserManualSync(w http.ResponseWriter, r *http.Request) {
 	owner := h.userID(r.Context())
+	targetID := strings.TrimSpace(r.PathValue("id"))
 	var ids []string
+	var hasAnyMailAccount bool
 	err := h.withUserDB(r.Context(), owner, func(db *storage.DB) error {
-		var err error
-		ids, err = db.GetEmailSyncAccountIDs(r.Context(), owner)
+		allIDs, err := db.GetEmailSyncAccountIDs(r.Context(), owner)
+		if err != nil {
+			return err
+		}
+		hasAnyMailAccount = len(allIDs) > 0
+		if targetID != "" {
+			ids = allIDs
+			return nil
+		}
+		ids, err = db.GetBackgroundEmailSyncAccountIDs(r.Context(), owner)
 		return err
 	})
 	if err != nil {
 		userAccountError(w, r, err)
 		return
 	}
-	if id := r.PathValue("id"); id != "" {
+	if targetID != "" {
 		found := false
 		for _, candidate := range ids {
-			if candidate == id {
+			if candidate == targetID {
 				found = true
 				break
 			}
@@ -214,9 +224,13 @@ func (h *Handler) handleUserManualSync(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		ids = []string{id}
+		ids = []string{targetID}
 	}
 	if len(ids) == 0 {
+		if hasAnyMailAccount {
+			htmlStatus(w, r, http.StatusBadRequest, i18n.T(r.Context(), "mail.sync.all_paused"))
+			return
+		}
 		htmlStatus(w, r, http.StatusBadRequest, "Connect an email account before syncing mail.")
 		return
 	}

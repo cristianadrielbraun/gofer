@@ -148,7 +148,7 @@ func (o *SyncOrchestrator) pollGmailAPIForUsers(ctx context.Context, userIDs []s
 			if ctx.Err() != nil {
 				return
 			}
-			ids, err := o.db.GetProviderEmailSyncAccountIDs(ctx, userID, provider)
+			ids, err := o.db.GetProviderBackgroundEmailSyncAccountIDs(ctx, userID, provider)
 			if err != nil {
 				log.Printf("%s poll user=%s: list accounts: %v", provider, userID, err)
 				continue

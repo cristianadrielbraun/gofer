@@ -57,6 +57,9 @@ func (h *Handler) SyncContactsForAllAccounts(ctx context.Context) {
 			return
 		default:
 		}
+		if !h.db.IsBackgroundSyncEnabled(ctx, accountID) {
+			continue
+		}
 		if _, err := h.SyncContactAccount(ctx, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
 			log.Printf("contacts sync %s: %v", accountID, err)
 		}

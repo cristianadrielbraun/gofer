@@ -374,7 +374,7 @@ func (o *SyncOrchestrator) IsAccountSyncRunning(accountID string) bool {
 
 func (o *SyncOrchestrator) StartAccount(ctx context.Context, accountID string) {
 	ctx = o.accountLifecycleContext(ctx)
-	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
+	if !o.db.IsEmailSyncEnabled(ctx, accountID) || !o.db.IsBackgroundSyncEnabled(ctx, accountID) {
 		return
 	}
 	o.startAccount(ctx, accountID)
@@ -703,7 +703,7 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 	o.stopIDLEWatchersLocked(accountID)
 	o.clearIDLEFolderStatuses(accountID)
 
-	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
+	if !o.db.IsEmailSyncEnabled(ctx, accountID) || !o.db.IsBackgroundSyncEnabled(ctx, accountID) {
 		return
 	}
 	cfg, err := o.accountStore.GetConfig(ctx, accountID)
@@ -1030,7 +1030,7 @@ func (o *SyncOrchestrator) Start(ctx context.Context) {
 	o.lifecycleCtx = ctx
 	o.mu.Unlock()
 	log.Printf("sync: startup scan started")
-	accounts, err := o.db.GetAllEmailSyncAccountIDs(ctx)
+	accounts, err := o.db.GetAllBackgroundEmailSyncAccountIDs(ctx)
 	if err != nil {
 		log.Printf("sync start: get accounts: %v", err)
 		return
@@ -1064,8 +1064,8 @@ func (o *SyncOrchestrator) Start(ctx context.Context) {
 }
 
 func (o *SyncOrchestrator) startAccount(ctx context.Context, accountID string) {
-	if !o.db.IsEmailSyncEnabled(ctx, accountID) {
-		log.Printf("sync: account %s email sync disabled", accountID)
+	if !o.db.IsEmailSyncEnabled(ctx, accountID) || !o.db.IsBackgroundSyncEnabled(ctx, accountID) {
+		log.Printf("sync: account %s email or background sync disabled", accountID)
 		return
 	}
 	accountCtx, cancel := context.WithCancel(ctx)
@@ -1159,7 +1159,7 @@ func (o *SyncOrchestrator) runScheduledSync(ctx context.Context) {
 }
 
 func (o *SyncOrchestrator) scheduledSync(ctx context.Context) {
-	accountIDs, err := o.db.GetAllEmailSyncAccountIDs(ctx)
+	accountIDs, err := o.db.GetAllBackgroundEmailSyncAccountIDs(ctx)
 	if err != nil {
 		log.Printf("scheduled sync: get accounts: %v", err)
 		return

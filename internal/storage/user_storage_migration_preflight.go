@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 155
+	return version >= 105 && version <= 156
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -277,6 +277,9 @@ func inspectUserStorageMigration(ctx context.Context, source *DB) (report UserSt
 		}
 	}
 	for _, link := range userStorageMigrationOptionalLinks {
+		if link.parent == "account_groups" && report.SchemaVersion < 156 {
+			continue // Account groups were added in migrateV155ToV156.
+		}
 		if present[link.child] {
 			if err := migrationCheckLink(ctx, tx, link, present, false); err != nil {
 				return report, err
@@ -420,11 +423,11 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "calendar_events" && version < 112 {
 		missing = []string{"event_type"}
 	} else if table.Name == "accounts" && version < 114 {
-		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id"}
+		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id", "group_id", "background_sync_enabled"}
 	} else if table.Name == "accounts" && version < 122 {
-		missing = []string{"provider_push_enabled", "sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id"}
+		missing = []string{"provider_push_enabled", "sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id", "group_id", "background_sync_enabled"}
 	} else if table.Name == "accounts" && version < 124 {
-		missing = []string{"sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id"}
+		missing = []string{"sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id", "group_id", "background_sync_enabled"}
 	} else if table.Name == "message_folder_state" && version < 118 {
 		missing = []string{"remote_message_id", "message_date", "message_has_attachments", "deleted_at"}
 	} else if table.Name == "message_folder_state" && version < 125 {
@@ -446,11 +449,13 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "calendar_sources" && version < 136 {
 		missing = []string{"refresh_minutes"}
 	} else if table.Name == "accounts" && version < 134 {
-		missing = []string{"hidden", "proxy_id", "sender_name", "default_identity_id"}
+		missing = []string{"hidden", "proxy_id", "sender_name", "default_identity_id", "group_id", "background_sync_enabled"}
 	} else if table.Name == "accounts" && version < 141 {
-		missing = []string{"proxy_id", "sender_name", "default_identity_id"}
+		missing = []string{"proxy_id", "sender_name", "default_identity_id", "group_id", "background_sync_enabled"}
 	} else if table.Name == "accounts" && version < 144 {
-		missing = []string{"sender_name", "default_identity_id"}
+		missing = []string{"sender_name", "default_identity_id", "group_id", "background_sync_enabled"}
+	} else if table.Name == "accounts" && version < 156 {
+		missing = []string{"group_id", "background_sync_enabled"}
 	} else if table.Name == "outbound_proxies" && version < 142 {
 		missing = []string{"owner_user_id", "everyone"}
 	} else if table.Name == "mail_rules" && version < 135 {
@@ -579,6 +584,9 @@ func requireSharedMigrationTables(ctx context.Context, present map[string]bool, 
 			}
 			if (name == "message_provider_keywords" || name == "retired_keyword_labels") && version < 154 {
 				continue // Added empty by migrateV153ToV154.
+			}
+			if name == "account_groups" && version < 156 {
+				continue // Added empty by migrateV155ToV156.
 			}
 			return migrationSourceError(name, "required shared table is missing")
 		}
