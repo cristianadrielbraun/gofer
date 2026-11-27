@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -34,7 +35,8 @@ func TestCalendarColorMenuItem(t *testing.T) {
 	}{
 		{gmail, models.AccountCalendarSource{Provider: "gmail"}, "google_access"},
 		{full, models.AccountCalendarSource{Provider: "gmail"}, ""},
-		{models.Account{}, models.AccountCalendarSource{Provider: "outlook"}, "provider"},
+		{models.Account{}, models.AccountCalendarSource{Provider: "outlook"}, ""},
+		{models.Account{CalendarCreateNeedsReconnect: true}, models.AccountCalendarSource{Provider: "outlook"}, "reconnect"},
 		{models.Account{}, models.AccountCalendarSource{Provider: "caldav"}, "provider"},
 		{models.Account{}, models.AccountCalendarSource{Provider: "jmap"}, "provider"},
 	} {
@@ -67,6 +69,7 @@ func TestCalendarColorPicker(t *testing.T) {
 		`id="calendar-color-popover"`, "data-calendar-color-picker", "data-calendar-color-preview", "Calendar color",
 		`data-color-picker-option="#2563eb"`, `id="calendar-color-custom"`, "data-color-picker-custom", "data-color-picker-status",
 		`data-calendar-color-note="google_access"`, `data-calendar-color-note="provider"`, "data-calendar-color-allow-access",
+		`data-calendar-color-note="reconnect"`, `data-calendar-color-note="refused"`, "reconnect the account from its actions menu",
 		"Allow full calendar access", "Only Gofer will show the color you pick.", "data-calendar-color-reset",
 		"Use the calendar&#39;s own color",
 	} {
@@ -82,6 +85,21 @@ func TestCalendarColorPicker(t *testing.T) {
 	} {
 		if !strings.Contains(account, want) {
 			t.Fatalf("account marker picker missing %q: %s", want, account)
+		}
+	}
+}
+
+// An event's color marks are found by its calendar, so a color picked for
+// the calendar repaints them where they are.
+func TestCalendarEventsMarkTheirColor(t *testing.T) {
+	event := CalendarEvent{ID: "lunch", SourceID: "club", Summary: "Lunch on Friday?", SourceColor: "#16a765", AllDay: true}
+	for name, html := range map[string]string{
+		"agenda card": renderCalendarColorTest(t, CalendarAgendaEventCard(event, time.UTC, false)),
+		"day dots":    renderCalendarColorTest(t, CalendarDayDots([]CalendarEvent{event})),
+	} {
+		start := strings.Index(html, `data-calendar-source-id="club"`)
+		if start < 0 || !strings.Contains(html, "data-calendar-event-color") {
+			t.Fatalf("%s doesn't mark its color by calendar: %s", name, html)
 		}
 	}
 }

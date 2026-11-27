@@ -1628,8 +1628,8 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_in_gofer INTEGER NOT NULL DEFAULT 0,
     refresh_minutes INTEGER NOT NULL DEFAULT 0,
-    -- The color picked in Gofer when the provider didn't take it; sync
-    -- leaves it alone.
+    -- The color picked in Gofer when the provider didn't take it, until
+    -- the provider's color changes.
     chosen_color TEXT NOT NULL DEFAULT '',
     UNIQUE (account_id, remote_id)
 );

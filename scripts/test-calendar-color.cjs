@@ -27,7 +27,17 @@ function owned(node) { node.classList.owner = node; return node }
 
 const options = ['#ef4444', '#2563eb'].map(color => owned(element({'data-color-picker-option': color})))
 const notes = ['google_access', 'provider'].map(note => owned(element({'data-calendar-color-note': note})))
-const name = owned(element()), preview = owned(element()), custom = owned(element()), status = owned(element()), code = owned(element())
+const name = owned(element()), preview = owned(element()), custom = owned(element()), code = owned(element())
+// The status line: a text and an icon for each state.
+const statusText = owned(element())
+const statusIcons = ['saving', 'saved', 'error'].map(state => owned(element({'data-color-picker-status-icon': state}, {hidden: true})))
+const status = owned(element({}, {
+  hidden: true,
+  querySelector(selector) { return selector === '[data-color-picker-status-text]' ? statusText : null },
+  querySelectorAll(selector) { return selector === '[data-color-picker-status-icon]' ? statusIcons : [] },
+}))
+const statusShows = () => status.hidden ? '' : status.getAttribute('data-state') + ': ' + statusText.textContent +
+  ' (' + statusIcons.filter(icon => !icon.hidden).map(icon => icon.getAttribute('data-color-picker-status-icon')).join() + ')'
 const reset = owned(element({'data-calendar-color-reset': ''}))
 const allow = owned(element({'data-calendar-color-allow-access': ''}))
 const picker = owned(element({'data-calendar-color-picker': ''}, {
@@ -65,12 +75,19 @@ item.closest = selector => selector === '[data-calendar-source-color]' ? item : 
 
 const listeners = {click: [], change: [], input: []}, timers = [], requests = [], popovers = [], offers = []
 let refreshes = 0, answer = null
+// Events on the page: an agenda card of the calendar, with its color mark,
+// its day dot, and an event of another calendar.
+const cardMark = owned(element({'data-calendar-event-color': ''}))
+const card = owned(element({'data-calendar-source-id': 'club'}, {querySelectorAll: selector => selector === '[data-calendar-event-color]' ? [cardMark] : []}))
+const dayDot = owned(element({'data-calendar-source-id': 'club', 'data-calendar-event-color': ''}))
+const otherMark = owned(element({'data-calendar-event-color': ''}))
+const other = owned(element({'data-calendar-source-id': 'work'}, {querySelectorAll: selector => selector === '[data-calendar-event-color]' ? [otherMark] : []}))
 const context = vm.createContext({
   document: {
     addEventListener(type, callback) { listeners[type].push(callback) },
     querySelector(selector) { return selector === '[data-calendar-color-picker]' ? picker : null },
     querySelectorAll(selector) {
-      return {'[data-calendar-color-dot]': [dot], '[data-calendar-source-color]': [item]}[selector] || []
+      return {'[data-calendar-color-dot]': [dot], '[data-calendar-source-color]': [item], '[data-calendar-source-id]': [card, dayDot, other]}[selector] || []
     },
   },
   window: {tui: {popover: {open(id, anchor) { popovers.push(['open', id, anchor]) }, close(id) { popovers.push(['close', id]) }}}},
@@ -110,6 +127,17 @@ const shown = () => notes.filter(n => !n.hidden).map(n => n.getAttribute('data-c
   flush()
   assert.deepEqual(popovers, [['open', 'calendar-color-popover', dot]])
 
+  // A second color while one is being saved waits: nothing is sent.
+  let release
+  answer = () => new Promise(resolve => { release = () => resolve({ok: true, json: () => Promise.resolve({color: '#ef4444', in_gofer_only: true, reason: 'google_access'})}) })
+  fire('click', options[0])
+  fire('click', options[1])
+  assert.equal(requests.length, 1, 'one change at a time')
+  release()
+  await settle(); await settle(); await settle()
+  flush()
+  requests.length = 0
+  refreshes = 0
   // A color is saved at once, kept only in Gofer as the note said. The
   // picker stays open, saying it saved, and the dot, the menu and the events
   // take the color.
@@ -120,17 +148,19 @@ const shown = () => notes.filter(n => !n.hidden).map(n => n.getAttribute('data-c
   assert.equal(requests[0].url, '/api/calendar/sources/club/color')
   assert.equal(requests[0].options.method, 'POST')
   assert.equal(requests[0].options.body, '{"color":"#2563eb"}')
+  assert.equal(statusShows(), 'saving: ' + context.goferT('js.settings.status.saving_dots') + ' (saving)')
   await settle(); await settle()
   assert.equal(dot.style.backgroundColor, '#2563eb')
   assert.equal(item.getAttribute('data-calendar-color'), '#2563eb')
   assert.equal(item.getAttribute('data-calendar-color-in-gofer'), 'true')
-  assert.equal(refreshes, 1)
+  assert.equal(refreshes, 0, 'nothing reloads')
+  assert.deepEqual([cardMark.style.backgroundColor, dayDot.style.backgroundColor, otherMark.style.backgroundColor], ['#2563eb', '#2563eb', undefined], 'the calendar\'s events take the color where they are')
   assert.equal(reset.hidden, false, 'it can go back to the calendar\'s own color')
   assert.deepEqual(options.map(o => o.getAttribute('aria-pressed')), ['false', 'true'])
-  assert.equal(status.textContent, context.goferT('js.settings.status.saved'))
+  assert.equal(statusShows(), 'saved: ' + context.goferT('js.settings.status.saved') + ' (saved)')
   flush()
   assert.deepEqual(popovers, [], 'the picker stays open')
-  assert.equal(status.textContent, '', 'the status clears after a moment')
+  assert.equal(statusShows(), '', 'the status clears after a moment')
 
   // Going back to the calendar's own color sends an empty one.
   popovers.length = 0
@@ -164,14 +194,46 @@ const shown = () => notes.filter(n => !n.hidden).map(n => n.getAttribute('data-c
   fire('change', custom)
   assert.equal(requests.at(-1).options.body, '{"color":"#123456"}')
   await settle(); await settle()
-  assert.equal(status.textContent, 'Google Calendar is not answering.')
-  assert.equal(status.classes.has('text-destructive'), true)
+  assert.equal(statusShows(), 'error: Google Calendar is not answering. (error)')
   assert.equal(dot.style.backgroundColor, '#ef4444')
 
   // Allowing full calendar access closes the picker and asks first.
   fire('click', allow)
   assert.deepEqual(popovers.at(-1), ['close', 'calendar-color-popover'])
   assert.deepEqual(offers, [['Book club', 'alex@example.com', 'color']])
+
+  // The status line opens and closes by sliding its own height, the way
+  // dialogs that change size do, keeping its words while it closes, unless
+  // motion is reduced.
+  const slides = []
+  status.hidden = true
+  status.offsetHeight = 18
+  status.style = {}
+  status.animate = (keyframes, options) => {
+    const animation = {keyframes, options, cancel() { this.canceled = true }}
+    slides.push(animation)
+    return animation
+  }
+  context.getComputedStyle = () => ({marginTop: '8px'})
+  context.setColorPickerStatus(picker, 'saving', 'Saving…')
+  assert.equal(status.hidden, false)
+  assert.equal(JSON.stringify(slides.map(slide => [slide.keyframes, slide.options])), JSON.stringify([[
+    [{height: '0px', marginTop: '0px', opacity: 0}, {height: '18px', marginTop: '8px', opacity: 1}], {duration: 220, easing: 'ease'},
+  ]]))
+  context.setColorPickerStatus(picker, 'saved', 'Saved')
+  assert.equal(slides.length, 1, 'changing what it says doesn\'t slide')
+  assert.equal(slides[0].canceled, undefined, 'the opening slide keeps going')
+  slides[0].onfinish()
+  context.setColorPickerStatus(picker, '')
+  assert.equal(JSON.stringify(slides[1].keyframes), JSON.stringify([{height: '18px', marginTop: '8px', opacity: 1}, {height: '0px', marginTop: '0px', opacity: 0}]))
+  assert.equal(statusShows(), 'saved: Saved (saved)', 'it keeps its words while it closes')
+  slides[1].onfinish()
+  assert.equal(statusShows(), '')
+  context.window.matchMedia = () => ({matches: true})
+  context.setColorPickerStatus(picker, 'saving', 'Saving…')
+  context.setColorPickerStatus(picker, '')
+  assert.equal(slides.length, 2, 'reduced motion doesn\'t slide')
+  assert.equal(statusShows(), '')
 
   console.log('calendar color picker tests passed')
 })().catch(error => { console.error(error); process.exit(1) })

@@ -39,7 +39,8 @@ func TestMigrateV154ToV155AddsChosenCalendarColor(t *testing.T) {
 
 // A color the provider didn't take is shown for the calendar and its events
 // in place of the provider's, and reading the calendar list again leaves it
-// alone. One the provider took becomes the calendar's own.
+// until the provider's color changes: the latest change wins. One the
+// provider took becomes the calendar's own.
 func TestCalendarColorPickedInGofer(t *testing.T) {
 	db, err := New(filepath.Join(t.TempDir(), "colors.db"))
 	if err != nil {
@@ -83,6 +84,26 @@ func TestCalendarColorPickedInGofer(t *testing.T) {
 	}
 	if calendar, event := shown(); calendar != "#ef4444" || event != "#ef4444" {
 		t.Fatalf("after reading the list again: calendar %q, event %q", calendar, event)
+	}
+	// The provider's color changing is newer than the color kept in Gofer,
+	// however its case is written.
+	list[0].Color = "#16A765"
+	if err := db.ReplaceCalendarSources(ctx, "owner", "account", CalendarSourceProviderCalDAV, list); err != nil {
+		t.Fatal(err)
+	}
+	if calendar, _ := shown(); calendar != "#ef4444" {
+		t.Fatalf("the same color in capitals dropped the kept one: %q", calendar)
+	}
+	list[0].Color = "#f7630c"
+	if err := db.ReplaceCalendarSources(ctx, "owner", "account", CalendarSourceProviderCalDAV, list); err != nil {
+		t.Fatal(err)
+	}
+	if calendar, event := shown(); calendar != "#f7630c" || event != "#f7630c" {
+		t.Fatalf("after the provider's color changed: calendar %q, event %q", calendar, event)
+	}
+	list[0].Color = "#16a765"
+	if err := db.ReplaceCalendarSources(ctx, "owner", "account", CalendarSourceProviderCalDAV, list); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := db.SetCalendarSourceColor(ctx, "owner", "cal", CalendarColorChange{}); err != nil {

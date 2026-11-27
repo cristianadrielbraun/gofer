@@ -49,7 +49,8 @@ type CalendarSource struct {
 	// other calendars follow the owner's sync interval and leave it 0.
 	RefreshMinutes int
 	// ChosenColor is a color picked in Gofer that the provider didn't take,
-	// shown instead of Color. Discovery never reads or writes it.
+	// shown instead of Color until discovery finds the provider's color
+	// changed. Discovery never reads it.
 	ChosenColor string
 }
 
@@ -211,6 +212,10 @@ func replaceCalendarSourcesTx(ctx context.Context, tx *sql.Tx, userID, accountID
 				description = excluded.description,
 				timezone = excluded.timezone,
 				color = excluded.color,
+				-- A color kept in Gofer stays until the provider's changes,
+				-- a newer change than it: the latest change wins.
+				chosen_color = CASE WHEN lower(calendar_sources.color) = lower(excluded.color)
+					THEN calendar_sources.chosen_color ELSE '' END,
 				access_role = excluded.access_role,
 				is_primary = excluded.is_primary,
 				is_selected = excluded.is_selected,

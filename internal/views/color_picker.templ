@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
@@ -60,7 +61,20 @@ templ colorPicker(props colorPickerProps) {
 			<span class="w-4 min-w-2 shrink" aria-hidden="true"></span>
 			<span class="shrink-0 text-xs tabular-nums text-muted-foreground" data-color-picker-code>{ accountColorValue(props.Color) }</span>
 		</div>
-		<p class="mt-1.5 text-xs text-muted-foreground empty:hidden" data-color-picker-status></p>
+		// Saving, saved or what went wrong, which scripts fill in with
+		// setColorPickerStatus (app.js).
+		<p class="mt-2 flex min-w-0 items-start gap-1.5 text-xs text-muted-foreground data-[state=error]:text-destructive" data-color-picker-status hidden>
+			<span class="inline-flex shrink-0 pt-px" data-color-picker-status-icon="saving" hidden>
+				@icon.LoaderCircle(icon.Props{Class: "size-3.5 animate-spin"})
+			</span>
+			<span class="inline-flex shrink-0 pt-px text-[var(--success)]" data-color-picker-status-icon="saved" hidden>
+				@icon.Check(icon.Props{Class: "size-3.5"})
+			</span>
+			<span class="inline-flex shrink-0 pt-px" data-color-picker-status-icon="error" hidden>
+				@icon.CircleAlert(icon.Props{Class: "size-3.5"})
+			</span>
+			<span class="min-w-0" data-color-picker-status-text></span>
+		</p>
 		{ children... }
 	</div>
 }

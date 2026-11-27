@@ -18328,8 +18328,8 @@ document.addEventListener("click", function (event) {
 // calendar's dot. A color picked there is saved at once: on the calendar's
 // provider where Gofer can change it there, otherwise only in Gofer, which
 // the picker's note says beforehand. A calendar showing a color only Gofer
-// has can go back to its own. The calendar's dot and its menu take the new
-// color at once, and the calendar's events follow.
+// has can go back to its own. The calendar's dot, its menu and its events on
+// the page take the new color at once.
 var calendarColorTarget = null
 
 function normalizeCalendarColor(color) {
@@ -18348,12 +18348,79 @@ function calendarColorElements(id) {
   return found
 }
 
-function setCalendarColorStatus(picker, message, isError) {
+// setColorPickerStatus shows a color picker's status, in the calendar color
+// picker and the account marker picker (settings.js): "saving", "saved" or
+// "error", each with its icon, and message, or with no state nothing. The
+// line opens and closes by sliding its own height, so what is below it and
+// the popover's size follow it smoothly, at the pace of dialogs that change
+// size. Changing only its words leaves a slide running; turning back midway
+// slides back from where it is.
+function setColorPickerStatus(picker, state, message) {
   var status = picker && picker.querySelector("[data-color-picker-status]")
   if (!status) return
-  status.textContent = message || ""
-  status.classList.toggle("text-destructive", !!isError)
-  status.classList.toggle("text-muted-foreground", !isError)
+  var text = status.querySelector("[data-color-picker-status-text]")
+  function show() {
+    status.setAttribute("data-state", state || "")
+    if (text) text.textContent = message || ""
+    status.querySelectorAll("[data-color-picker-status-icon]").forEach(function (icon) {
+      icon.hidden = icon.getAttribute("data-color-picker-status-icon") !== state
+    })
+  }
+  var slide = status._colorPickerSlide
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  // Only a picker on screen slides; a closed one just changes.
+  var onScreen = !picker.getClientRects || picker.getClientRects().length > 0
+  var slides = !reduced && onScreen && !!status.animate
+  if (state) {
+    show()
+    if (!status.hidden && (!slide || slide.goferOpening)) return
+    var from = slide ? stopColorPickerStatusSlide(status) : 0
+    status.hidden = false
+    if (slides) slideColorPickerStatus(status, true, from)
+    return
+  }
+  if (status.hidden || (slide && !slide.goferOpening)) return
+  var height = slide ? stopColorPickerStatusSlide(status) : null
+  if (!slides) {
+    status.hidden = true
+    show()
+    return
+  }
+  // Closing keeps its last words while it slides shut.
+  slideColorPickerStatus(status, false, height).onfinish = function () {
+    status._colorPickerSlide = null
+    status.style.overflow = ""
+    status.hidden = true
+    show()
+  }
+}
+
+// stopColorPickerStatusSlide stops a status line's slide where it is and
+// returns the height it had reached.
+function stopColorPickerStatusSlide(status) {
+  var slide = status._colorPickerSlide
+  var height = status.getBoundingClientRect ? status.getBoundingClientRect().height : 0
+  slide.cancel()
+  status._colorPickerSlide = null
+  status.style.overflow = ""
+  return height
+}
+
+// slideColorPickerStatus slides a status line open or shut, from the height
+// a slide stopped at when it is given.
+function slideColorPickerStatus(status, opening, from) {
+  var full = {height: status.offsetHeight, marginTop: parseFloat(getComputedStyle(status).marginTop) || 0}
+  function frame(height) {
+    var part = full.height ? Math.min(1, height / full.height) : 0
+    return {height: height + "px", marginTop: full.marginTop * part + "px", opacity: part}
+  }
+  var start = from == null ? (opening ? 0 : full.height) : from
+  status.style.overflow = "hidden"
+  var animation = status.animate([frame(start), frame(opening ? full.height : 0)], {duration: 220, easing: "ease"})
+  animation.goferOpening = opening
+  if (opening) animation.onfinish = function () { status._colorPickerSlide = null; status.style.overflow = "" }
+  status._colorPickerSlide = animation
+  return animation
 }
 
 // paintCalendarColorPicker shows the calendar data describes: its name and
@@ -18379,13 +18446,15 @@ function paintCalendarColorPicker(picker, data) {
   })
   var reset = picker.querySelector("[data-calendar-color-reset]")
   if (reset) reset.hidden = data.calendarColorInGofer !== "true"
-  setCalendarColorStatus(picker, "", false)
 }
 
-function setCalendarColorSaving(picker, saving) {
-  picker.querySelectorAll("[data-color-picker-option], [data-color-picker-custom], [data-calendar-color-reset]").forEach(function (control) {
-    control.disabled = !!saving
-    control.classList.toggle("opacity-60", !!saving)
+// paintCalendarEventColors gives a calendar's events on the page its new
+// color where they are, rather than loading the calendar again.
+function paintCalendarEventColors(sourceID, color) {
+  document.querySelectorAll("[data-calendar-source-id]").forEach(function (event) {
+    if (event.getAttribute("data-calendar-source-id") !== sourceID) return
+    var marks = event.hasAttribute("data-calendar-event-color") ? [event] : event.querySelectorAll("[data-calendar-event-color]")
+    marks.forEach(function (mark) { mark.style.backgroundColor = color || "var(--primary)" })
   })
 }
 
@@ -18394,9 +18463,10 @@ function saveCalendarColor(rawColor) {
   var picker = document.querySelector("[data-calendar-color-picker]")
   if (!target || !picker) return
   var color = rawColor === "" ? "" : normalizeCalendarColor(rawColor)
-  if (rawColor !== "" && !color) return
-  setCalendarColorSaving(picker, true)
-  setCalendarColorStatus(picker, goferT("js.settings.status.saving"), false)
+  // One change at a time; the picker looks the same meanwhile.
+  if ((rawColor !== "" && !color) || target.saving) return
+  target.saving = true
+  setColorPickerStatus(picker, "saving", goferT("js.settings.status.saving_dots"))
   fetch("/api/calendar/sources/" + encodeURIComponent(target.id) + "/color", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -18416,21 +18486,20 @@ function saveCalendarColor(rawColor) {
       found.item.setAttribute("data-calendar-color-in-gofer", target.data.calendarColorInGofer)
       found.item.setAttribute("data-calendar-color-note", target.data.calendarColorNote || "")
     }
-    scheduleCalendarCacheRefresh()
+    paintCalendarEventColors(target.id, shown)
     if (calendarColorTarget !== target) return
     // The picker stays open to try other colors. A provider that refused the
     // color shows the note that says so.
     paintCalendarColorPicker(picker, target.data)
-    setCalendarColorStatus(picker, goferT("js.settings.status.saved"), false)
+    setColorPickerStatus(picker, "saved", goferT("js.settings.status.saved"))
     var status = picker.querySelector("[data-color-picker-status]")
-    var saved = status && status.textContent
     setTimeout(function () {
-      if (status && status.textContent === saved) setCalendarColorStatus(picker, "", false)
+      if (status && status.getAttribute("data-state") === "saved" && calendarColorTarget === target) setColorPickerStatus(picker, "")
     }, 1800)
   }).catch(function (error) {
-    if (calendarColorTarget === target) setCalendarColorStatus(picker, error && error.message ? error.message : goferT("js.calendar.color.failed"), true)
+    if (calendarColorTarget === target) setColorPickerStatus(picker, "error", error && error.message ? error.message : goferT("js.calendar.color.failed"))
   }).finally(function () {
-    setCalendarColorSaving(picker, false)
+    target.saving = false
   })
 }
 
@@ -18443,6 +18512,7 @@ document.addEventListener("click", function (event) {
   if (!found.picker || !found.dot || !window.tui || !window.tui.popover) return
   calendarColorTarget = { id: id, data: Object.assign({}, item.dataset) }
   paintCalendarColorPicker(found.picker, calendarColorTarget.data)
+  setColorPickerStatus(found.picker, "")
   // After this click is over, which closes the menu and anything else open.
   setTimeout(function () { window.tui.popover.open("calendar-color-popover", found.dot) }, 0)
 })

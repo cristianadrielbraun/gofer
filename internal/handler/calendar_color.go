@@ -25,7 +25,16 @@ const (
 	// calendarColorProvider: Gofer doesn't change colors on this calendar's
 	// provider.
 	calendarColorProvider = "provider"
+	// calendarColorReconnect: the account's sign-in can't change its
+	// calendars until it is reconnected.
+	calendarColorReconnect = "reconnect"
+	// calendarColorRefused: the provider didn't take the color.
+	calendarColorRefused = "refused"
 )
+
+// errCalendarColorRefused is the calendar's provider not taking a color,
+// such as Outlook for a calendar shared with the account.
+var errCalendarColorRefused = errors.New("the calendar's provider didn't take the color")
 
 // calendarColorResult is what a color change did: the color Gofer shows
 // now, and whether only Gofer shows it, and why.
@@ -37,10 +46,12 @@ type calendarColorResult struct {
 
 // handleCalendarSourceColor saves a color picked for a synced calendar, as
 // #rrggbb. A Google calendar's color goes to the account's Google calendar
-// list, which Google allows only with full calendar access. Without it, or
-// when Google refuses it, and on providers Gofer doesn't change colors on,
-// Gofer keeps the color itself and says so. An empty color goes back to the
-// provider's. A temporary failure on the provider changes nothing.
+// list, which Google allows only with full calendar access, and an Outlook
+// calendar's to Outlook, which needs the account's calendar write access.
+// Without the access, when the provider refuses it,
+// and on providers Gofer doesn't change colors on, Gofer keeps the color
+// itself and says so. An empty color goes back to the provider's. A
+// temporary failure on the provider changes nothing.
 func (h *Handler) handleCalendarSourceColor(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sourceID, owner := strings.TrimSpace(r.PathValue("id")), h.userID(ctx)
@@ -104,6 +115,22 @@ func (h *Handler) changeCalendarColor(ctx context.Context, owner, sourceID, colo
 		default:
 			return calendarColorResult{}, err
 		}
+	case source.Provider == providers.ProviderOutlook:
+		if !h.calendarWriteAccess(ctx, owner, source) {
+			result.Reason = calendarColorReconnect
+			break
+		}
+		err := h.onCalendarProvider(ctx, owner, source, func(ctx context.Context, login calendarManageLogin) error {
+			return setOutlookCalendarColor(ctx, source, login.token, color)
+		})
+		switch {
+		case err == nil:
+			change.OnProvider = true
+		case errors.Is(err, errCalendarColorRefused):
+			result.Reason = calendarColorRefused
+		default:
+			return calendarColorResult{}, err
+		}
 	default:
 		result.Reason = calendarColorProvider
 	}
@@ -141,6 +168,16 @@ func (h *Handler) googleCalendarFullAccess(ctx context.Context, owner, accountID
 	return h.mailCredentials() != nil && h.mailCredentials().GoogleCalendarFullAccess(ctx, accountID)
 }
 
+// calendarWriteAccess reports whether a Google or Microsoft account's
+// sign-in lets Gofer change its calendars, which older sign-ins don't until
+// the account is reconnected.
+func (h *Handler) calendarWriteAccess(ctx context.Context, owner string, source storage.CalendarSource) bool {
+	if h.userCredentials != nil {
+		return h.userCredentials.CalendarCreateAuthorizedForUser(ctx, owner, source.AccountID)
+	}
+	return h.mailCredentials() != nil && h.mailCredentials().CalendarCreateAuthorized(ctx, source.AccountID, source.Provider)
+}
+
 // onCalendarProvider signs in to a synced calendar's provider and makes
 // change there.
 func (h *Handler) onCalendarProvider(ctx context.Context, owner string, source storage.CalendarSource, change func(context.Context, calendarManageLogin) error) error {
@@ -171,6 +208,30 @@ func setGoogleCalendarColor(ctx context.Context, source storage.CalendarSource, 
 		return errGoogleCalendarListNeedsAccess
 	case http.StatusNotFound:
 		return errors.New("This calendar is no longer in your Google calendar list. Refresh the page.")
+	}
+	return err
+}
+
+// setOutlookCalendarColor sets an Outlook calendar's exact color, which
+// Microsoft documents as read-only but takes. Microsoft refusing it, or
+// answering with another color, is errCalendarColorRefused; a calendar gone
+// from Outlook is sql.ErrNoRows.
+func setOutlookCalendarColor(ctx context.Context, source storage.CalendarSource, token, color string) error {
+	endpoint := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(source.RemoteID)
+	var reply struct {
+		HexColor string `json:"hexColor"`
+	}
+	err := userContactProviderJSON(ctx, providers.ProviderOutlook, http.MethodPatch, endpoint, token, map[string]any{"hexColor": color}, &reply)
+	var outlook outlookAPIError
+	switch {
+	case err == nil && !strings.EqualFold(strings.TrimSpace(reply.HexColor), color):
+		return errCalendarColorRefused
+	case err == nil || !errors.As(err, &outlook):
+		return err
+	case outlook.Status == http.StatusNotFound || outlook.Status == http.StatusGone:
+		return sql.ErrNoRows
+	case outlook.Status == http.StatusBadRequest || outlook.Status == http.StatusForbidden:
+		return errCalendarColorRefused
 	}
 	return err
 }

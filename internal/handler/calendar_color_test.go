@@ -186,6 +186,174 @@ func TestCalendarColorOnGoogle(t *testing.T) {
 	}
 }
 
+// fakeOutlookCalendarColors lists two Outlook calendars with their exact
+// colors and lets the colors be changed, recording each change. answer,
+// when set, is the status Microsoft answers a change with instead, and
+// ignore leaves the color as it was, as Microsoft does with a property it
+// doesn't let apps change.
+type fakeOutlookCalendarColors struct {
+	mu      sync.Mutex
+	colors  map[string]string
+	changes []string
+	answer  int
+	ignore  bool
+}
+
+func (f *fakeOutlookCalendarColors) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	id := strings.TrimPrefix(r.URL.Path, "/me/calendars/")
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/me/calendars":
+		fmt.Fprintf(w, `{"value":[{"id":"main","name":"Calendar","isDefaultCalendar":true,"canEdit":true,"color":"auto","hexColor":%q},{"id":"club","name":"Book club","canEdit":true,"color":"auto","hexColor":%q}]}`, f.colors["main"], f.colors["club"])
+	case r.Method == http.MethodPatch && id != r.URL.Path:
+		body, _ := io.ReadAll(r.Body)
+		f.changes = append(f.changes, id+" "+strings.TrimSpace(string(body)))
+		if f.answer != 0 {
+			w.WriteHeader(f.answer)
+			fmt.Fprintf(w, `{"error":{"code":"ErrorAccessDenied","message":"No"}}`)
+			return
+		}
+		var change struct{ HexColor string }
+		_ = json.Unmarshal(body, &change)
+		if !f.ignore {
+			f.colors[id] = change.HexColor
+		}
+		fmt.Fprintf(w, `{"id":%q,"color":"auto","hexColor":%q}`, id, f.colors[id])
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// An Outlook calendar takes the exact color picked. When the account's
+// sign-in can't change calendars, or Microsoft refuses the color or keeps
+// its own, Gofer keeps the color itself until Outlook's changes; a failure
+// on Microsoft's side changes nothing.
+func TestCalendarColorOnOutlook(t *testing.T) {
+	api := &fakeOutlookCalendarColors{colors: map[string]string{"main": "", "club": "#abebdc"}}
+	f := newUserContactPushFixture(t, "outlook", api)
+	previous := outlookGraphBaseURL
+	outlookGraphBaseURL = f.server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previous })
+	account := f.accounts["alice"]
+	grant := func(scopes string) {
+		t.Helper()
+		expires := time.Now().Add(time.Hour)
+		if err := f.h.userCredentials.UpsertForUser(t.Context(), "alice", account.ID, "microsoft", "subject", "alice-access", "alice-refresh", "Bearer", &expires, scopes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	grant("https://graph.microsoft.com/Calendars.ReadWrite")
+	discover := func() {
+		t.Helper()
+		if result, err := f.h.runUserCalendarDiscovery(t.Context(), "alice", account.ID, nil, nil, false); err != nil || result.failed {
+			t.Fatal(err, result.message)
+		}
+	}
+	discover()
+	sources := func() map[string]storage.CalendarSource {
+		t.Helper()
+		out := map[string]storage.CalendarSource{}
+		if err := f.h.userAccounts.WithAccountForUser(t.Context(), "alice", account.ID, func(_ *config.AccountStore, db *storage.DB) error {
+			list, err := db.ListCalendarSourcesForAccount(t.Context(), "alice", account.ID)
+			for _, source := range list {
+				out[source.RemoteID] = source
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if err := f.h.userAccounts.SetCalendarSourcesSelected(t.Context(), "alice", account.ID, []string{sources()["main"].ID, sources()["club"].ID}); err != nil {
+		t.Fatal(err)
+	}
+	pick := func(remoteID, color string) (*httptest.ResponseRecorder, calendarColorResult) {
+		t.Helper()
+		id := sources()[remoteID].ID
+		req := httptest.NewRequest(http.MethodPost, "/api/calendar/sources/"+id+"/color", strings.NewReader(fmt.Sprintf(`{"color":%q}`, color)))
+		req.SetPathValue("id", id)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "alice"}))
+		rec := httptest.NewRecorder()
+		f.h.handleCalendarSourceColor(rec, req)
+		var result calendarColorResult
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rec, result
+	}
+	colors := func(remoteID string) string {
+		t.Helper()
+		source := sources()[remoteID]
+		return source.Color + " " + source.ChosenColor
+	}
+	if got := colors("club"); got != "#abebdc " {
+		t.Fatalf("a custom Outlook color reads as %q", got)
+	}
+
+	// The exact color goes to Microsoft and becomes the calendar's own,
+	// which reading the list again keeps.
+	if rec, result := pick("club", "#D946EF"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#d946ef"}) {
+		t.Fatalf("pick on Outlook: %d %s", rec.Code, rec.Body.String())
+	}
+	if want := `club {"hexColor":"#d946ef"}`; strings.Join(api.changes, "; ") != want {
+		t.Fatalf("Microsoft saw %q, want %q", api.changes, want)
+	}
+	discover()
+	if got := colors("club"); got != "#d946ef " {
+		t.Fatalf("after syncing the list, color = %q", got)
+	}
+
+	// Microsoft keeping its own color, or refusing, keeps the color in
+	// Gofer, which syncing leaves until Outlook's color changes.
+	api.ignore = true
+	if rec, result := pick("club", "#ef4444"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#ef4444", InGoferOnly: true, Reason: calendarColorRefused}) {
+		t.Fatalf("pick Microsoft ignored: %d %s", rec.Code, rec.Body.String())
+	}
+	api.ignore = false
+	for _, status := range []int{http.StatusForbidden, http.StatusBadRequest} {
+		api.answer = status
+		if rec, result := pick("main", "#c00000"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#c00000", InGoferOnly: true, Reason: calendarColorRefused}) {
+			t.Fatalf("pick Microsoft refused with %d: %d %s", status, rec.Code, rec.Body.String())
+		}
+	}
+	api.answer = 0
+	discover()
+	if got := colors("main"); got != "#2563eb #c00000" {
+		t.Fatalf("kept in Gofer, color = %q", got)
+	}
+	api.colors["main"] = "#f7630c"
+	discover()
+	if got := colors("main"); got != "#f7630c " {
+		t.Fatalf("after Outlook's color changed, color = %q", got)
+	}
+
+	// A failure on Microsoft's side is no refusal, and a calendar gone from
+	// Outlook is gone.
+	api.answer = http.StatusInternalServerError
+	if rec, _ := pick("main", "#ffc000"); rec.Code != http.StatusBadGateway || colors("main") != "#f7630c " {
+		t.Fatalf("pick while Microsoft fails: %d %s, color %q", rec.Code, rec.Body.String(), colors("main"))
+	}
+	api.answer = http.StatusNotFound
+	if rec, _ := pick("main", "#ffc000"); rec.Code != http.StatusNotFound {
+		t.Fatalf("pick on a calendar gone from Outlook: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// A sign-in that can't change calendars keeps the color in Gofer without
+	// asking Microsoft.
+	api.answer, api.changes = 0, nil
+	grant("https://graph.microsoft.com/Calendars.Read")
+	if rec, result := pick("main", "#ffc000"); rec.Code != http.StatusOK || result != (calendarColorResult{Color: "#ffc000", InGoferOnly: true, Reason: calendarColorReconnect}) {
+		t.Fatalf("pick without write access: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(api.changes) != 0 {
+		t.Fatalf("Microsoft was asked without write access: %v", api.changes)
+	}
+}
+
 func TestCalendarTextColorReadsOnTheColor(t *testing.T) {
 	for color, want := range map[string]string{"#2563eb": "#ffffff", "#111827": "#ffffff", "#facc15": "#000000", "#9fe1e7": "#000000", "#zzzzzz": "#000000"} {
 		if got := calendarTextColor(color); got != want {

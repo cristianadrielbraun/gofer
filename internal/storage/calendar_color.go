@@ -8,8 +8,8 @@ import (
 )
 
 // migrateV154ToV155 adds the color picked for a calendar in Gofer, which
-// Gofer keeps when the calendar's provider didn't take it. Sync never
-// changes it.
+// Gofer keeps when the calendar's provider didn't take it, until the
+// provider's color changes.
 func migrateV154ToV155(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -47,8 +47,9 @@ func migrateV154ToV155(db *sql.DB) error {
 // CalendarColorChange is a color picked for a calendar in Gofer, as
 // #rrggbb. OnProvider is set when the calendar's provider took it too: it
 // becomes the calendar's color, and a later sync brings whatever the
-// provider has. Otherwise Gofer keeps it as its own, and sync leaves it
-// alone. An empty Color drops the one Gofer kept, back to the provider's.
+// provider has. Otherwise Gofer keeps it as its own until a sync finds the
+// provider's color changed, which is the newer change. An empty Color drops
+// the one Gofer kept, back to the provider's.
 type CalendarColorChange struct {
 	Color      string
 	OnProvider bool

@@ -458,27 +458,38 @@ templ CalendarColorPicker() {
 				PreviewClass:      "rounded-full",
 				PreviewAttributes: templ.Attributes{"data-calendar-color-preview": ""},
 			}) {
-				<div class="mt-3 space-y-2 empty:hidden">
-					<div class="flex items-start gap-2 text-xs text-muted-foreground" data-calendar-color-note="google_access" hidden>
-						@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
-						<div class="min-w-0 space-y-1">
-							<p>{ i18n.T(ctx, "calendar.color.google_access") }</p>
-							@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto p-0 text-xs", Attributes: templ.Attributes{"data-calendar-color-allow-access": ""}}) {
-								{ i18n.T(ctx, "calendar.color.allow_access") }
-							}
-						</div>
-					</div>
-					<p class="flex items-start gap-2 text-xs text-muted-foreground" data-calendar-color-note="provider" hidden>
-						@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
-						<span>{ i18n.T(ctx, "calendar.color.only_gofer") }</span>
-					</p>
-					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "w-full", Attributes: templ.Attributes{"data-calendar-color-reset": "", "hidden": true}}) {
-						<span class="truncate">{ i18n.T(ctx, "calendar.color.reset") }</span>
-					}
-				</div>
+				@calendarColorPickerNotes()
 			}
 		}
 	}
+}
+
+// calendarColorPickerNotes are a calendar color picker's notes on where the
+// color shows, which the page shows the one of, and its way back to the
+// calendar's own color.
+templ calendarColorPickerNotes() {
+	// Space above only while a note or the button shows, so the picker ends
+	// at its last visible part.
+	<div class="flex flex-col gap-2 has-[>:not([hidden])]:mt-3">
+		<div class="flex items-start gap-2 text-xs text-muted-foreground" data-calendar-color-note="google_access" hidden>
+			@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+			<div class="min-w-0 space-y-1">
+				<p>{ i18n.T(ctx, "calendar.color.google_access") }</p>
+				@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto p-0 text-xs", Attributes: templ.Attributes{"data-calendar-color-allow-access": ""}}) {
+					{ i18n.T(ctx, "calendar.color.allow_access") }
+				}
+			</div>
+		</div>
+		for _, note := range []string{"provider", "reconnect", "refused"} {
+			<p class="flex items-start gap-2 text-xs text-muted-foreground" data-calendar-color-note={ note } hidden>
+				@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+				<span>{ i18n.T(ctx, "calendar.color.note_"+note) }</span>
+			</p>
+		}
+		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "w-full", Attributes: templ.Attributes{"data-calendar-color-reset": "", "hidden": true}}) {
+			<span class="truncate">{ i18n.T(ctx, "calendar.color.reset") }</span>
+		}
+	</div>
 }
 
 // CalendarSubscriptionDialog subscribes to a calendar feed by its address,
@@ -851,7 +862,7 @@ continuesBefore := event.AllDay && event.StartDate < day.ISODate
 continuesAfter := event.AllDay && event.EndDate > day.Date.AddDate(0, 0, 1).Format("2006-01-02") }}
 													<button type="button" hidden?={ !candidate.Visible } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } { calendarMoveAttributes(event)... } data-calendar-month-event={ event.ID } data-calendar-event-all-day={ strconv.FormatBool(event.AllDay) } data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-continues-before?={ continuesBefore } data-calendar-continues-after?={ continuesAfter } class="group pointer-events-auto relative flex w-full min-w-0 items-center gap-1.5 truncate rounded bg-primary/[0.06] px-1.5 py-1 text-left text-[10px] leading-tight text-foreground transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ calendarEventResponseSummary(ctx, event) } aria-label={ i18n.T(ctx, "calendar.open_event", "event", calendarEventResponseSummary(ctx, event)) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" data-calendar-event-trigger>
 														<span class={ "flex min-w-0 flex-1 items-center gap-1.5", templ.KV("invisible", continuesBefore && dayIndex > 0) }>
-															<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
+															<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(event) } data-calendar-event-color></span>
 															<span class="shrink-0 font-semibold text-primary">{ calendarEventTimeLabel(ctx, event, day.Date.Location()) }</span>
 															<span class="min-w-0 flex-1 truncate" data-calendar-event-summary><span data-calendar-event-text>{ calendarEventSummary(ctx, event) }</span></span>
 															@CalendarEventResponseIndicator(event, true)
@@ -977,7 +988,7 @@ templ CalendarAgendaEventCard(event CalendarEvent, location *time.Location, comp
 			<div class="min-w-0 flex-1">
 				<div class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
 					<div class="flex min-w-0 items-center gap-2">
-						<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
+						<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(event) } data-calendar-event-color></span>
 						<h3 class="truncate text-sm font-bold text-foreground" data-calendar-event-summary>{ calendarEventSummary(ctx, event) }</h3>
 					</div>
 					<span class="shrink-0 text-[11px] font-semibold text-primary">{ calendarEventAgendaDateLabel(ctx, event, location) }</span>
@@ -1019,7 +1030,7 @@ templ calendarArrowPair(previous, next templ.Attributes) {
 templ CalendarDayDots(events []CalendarEvent) {
 	<span class="calendar-day-dots" aria-hidden="true" data-calendar-day-dots>
 		for _, event := range calendarDaySourceDots(events) {
-			<span class="calendar-day-dot" hidden?={ event.SourceHidden } data-calendar-day-dot data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } style={ calendarEventColorStyle(event) }></span>
+			<span class="calendar-day-dot" hidden?={ event.SourceHidden } data-calendar-day-dot data-calendar-event-color data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } style={ calendarEventColorStyle(event) }></span>
 		}
 	</span>
 }

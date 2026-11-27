@@ -553,21 +553,7 @@ function setupAccountColorPickers() {
   })
 }
 
-function setAccountColorStatus(picker, message, isError) {
-  var status = picker && picker.querySelector("[data-color-picker-status]")
-  if (!status) return
-  status.textContent = message || ""
-  status.classList.toggle("text-destructive", !!isError)
-  status.classList.toggle("text-muted-foreground", !isError)
-}
 
-function setAccountColorSaving(picker, saving) {
-  if (!picker) return
-  picker.querySelectorAll("[data-color-picker-option], [data-color-picker-custom]").forEach(function (el) {
-    el.disabled = !!saving
-    el.classList.toggle("opacity-60", !!saving)
-  })
-}
 
 function updateAccountColorUI(accountId, color) {
   document.querySelectorAll("[data-account-marker]").forEach(function (marker) {
@@ -591,12 +577,14 @@ function saveAccountColor(picker, rawColor, source) {
   var accountId = picker.getAttribute("data-account-id") || ""
   var color = normalizeAccountColorInput(rawColor)
   if (!accountId || !color) {
-    setAccountColorStatus(picker, goferT("js.settings.color.invalid"), true)
+    setColorPickerStatus(picker, "error", goferT("js.settings.color.invalid"))
     return
   }
 
-  setAccountColorSaving(picker, true)
-  setAccountColorStatus(picker, goferT("js.settings.status.saving"), false)
+  // One change at a time; the picker looks the same meanwhile.
+  if (picker._accountColorSaving) return
+  picker._accountColorSaving = true
+  setColorPickerStatus(picker, "saving", goferT("js.settings.status.saving_dots"))
   fetch("/api/accounts/" + encodeURIComponent(accountId) + "/color", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
@@ -610,12 +598,15 @@ function saveAccountColor(picker, rawColor, source) {
     var nextColor = normalizeAccountColorInput(data.color) || color
     updateAccountColorUI(accountId, nextColor)
     // The picker stays open to try other colors.
-    setAccountColorStatus(picker, goferT("js.settings.status.saved"), false)
-    setTimeout(function () { setAccountColorStatus(picker, "", false) }, 1800)
+    setColorPickerStatus(picker, "saved", goferT("js.settings.status.saved"))
+    var status = picker.querySelector("[data-color-picker-status]")
+    setTimeout(function () {
+      if (status && status.getAttribute("data-state") === "saved") setColorPickerStatus(picker, "")
+    }, 1800)
   }).catch(function (err) {
-    setAccountColorStatus(picker, err && err.message ? err.message : goferT("js.settings.status.failed"), true)
+    setColorPickerStatus(picker, "error", err && err.message ? err.message : goferT("js.settings.status.failed"))
   }).finally(function () {
-    setAccountColorSaving(picker, false)
+    picker._accountColorSaving = false
   })
 }
 
