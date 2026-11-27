@@ -137,6 +137,7 @@ func (t mailRuleRunTarget) wouldChange(m *mailRuleMessage) bool {
 		return false
 	}
 	rule := t.runner.rules[0]
+	m.facts.FlagColor = m.flagColors[t.runner.flagColorFolder(m, t.folder.id)]
 	if !rule.Match(m.facts) {
 		return false
 	}

@@ -5,6 +5,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"strings"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/tabs"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 
@@ -109,7 +111,7 @@ func mailViewStarAttributes(email *models.Email) templ.Attributes {
 	if email.ThreadCount > 1 {
 		return templ.Attributes{"data-on-click": onAction("toggleThreadStar", email.ID), "data-star-thread": email.ID, "data-star-thread-id": email.ThreadID}
 	}
-	return templ.Attributes{"data-on-click": onAction("toggleStar", email.ID), "data-star-email": email.ID}
+	return templ.Attributes{"data-on-click": onAction("toggleStar", email.ID, email.FolderID), "data-star-email": email.ID}
 }
 
 // mailViewStarred reports whether the toolbar star is filled: for a thread, when any of
@@ -260,7 +262,7 @@ templ mailViewLoadingReplyButton(label string) {
 }
 
 templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
-	<div class="mail-view-frame flex flex-col h-full">
+	<div class="mail-view-frame flex flex-col h-full" data-mail-view-folder={ email.FolderID } data-mail-view-email={ email.ID }>
 		@translationLanguageItems()
 		if len(thread) > 1 {
 			@MailViewThreadContent(email, thread)
@@ -537,7 +539,7 @@ templ MailViewThreadItemMiniHeader(item *models.ThreadItem) {
 					Variant:    button.VariantGhost,
 					Size:       button.SizeIcon,
 					Class:      "h-7 w-7",
-					Attributes: templ.Attributes{"data-on-click": onAction("toggleStar", item.ID), "data-star-email": item.ID},
+					Attributes: templ.Attributes{"data-on-click": onAction("toggleStar", item.ID, item.FolderID), "data-star-email": item.ID},
 				}) {
 					if item.IsStarred {
 						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.3)]"})
@@ -878,6 +880,7 @@ templ MailViewHeader(email *models.Email, thread []models.ThreadItem) {
 			}
 		</div>
 		<div class="mail-view-meta flex items-center gap-2">
+			@MailFlagColorBadge(email.FlagColor)
 			if len(email.Labels) > 0 {
 				for _, label := range email.Labels {
 					<span class={ "inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06)]", label.Color }>
@@ -1349,8 +1352,9 @@ templ MailViewMobileMenuItems(email *models.Email) {
 }
 
 templ MailViewMobileLabels(email *models.Email) {
-	if len(email.Labels) > 0 {
+	if len(email.Labels) > 0 || email.FlagColor.Valid() {
 		<div class="mail-view-mobile-labels flex flex-wrap gap-1.5">
+			@MailFlagColorBadge(email.FlagColor)
 			for _, label := range email.Labels {
 				<span class={ "text-[11px] px-2 py-0.5 rounded font-medium", label.Color }>{ label.Name }</span>
 			}
@@ -1452,7 +1456,7 @@ templ mailMoveNewRow(account models.Account) {
 // is checked when all the emails have it and partly checked when some do;
 // Apply sends only what was changed. Typing a name that doesn't exist yet
 // offers to create it.
-templ MailLabelsDialog(options []MailLabelOption) {
+templ MailLabelsDialog(options, colors []MailLabelOption, mixedProviders bool) {
 	@dialog.Dialog(dialog.Props{ID: "mail-labels-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-sm"}) {
 			@dialog.Header() {
@@ -1485,9 +1489,21 @@ templ MailLabelsDialog(options []MailLabelOption) {
 						@mailLabelsDialogRow(option.Name, option.State)
 					}
 				</div>
-				<p class={ "px-2.5 py-6 text-center text-sm text-muted-foreground", templ.KV("hidden", len(options) > 0) } data-mail-labels-empty>
+				<p class={ "px-2.5 py-6 text-center text-sm text-muted-foreground", templ.KV("hidden", len(options) > 0 || len(colors) > 0) } data-mail-labels-empty>
 					{ i18n.T(ctx, "mail.labels.empty") }
 				</p>
+				if len(colors) > 0 {
+					<fieldset class="mt-1 border-t border-border pt-1" data-mail-flag-color-group>
+						<legend class="px-2 text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "mail.flag_color.title") }</legend>
+						<p class="px-2 pb-1 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.flag_color.hint") }</p>
+						for _, option := range colors {
+							@mailFlagColorDialogRow(option.FlagColor, option.State)
+						}
+					</fieldset>
+				}
+				if mixedProviders {
+					<p class="px-2.5 py-2 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.flag_color.unavailable_selection") }</p>
+				}
 			</div>
 			<template data-mail-labels-row-template>
 				@mailLabelsDialogRow("", MailLabelOnNone)
@@ -1504,6 +1520,47 @@ templ MailLabelsDialog(options []MailLabelOption) {
 					Attributes: templ.Attributes{"data-mail-labels-apply": "", "data-on-click": onAction("applyLabelsDialog")},
 				}) {
 					{ i18n.T(ctx, "common.apply") }
+				}
+			}
+		}
+	}
+}
+
+// MailFlagColorBadge shows the name and color of a managed flag label.
+templ MailFlagColorBadge(color keywords.FlagColor) {
+	if color.Valid() {
+		<span class="mail-flag-color-badge inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-foreground" data-mail-flag-color={ color.Key() }>
+			<span class="mail-flag-color-dot" aria-hidden="true"></span>
+			{ i18n.T(ctx, "mail.flag_color." + color.Key()) }
+		</span>
+	}
+}
+
+templ mailFlagColorDialogRow(color keywords.FlagColor, state string) {
+	<label class="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground" data-mail-flag-color-option={ color.Key() }>
+		@checkbox.Checkbox(checkbox.Props{
+			Checked: state == MailLabelOnAll,
+			Attributes: templ.Attributes{
+				"data-mail-labels-check": "",
+				"data-initial": state,
+				"data-state": state,
+				"data-on-click": onAction("cycleLabelOption", actionElement),
+			},
+		})
+		@MailFlagColorBadge(color)
+	</label>
+}
+
+// MailFlagColorSelect uses stable keys for filters and rule forms.
+templ MailFlagColorSelect(name, value string, attrs templ.Attributes) {
+	@selectbox.SelectBox() {
+		@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: "h-8", Attributes: mergeTemplAttrs(attrs, templ.Attributes{"aria-label": i18n.T(ctx, "mail.flag_color.title")})}) {
+			@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.flag_color.title")})
+		}
+		@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+			for _, color := range keywords.FlagColors() {
+				@selectbox.Item(selectbox.ItemProps{Value: color.Key(), Selected: value == color.Key()}) {
+					@MailFlagColorBadge(color)
 				}
 			}
 		}

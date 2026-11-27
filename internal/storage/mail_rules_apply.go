@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -126,13 +127,14 @@ func (db *DB) ApplyPendingMailRules(ctx context.Context, accountID string) (Mail
 
 // mailRuleRunner applies a list of rules to messages of one account.
 type mailRuleRunner struct {
-	db        *DB
-	owner     string
-	accountID string
-	provider  string
-	rules     []*mailrules.Rule
-	folders   map[string]mailRuleFolder
-	recorded  bool
+	db                *DB
+	owner             string
+	accountID         string
+	provider          string
+	rules             []*mailrules.Rule
+	folders           map[string]mailRuleFolder
+	retiredFlagLabels map[string]bool
+	recorded          bool
 	// transfers is set once a rule queued a move to another account.
 	transfers bool
 	// quiet records only what failed: a run by hand over many messages
@@ -147,13 +149,15 @@ type mailRuleRunner struct {
 // mailRuleActionKinds are the mail actions that rule actions queue changes
 // as.
 var mailRuleActionKinds = map[string]string{
-	models.MailRuleActionMove:     MailActionMove,
-	models.MailRuleActionArchive:  MailActionArchive,
-	models.MailRuleActionTrash:    MailActionDelete,
-	models.MailRuleActionSpam:     MailActionSpam,
-	models.MailRuleActionMarkRead: MailActionMarkRead,
-	models.MailRuleActionStar:     MailActionStar,
-	models.MailRuleActionLabel:    MailActionLabelAdd,
+	models.MailRuleActionMove:            MailActionMove,
+	models.MailRuleActionArchive:         MailActionArchive,
+	models.MailRuleActionTrash:           MailActionDelete,
+	models.MailRuleActionSpam:            MailActionSpam,
+	models.MailRuleActionMarkRead:        MailActionMarkRead,
+	models.MailRuleActionStar:            MailActionStar,
+	models.MailRuleActionLabel:           MailActionLabelAdd,
+	models.MailRuleActionSetFlagColor:    MailActionLabelAdd,
+	models.MailRuleActionRemoveFlagColor: MailActionLabelRemove,
 }
 
 // ruleAction is the action a rule's action queues changes under in this run.
@@ -177,7 +181,7 @@ type mailRuleFolder struct {
 // newMailRuleRunner prepares the owner's enabled rules for an account, or
 // only the rules given. It is nil when no rule applies to the account.
 func (db *DB) newMailRuleRunner(ctx context.Context, accountID string, only []models.MailRule) (*mailRuleRunner, error) {
-	runner := &mailRuleRunner{db: db, accountID: accountID}
+	runner := &mailRuleRunner{db: db, accountID: accountID, retiredFlagLabels: map[string]bool{}}
 	var deleting bool
 	err := db.Read().QueryRowContext(ctx, `SELECT COALESCE(user_id, ''), provider, COALESCE(is_deleting, 0) FROM accounts WHERE id = ?`, accountID).
 		Scan(&runner.owner, &runner.provider, &deleting)
@@ -222,6 +226,22 @@ func (db *DB) newMailRuleRunner(ctx context.Context, accountID string, only []mo
 		if err != nil {
 			log.Printf("mail rules: skip rule %s of %s: %v", rule.ID, runner.owner, err)
 			continue
+		}
+		if SupportsFlagColors(runner.provider) {
+			for _, action := range compiled.Actions {
+				if action.Kind != models.MailRuleActionLabel {
+					continue
+				}
+				name := strings.ToLower(action.Label)
+				if _, known := runner.retiredFlagLabels[name]; known {
+					continue
+				}
+				retired, err := db.RetiredFlagLabelReference(ctx, runner.owner, accountID, action.Label, "", "")
+				if err != nil {
+					return nil, err
+				}
+				runner.retiredFlagLabels[name] = retired
+			}
 		}
 		runner.rules = append(runner.rules, compiled)
 	}
@@ -298,13 +318,15 @@ type mailRuleMessage struct {
 	draft        bool
 	isRead       bool
 	isStarred    bool
+	flagColors   map[string]keywords.FlagColor
 	// labels are the names of the message's labels, in lower case.
 	labels map[string]bool
 	facts  mailrules.Message
 }
 
 func (r *mailRuleRunner) loadMessage(ctx context.Context, messageID int64) (*mailRuleMessage, error) {
-	m := &mailRuleMessage{id: messageID, labels: map[string]bool{}}
+	m := &mailRuleMessage{id: messageID, labels: map[string]bool{}, flagColors: map[string]keywords.FlagColor{}}
+	m.facts.SupportsFlagColor = SupportsFlagColors(r.provider)
 	err := r.db.Read().QueryRowContext(ctx, `
 		SELECT subject, from_name, from_email, list_id, message_id_normalized FROM messages WHERE id = ? AND account_id = ?`,
 		messageID, r.accountID).Scan(&m.subject, &m.facts.FromName, &m.fromEmail, &m.facts.ListID, &m.normalizedID)
@@ -317,17 +339,21 @@ func (r *mailRuleRunner) loadMessage(ctx context.Context, messageID int64) (*mai
 	m.facts.FromEmail, m.facts.Subject = m.fromEmail, m.subject
 
 	rows, err := r.db.Read().QueryContext(ctx, `
-		SELECT folder_id, is_read, is_starred, is_draft FROM message_folder_state WHERE message_id = ? AND is_deleted = 0`, messageID)
+		SELECT mfs.folder_id, mfs.is_read, mfs.is_starred, mfs.is_draft, `+flagColorSQL("mfs", "a.provider")+`
+		FROM message_folder_state mfs JOIN accounts a ON a.id = ?
+		WHERE mfs.message_id = ? AND mfs.is_deleted = 0`, r.accountID, messageID)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var folderID string
 		var read, starred, draft bool
-		if err := rows.Scan(&folderID, &read, &starred, &draft); err != nil {
+		var color keywords.FlagColor
+		if err := rows.Scan(&folderID, &read, &starred, &draft, &color); err != nil {
 			rows.Close()
 			return nil, err
 		}
+		m.flagColors[folderID] = color
 		m.isRead = m.isRead || read
 		m.isStarred = m.isStarred || starred
 		m.draft = m.draft || draft
@@ -409,6 +435,7 @@ func (r *mailRuleRunner) run(ctx context.Context, messageID int64, arrival, trig
 	}
 	moved := ""
 	for _, rule := range r.rules {
+		m.facts.FlagColor = m.flagColors[r.flagColorFolder(m, arrival)]
 		if !rule.Match(m.facts) {
 			continue
 		}
@@ -472,6 +499,13 @@ func (r *mailRuleRunner) run(ctx context.Context, messageID int64, arrival, trig
 	return outcome, nil
 }
 
+func (r *mailRuleRunner) flagColorFolder(m *mailRuleMessage, arrival string) string {
+	if _, ok := m.flagColors[arrival]; ok {
+		return arrival
+	}
+	return r.source(m, arrival)
+}
+
 func orderedMailRuleActions(actions []models.MailRuleAction) []models.MailRuleAction {
 	ordered := make([]models.MailRuleAction, 0, len(actions))
 	for _, action := range actions {
@@ -522,6 +556,30 @@ func (r *mailRuleRunner) apply(ctx context.Context, m *mailRuleMessage, arrival 
 		m.labels[strings.ToLower(strings.TrimSpace(action.Label))] = true
 		r.touch(m, outcome)
 		return mailrules.NewNote("labeled", "label", action.Label), nil
+	case models.MailRuleActionSetFlagColor, models.MailRuleActionRemoveFlagColor:
+		folder := r.flagColorFolder(m, arrival)
+		color := keywords.ParseFlagColor(action.FlagColor)
+		info, err := r.mutationInfo(ctx, m, folder)
+		note := mailrules.NewNote("flag_color_set")
+		add := action.Kind == models.MailRuleActionSetFlagColor
+		if !add {
+			note = mailrules.NewNote("flag_color_removed")
+		}
+		if err != nil {
+			return note, err
+		}
+		if err := r.db.SetMessageFlagColorForUser(ctx, r.owner, []ThreadMessageMutationInfo{info}, color, add); err != nil {
+			return note, err
+		}
+		refreshed, err := r.loadMessage(ctx, m.id)
+		if err != nil {
+			return note, err
+		}
+		if refreshed != nil {
+			m.flagColors, m.isStarred = refreshed.flagColors, refreshed.isStarred
+		}
+		r.touch(m, outcome)
+		return note, nil
 	}
 
 	if target := moveTarget(action); r.otherAccount(target) {
@@ -669,7 +727,17 @@ func (r *mailRuleRunner) needless(m *mailRuleMessage, arrival string, action mod
 	case models.MailRuleActionStar:
 		return mailrules.NewNote("already_starred"), m.isStarred
 	case models.MailRuleActionLabel:
-		return mailrules.NewNote("already_labeled", "label", action.Label), m.labels[strings.ToLower(strings.TrimSpace(action.Label))]
+		name := strings.ToLower(strings.TrimSpace(action.Label))
+		if r.retiredFlagLabels[name] {
+			return mailrules.NewNote("retired_flag_label", "label", action.Label), true
+		}
+		return mailrules.NewNote("already_labeled", "label", action.Label), m.labels[name]
+	case models.MailRuleActionSetFlagColor, models.MailRuleActionRemoveFlagColor:
+		if !SupportsFlagColors(r.provider) {
+			return mailrules.NewNote("flag_color_unsupported"), true
+		}
+		same := m.flagColors[r.flagColorFolder(m, arrival)] == keywords.ParseFlagColor(action.FlagColor)
+		return mailrules.NewNote("flag_color_unchanged"), same == (action.Kind == models.MailRuleActionSetFlagColor)
 	case models.MailRuleActionMove, models.MailRuleActionArchive, models.MailRuleActionTrash, models.MailRuleActionSpam:
 	default:
 		return mailrules.NewNote("unknown_action", "action", action.Kind), true

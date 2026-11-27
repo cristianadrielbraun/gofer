@@ -44,11 +44,13 @@ type MailRuleCondition struct {
 }
 
 // MailRuleAction is one thing a rule does to a message it matched. Folder is
-// set for MailRuleActionMove, Label for MailRuleActionLabel.
+// set for MailRuleActionMove, Label for MailRuleActionLabel, and FlagColor
+// for the actions that set or remove a flag color.
 type MailRuleAction struct {
-	Kind   string                `json:"kind"`
-	Folder *MailRuleFolderTarget `json:"folder,omitempty"`
-	Label  string                `json:"label,omitempty"`
+	Kind      string                `json:"kind"`
+	Folder    *MailRuleFolderTarget `json:"folder,omitempty"`
+	Label     string                `json:"label,omitempty"`
+	FlagColor string                `json:"flag_color,omitempty"`
 	// ForGood, for a move to a folder of another account, deletes the
 	// message from its own account for good once it's copied, rather than
 	// putting it in that account's Trash.
@@ -125,6 +127,7 @@ const (
 	MailRuleFieldSubject    = "subject"
 	MailRuleFieldListID     = "list_id"
 	MailRuleFieldFolder     = "folder"
+	MailRuleFieldFlagColor  = "flag_color"
 )
 
 // The ways a condition compares. Folder conditions take only is and is_not.
@@ -141,13 +144,15 @@ const (
 // The things a rule can do. Trash moves to the Trash folder; nothing a rule
 // does deletes mail for good.
 const (
-	MailRuleActionMove     = "move"
-	MailRuleActionArchive  = "archive"
-	MailRuleActionTrash    = "trash"
-	MailRuleActionSpam     = "spam"
-	MailRuleActionMarkRead = "mark_read"
-	MailRuleActionStar     = "star"
-	MailRuleActionLabel    = "label"
+	MailRuleActionMove            = "move"
+	MailRuleActionArchive         = "archive"
+	MailRuleActionTrash           = "trash"
+	MailRuleActionSpam            = "spam"
+	MailRuleActionMarkRead        = "mark_read"
+	MailRuleActionStar            = "star"
+	MailRuleActionLabel           = "label"
+	MailRuleActionSetFlagColor    = "set_flag_color"
+	MailRuleActionRemoveFlagColor = "remove_flag_color"
 )
 
 // The outcomes recorded in a rule's activity.
@@ -203,9 +208,10 @@ type MailRulesData struct {
 	// Editing is the rule in the form while one is added or edited.
 	Editing *MailRule
 	// Run is the rule being run on mail already there.
-	Run    *MailRuleRunData
-	Error  string
-	Notice string
+	Run               *MailRuleRunData
+	Error             string
+	Notice            string
+	RetiredFlagLabels map[string][]string
 	// Destinations are the folders each rule moves mail into, by rule ID,
 	// as storage's MailRuleDestinations finds them. Only the list has them.
 	Destinations map[string][]string

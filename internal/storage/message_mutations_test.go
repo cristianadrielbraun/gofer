@@ -653,7 +653,7 @@ func TestIMAPFlagRefreshConfirmsAppliedMutationWithoutRevertingIt(t *testing.T) 
 	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE id = ?`, claimed[0].ID).Scan(&remaining); err != nil || remaining != 1 {
 		t.Fatalf("mutation after stale refresh = %d, %v", remaining, err)
 	}
-	if _, err := db.BatchUpdateFlags(ctx, "inbox", []FlagUpdate{{UID: 1, IsRead: true, IsStarred: true}}); err != nil {
+	if _, err := db.BatchUpdateFlags(ctx, "inbox", []FlagUpdate{{UID: 1, IsRead: true, IsStarred: true, KeywordSnapshot: []string{`\Flagged`}}}); err != nil {
 		t.Fatalf("BatchUpdateFlags(confirmed) error = %v", err)
 	}
 	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE id = ?`, claimed[0].ID).Scan(&remaining); err != nil || remaining != 0 {

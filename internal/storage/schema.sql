@@ -350,6 +350,8 @@ CREATE TABLE IF NOT EXISTS message_mutations (
     action_kind TEXT NOT NULL DEFAULT '',
     action_source TEXT NOT NULL DEFAULT '',
     action_rule_id TEXT NOT NULL DEFAULT '',
+    target_flag_color INTEGER NOT NULL DEFAULT 0 CHECK (target_flag_color BETWEEN 0 AND 7),
+    target_flag_copy TEXT NOT NULL DEFAULT '',
     UNIQUE(message_id, kind, folder_id)
 );
 
@@ -2081,4 +2083,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (155);
+INSERT OR REPLACE INTO schema_version (version) VALUES (156);

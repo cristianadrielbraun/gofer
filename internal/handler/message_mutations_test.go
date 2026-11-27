@@ -71,6 +71,14 @@ func (c *fakeMessageMutationIMAPClient) FindUIDByMessageID(_ context.Context, fo
 	return c.findUID, nil
 }
 
+func (c *fakeMessageMutationIMAPClient) StoreFlagColorBatchIfUIDValidity(ctx context.Context, folder string, uids []uint32, starred bool, _ int, _ uint32) error {
+	op := goimap.StoreFlagsDel
+	if starred {
+		op = goimap.StoreFlagsAdd
+	}
+	return c.StoreFlagsBatch(ctx, folder, uids, op, []goimap.Flag{goimap.FlagFlagged})
+}
+
 func (c *fakeMessageMutationIMAPClient) MoveMessageWithDestUID(_ context.Context, source string, uid uint32, destination string) (uint32, error) {
 	c.moveCalls++
 	c.moveSource = source

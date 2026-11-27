@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -94,16 +95,21 @@ func checkTags(tags []string) ([]string, error) {
 // TargetRoles are the folder roles a rule may name for any account.
 var TargetRoles = []string{"inbox", "archive", "trash", "junk", "sent", "drafts"}
 
+// ErrFlagColor indicates a missing or invalid flag color in the rule form.
+var ErrFlagColor = errors.New("choose a flag color")
+
 // Message is what rules see of a message: its headers as synced, and the
 // folders it shows in.
 type Message struct {
-	FromName  string
-	FromEmail string
-	To        []Address
-	CC        []Address
-	Subject   string
-	ListID    string
-	Folders   []Folder
+	FromName          string
+	FromEmail         string
+	To                []Address
+	CC                []Address
+	Subject           string
+	ListID            string
+	Folders           []Folder
+	FlagColor         keywords.FlagColor
+	SupportsFlagColor bool
 }
 
 // Address is one recipient.
@@ -284,6 +290,12 @@ func validateCondition(condition *models.MailRuleCondition, imported bool) error
 		return validateFolderTarget(condition.Folder, imported)
 	}
 	condition.Folder = nil
+	if condition.Field == models.MailRuleFieldFlagColor {
+		if !keywords.ParseFlagColor(condition.Value).Valid() || (condition.Operator != models.MailRuleOpIs && condition.Operator != models.MailRuleOpIsNot) {
+			return ErrFlagColor
+		}
+		return nil
+	}
 	switch condition.Field {
 	case models.MailRuleFieldFrom, models.MailRuleFieldTo, models.MailRuleFieldCC, models.MailRuleFieldRecipients,
 		models.MailRuleFieldSubject, models.MailRuleFieldListID:
@@ -315,6 +327,9 @@ func validateAction(action *models.MailRuleAction, imported bool) error {
 	if action.Kind != models.MailRuleActionMove {
 		action.ForGood = false
 	}
+	if action.Kind != models.MailRuleActionSetFlagColor && action.Kind != models.MailRuleActionRemoveFlagColor {
+		action.FlagColor = ""
+	}
 	switch action.Kind {
 	case models.MailRuleActionMove:
 		action.Label = ""
@@ -345,6 +360,11 @@ func validateAction(action *models.MailRuleAction, imported bool) error {
 	case models.MailRuleActionArchive, models.MailRuleActionTrash, models.MailRuleActionSpam,
 		models.MailRuleActionMarkRead, models.MailRuleActionStar:
 		action.Folder, action.Label = nil, ""
+	case models.MailRuleActionSetFlagColor, models.MailRuleActionRemoveFlagColor:
+		action.Folder, action.Label = nil, ""
+		if !keywords.ParseFlagColor(action.FlagColor).Valid() {
+			return ErrFlagColor
+		}
 	default:
 		return fmt.Errorf("unknown action %q", action.Kind)
 	}
@@ -421,6 +441,13 @@ func (r *Rule) namesOwnMail() bool {
 }
 
 func (r *Rule) holds(i int, condition models.MailRuleCondition, m Message) bool {
+	if condition.Field == models.MailRuleFieldFlagColor {
+		if !m.SupportsFlagColor {
+			return false
+		}
+		matches := m.FlagColor == keywords.ParseFlagColor(condition.Value)
+		return matches == (condition.Operator == models.MailRuleOpIs)
+	}
 	if condition.Field == models.MailRuleFieldFolder {
 		in := inFolder(m, *condition.Folder)
 		if condition.Operator == models.MailRuleOpIsNot {

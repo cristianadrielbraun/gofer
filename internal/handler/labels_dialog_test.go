@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -38,6 +40,7 @@ func TestLabelsDialogMarksLabelsOnAllSomeOrNoneOfTheEmails(t *testing.T) {
 		if err := db.UpsertSyncMessages(ctx, []storage.SyncMessage{{
 			AccountID: "acc", FolderID: "acc_inbox", RemoteUID: uint32(i + 1), MessageID: messageID,
 			Subject: subject, FromEmail: "village@example.com", DateSent: time.Now(), IsRead: true,
+			IsStarred: i == 0, KeywordSnapshot: []string{"$MailFlagBit2"},
 		}}); err != nil {
 			t.Fatalf("UpsertSyncMessages() error = %v", err)
 		}
@@ -57,11 +60,12 @@ func TestLabelsDialogMarksLabelsOnAllSomeOrNoneOfTheEmails(t *testing.T) {
 	label(ids[1], "Village")
 	label(ids[0], "Volunteering")
 	label(ids[0], "Garden")
+	label(ids[1], "Blue")
 	if err := db.RemoveMessageLabel(ctx, ids[0], "acc", "Garden"); err != nil {
 		t.Fatalf("RemoveMessageLabel() error = %v", err)
 	}
 
-	h := &Handler{db: db}
+	h := &Handler{db: db, syncer: mail.NewSyncOrchestrator(db, nil, nil, nil)}
 	body := `{"targets":[{"id":"` + strconv.FormatInt(ids[0], 10) + `"},{"id":"` + strconv.FormatInt(ids[1], 10) + `"}],"folder_id":"acc_inbox"}`
 	req := httptest.NewRequest(http.MethodPost, "/mail/labels-dialog", strings.NewReader(body))
 	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))
@@ -80,6 +84,58 @@ func TestLabelsDialogMarksLabelsOnAllSomeOrNoneOfTheEmails(t *testing.T) {
 		}
 		if row[1] != want {
 			t.Fatalf("label %q state = %q, want %q", name, row[1], want)
+		}
+	}
+	if row := regexp.MustCompile(`data-mail-flag-color-option="blue"[\s\S]*?data-state="([a-z]+)"`).FindStringSubmatch(html); len(row) != 2 || row[1] != "some" {
+		t.Fatalf("managed Blue should be mixed: %v", row)
+	}
+	if row := regexp.MustCompile(`data-mail-label-option="Blue"[\s\S]*?data-state="([a-z]+)"`).FindStringSubmatch(html); len(row) != 2 || row[1] != "some" {
+		t.Fatalf("ordinary Blue should be independent: %v", row)
+	}
+	flagRequest := func(path string, handler http.HandlerFunc) {
+		t.Helper()
+		payload := `{"flag_color":"blue","targets":[{"id":"` + strconv.FormatInt(ids[1], 10) + `","folder_id":"acc_inbox"}]}`
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(payload))
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	flagRequest("/api/messages/label", h.handleLabelMessages)
+	info, err := db.GetMessageMutationInfoInFolder(ctx, ids[1], "acc_inbox")
+	if err != nil || info.FlagColor != keywords.FlagColorBlue || !info.IsStarred {
+		t.Fatalf("setting Blue = %+v (%v)", info, err)
+	}
+	flagRequest("/api/messages/unlabel", h.handleUnlabelMessages)
+	info, err = db.GetMessageMutationInfoInFolder(ctx, ids[1], "acc_inbox")
+	if err != nil || info.FlagColor != 0 || info.IsStarred {
+		t.Fatalf("removing Blue = %+v (%v)", info, err)
+	}
+	labels, err := db.GetMessageLabels(ctx, []int64{ids[1]})
+	if err != nil || len(labels[ids[1]]) != 2 {
+		t.Fatalf("managed color removed a genuine label: %v (%v)", labels, err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO retired_keyword_labels (id, account_id, name, provider_id)
+	VALUES ('old-blue', 'acc', 'Blue', '$MailFlagBit2')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		route   string
+		retired bool
+	}{
+		{"/mail/search?scope=account&scope_account_id=acc&tag=Blue", false},
+		{"/mail/search?scope=account&scope_account_id=acc&tag=Blue&tag_provider_id=old-blue", true},
+	} {
+		req := httptest.NewRequest(http.MethodGet, test.route, nil)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))
+		rec := httptest.NewRecorder()
+		h.handleMailSearch(rec, req)
+		result := rec.Body.String()
+		if rec.Code != http.StatusOK || strings.Contains(result, `data-mail-retired-flag-label="Blue"`) != test.retired ||
+			strings.Contains(result, "Choir rehearsal") == test.retired {
+			t.Fatalf("%s returned %d with an incorrect label result or warning", test.route, rec.Code)
 		}
 	}
 }

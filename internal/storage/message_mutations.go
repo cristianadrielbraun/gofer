@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/google/uuid"
 )
 
@@ -44,6 +45,8 @@ type MessageMutation struct {
 	ProviderType        string
 	Kind                string
 	TargetValue         bool
+	TargetFlagColor     keywords.FlagColor
+	TargetFlagCopy      string
 	Status              string
 	AttemptCount        int
 	LastError           string
@@ -471,28 +474,19 @@ func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, k
 			}
 		}
 		for _, folderID := range scopes {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO message_mutations (
-					id, account_id, message_id, folder_id, provider_type, kind, target_value,
-					status, attempt_count, last_error, locked_at, next_attempt_at,
-					action_id, action_kind, action_source, action_rule_id
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP, ?, ?, ?, ?)
-				ON CONFLICT(message_id, kind, folder_id) DO UPDATE SET
-					account_id = excluded.account_id,
-					provider_type = excluded.provider_type,
-					target_value = excluded.target_value,
-					status = excluded.status,
-					attempt_count = 0,
-					last_error = '',
-					locked_at = NULL,
-					next_attempt_at = CURRENT_TIMESTAMP,
-					updated_at = CURRENT_TIMESTAMP,
-					action_id = excluded.action_id,
-					action_kind = excluded.action_kind,
-					action_source = excluded.action_source,
-					action_rule_id = excluded.action_rule_id`,
-				append([]any{uuid.NewString(), accountID, messageID, folderID, providerType, kind, boolInt(target), MessageMutationPending}, mailActionArgs(ctx)...)...); err != nil {
-				return fmt.Errorf("queue %s mutation for message %d: %w", kind, messageID, err)
+			var color keywords.FlagColor
+			if kind == MessageMutationStarred && target && folderID != "" && SupportsFlagColors(providerType) {
+				var starred bool
+				if err := tx.QueryRowContext(ctx, `SELECT is_starred FROM message_folder_state WHERE message_id = ? AND folder_id = ?`, messageID, folderID).Scan(&starred); err != nil {
+					return err
+				}
+				if starred {
+					continue
+				}
+				color = MessageMutationResetFlagColor
+			}
+			if err := queueMessageStateTx(ctx, tx, accountID, messageID, folderID, providerType, kind, target, color, "", 0); err != nil {
+				return err
 			}
 		}
 		column := "is_read"
@@ -527,6 +521,27 @@ func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, k
 		} else {
 			_ = db.RefreshFolderThreadState(ctx, folderID)
 		}
+	}
+	return nil
+}
+
+func queueMessageStateTx(ctx context.Context, tx *sql.Tx, accountID string, messageID int64, folderID, provider, kind string, target bool, color keywords.FlagColor, copyID string, epoch uint32) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO message_mutations (
+		id, account_id, message_id, folder_id, provider_type, kind, target_value, target_flag_color, target_flag_copy, source_uid_validity,
+		status, attempt_count, last_error, locked_at, next_attempt_at, action_id, action_kind, action_source, action_rule_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', NULL, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+	ON CONFLICT(message_id, kind, folder_id) DO UPDATE SET
+		id = CASE WHEN excluded.kind = 'starred' AND message_mutations.status = 'processing'
+			THEN excluded.id ELSE message_mutations.id END,
+		account_id = excluded.account_id, provider_type = excluded.provider_type,
+		target_value = excluded.target_value, target_flag_color = excluded.target_flag_color, target_flag_copy = excluded.target_flag_copy,
+		source_uid_validity = excluded.source_uid_validity, status = excluded.status, attempt_count = 0,
+		last_error = '', locked_at = NULL, next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
+		action_id = excluded.action_id, action_kind = excluded.action_kind, action_source = excluded.action_source,
+		action_rule_id = excluded.action_rule_id`,
+		append([]any{uuid.NewString(), accountID, messageID, folderID, provider, kind, target, color, copyID, epoch, MessageMutationPending}, mailActionArgs(ctx)...)...)
+	if err != nil {
+		return fmt.Errorf("queue %s mutation for message %d: %w", kind, messageID, err)
 	}
 	return nil
 }
@@ -694,8 +709,8 @@ func MessageMutationBatchable(m MessageMutation) bool {
 }
 
 // ClaimMessageMutationBatch claims up to limit further due changes of the
-// same kind and value as lead, in the same account and folder scope, and for
-// deletes against the same IMAP UIDVALIDITY, so they can go to the provider
+// same kind, value and color as lead, in the same account and folder scope
+// and against the same IMAP UIDVALIDITY, so they can go to the provider
 // in one request. Each row is its message's latest intent, so sending them
 // together keeps every message's order.
 func (db *DB) ClaimMessageMutationBatch(ctx context.Context, lead MessageMutation, now time.Time, limit int) ([]MessageMutation, error) {
@@ -710,14 +725,14 @@ func (db *DB) ClaimMessageMutationBatch(ctx context.Context, lead MessageMutatio
 	rows, err := tx.QueryContext(ctx, messageMutationSelect+`
 		WHERE status IN (?, ?) AND next_attempt_at <= ? AND id != ?
 		  AND account_id = ? AND provider_type = ? AND kind = ? AND target_value = ? AND folder_id = ?
-		  AND source_uid_validity = ?
+		  AND source_uid_validity = ? AND target_flag_color = ?
 		  AND EXISTS (
 			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
 			WHERE a.id = message_mutations.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
 		  )
 		ORDER BY created_at ASC, id ASC LIMIT ?`,
 		MessageMutationPending, MessageMutationFailed, now.UTC(), lead.ID,
-		lead.AccountID, lead.ProviderType, lead.Kind, boolInt(lead.TargetValue), lead.FolderID, lead.SourceUIDValidity, limit)
+		lead.AccountID, lead.ProviderType, lead.Kind, boolInt(lead.TargetValue), lead.FolderID, lead.SourceUIDValidity, lead.TargetFlagColor, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -902,7 +917,7 @@ func advanceMessageMoveMutationTx(ctx context.Context, tx *sql.Tx, id, destinati
 				if _, err := tx.ExecContext(ctx, `DELETE FROM message_mutations WHERE message_id = ? AND kind = ? AND folder_id = ?`, messageID, kind, previousFolderID); err != nil {
 					return err
 				}
-			} else if _, err := tx.ExecContext(ctx, `UPDATE message_mutations SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE message_id = ? AND kind = ? AND folder_id = ?`, destinationFolderID, messageID, kind, previousFolderID); err != nil {
+			} else if _, err := tx.ExecContext(ctx, `UPDATE message_mutations SET folder_id = ?, source_uid_validity = 0, updated_at = CURRENT_TIMESTAMP WHERE message_id = ? AND kind = ? AND folder_id = ?`, destinationFolderID, messageID, kind, previousFolderID); err != nil {
 				return err
 			}
 		}
@@ -930,15 +945,44 @@ func (db *DB) GetMessageMutationInternal(ctx context.Context, id string) (Messag
 	return scanMessageMutation(db.Read().QueryRowContext(ctx, messageMutationSelect+` WHERE id = ?`, id))
 }
 
+// GetMessageMutationInfoForReplay resolves the current remote identity and
+// keeps a scoped JMAP color edit tied to its queued Email ID even if the
+// folder now displays another copy.
+func (db *DB) GetMessageMutationInfoForReplay(ctx context.Context, mutation MessageMutation) (*MessageMutationInfo, error) {
+	switch {
+	case mutation.Kind == MessageMutationMove || mutation.Kind == MessageMutationDelete:
+		return db.GetMessageMutationInfoIncludingDeletedInFolder(ctx, mutation.MessageID, mutation.FolderID)
+	case mutation.ProviderType == MessageMutationProviderJMAP && mutation.TargetFlagCopy != "":
+		info, err := db.GetMessageMutationInfoInternal(ctx, mutation.MessageID)
+		if info != nil {
+			info.RemoteMessageID = mutation.TargetFlagCopy
+			info.FolderCopyIDs = nil
+		}
+		return info, err
+	case mutation.FolderID == "":
+		return db.GetMessageMutationInfoInternal(ctx, mutation.MessageID)
+	case mutation.ProviderType == MessageMutationProviderIMAP && mutation.IsScopedFlagColor():
+		// A pending move hides the source. The queued color can use it until
+		// advanceMessageMoveMutationTx switches the queue to the new folder.
+		return db.getMessageMutationInfo(ctx, mutation.MessageID, `mfs.folder_id = ? AND
+			(mfs.is_deleted = 0 OR EXISTS (SELECT 1 FROM message_mutations q WHERE q.message_id = mfs.message_id
+			AND q.folder_id = mfs.folder_id AND q.kind = 'move' AND q.status != 'applied'))`,
+			[]any{mutation.FolderID}, "", true)
+	default:
+		return db.GetMessageMutationInfoInFolder(ctx, mutation.MessageID, mutation.FolderID)
+	}
+}
+
 // resolveMessageMutationTargetsTx keeps queued read and starred changes over
 // what a sync saw. A change queued in another folder of the same provider copy
 // counts too.
-func resolveMessageMutationTargetsTx(ctx context.Context, tx *sql.Tx, messageID int64, folderID, providerMessageID string, read, starred *bool) error {
+func resolveMessageMutationTargetsTx(ctx context.Context, tx *sql.Tx, messageID int64, folderID, providerMessageID string, read, starred *bool, snapshot []string) error {
 	rows, err := tx.QueryContext(ctx, messageMutationSelect+`
-		WHERE message_id = ? AND (folder_id = '' OR folder_id = ? OR (? != '' AND folder_id IN (
+		WHERE message_id = ? AND ((target_flag_copy != '' AND target_flag_copy = ?)
+		  OR (target_flag_copy = '' AND (folder_id = '' OR folder_id = ? OR (? != '' AND folder_id IN (
 			SELECT copy_state.folder_id FROM message_folder_state copy_state
 			WHERE copy_state.message_id = ? AND copy_state.remote_message_id = ?
-		)))`, messageID, folderID, providerMessageID, messageID, providerMessageID)
+		)))))`, messageID, providerMessageID, folderID, providerMessageID, messageID, providerMessageID)
 	if err != nil {
 		return err
 	}
@@ -975,7 +1019,9 @@ func resolveMessageMutationTargetsTx(ctx context.Context, tx *sql.Tx, messageID 
 		if incoming == nil {
 			continue
 		}
-		if mutation.Status == MessageMutationApplied && *incoming == mutation.TargetValue {
+		bits, checkBits := mutation.FlagBitsTarget()
+		if mutation.Status == MessageMutationApplied && *incoming == mutation.TargetValue &&
+			(!checkBits || (snapshot != nil && keywords.FlagBits(snapshot) == bits)) {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM message_mutations WHERE id = ? AND status = ?`, mutation.ID, MessageMutationApplied); err != nil {
 				return err
 			}
@@ -1031,13 +1077,14 @@ func protectProviderMoveFolderTx(ctx context.Context, tx *sql.Tx, messageID int6
 	return deleted == 0, nil
 }
 
-func refreshIMAPDeleteUIDValidityTx(ctx context.Context, tx *sql.Tx, messageID int64, folderID string) error {
+func refreshIMAPMutationUIDValidityTx(ctx context.Context, tx *sql.Tx, messageID int64, folderID string) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE message_mutations
 		SET source_uid_validity = COALESCE((SELECT uid_validity FROM folders WHERE id = ?), source_uid_validity),
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE message_id = ? AND folder_id = ? AND kind = ? AND provider_type = ?
-		  AND status IN (?, ?)`, folderID, messageID, folderID, MessageMutationDelete,
+		WHERE message_id = ? AND folder_id = ? AND
+		  (kind = 'delete' OR (kind = 'starred' AND target_flag_color != 0 AND source_uid_validity = 0))
+		  AND provider_type = ? AND status IN (?, ?)`, folderID, messageID, folderID,
 		MessageMutationProviderIMAP, MessageMutationPending, MessageMutationFailed)
 	return err
 }
@@ -1116,7 +1163,7 @@ func resolveProviderMoveFoldersTx(ctx context.Context, tx *sql.Tx, messageID int
 }
 
 const messageMutationSelect = `SELECT
-	id, account_id, message_id, folder_id, destination_folder_id, source_uid_validity, provider_type, kind, target_value,
+	id, account_id, message_id, folder_id, destination_folder_id, source_uid_validity, provider_type, kind, target_value, target_flag_color, target_flag_copy,
 	status, attempt_count, last_error, next_attempt_at
 	FROM message_mutations`
 
@@ -1127,7 +1174,7 @@ func scanMessageMutation(row rowScanner) (MessageMutation, error) {
 	var nextAttempt sqliteNullTime
 	if err := row.Scan(
 		&mutation.ID, &mutation.AccountID, &mutation.MessageID, &mutation.FolderID, &mutation.DestinationFolderID, &sourceUIDValidity,
-		&mutation.ProviderType, &mutation.Kind, &target, &mutation.Status,
+		&mutation.ProviderType, &mutation.Kind, &target, &mutation.TargetFlagColor, &mutation.TargetFlagCopy, &mutation.Status,
 		&mutation.AttemptCount, &mutation.LastError, &nextAttempt,
 	); err != nil {
 		return MessageMutation{}, err

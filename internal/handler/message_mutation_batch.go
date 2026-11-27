@@ -21,7 +21,7 @@ const messageMutationBatchLimit = 500
 
 // messageMutationBatchKey groups claimed changes that can share one request.
 func messageMutationBatchKey(m storage.MessageMutation) string {
-	return strings.Join([]string{m.AccountID, m.ProviderType, m.Kind, fmt.Sprint(m.TargetValue), m.FolderID, fmt.Sprint(m.SourceUIDValidity)}, "\x00")
+	return strings.Join([]string{m.AccountID, m.ProviderType, m.Kind, fmt.Sprint(m.TargetValue), m.FolderID, fmt.Sprint(m.SourceUIDValidity), fmt.Sprint(m.TargetFlagColor)}, "\x00")
 }
 
 // applyQueuedMessageMutationBatch sends claimed changes of one account,
@@ -41,22 +41,10 @@ func (h *Handler) applyQueuedMessageMutationBatch(parent context.Context, group 
 	} else {
 		group = append(group, more...)
 	}
-	deleting := lead.Kind == storage.MessageMutationDelete
-
 	var grouped []storage.MessageMutation
 	var infos []storage.MessageMutationInfo
 	for _, m := range group {
-		// Looked up as applyRemoteMessageMutation does for each kind.
-		var info *storage.MessageMutationInfo
-		var err error
-		switch {
-		case deleting:
-			info, err = h.db.GetMessageMutationInfoIncludingDeletedInFolder(ctx, m.MessageID, m.FolderID)
-		case m.FolderID == "":
-			info, err = h.db.GetMessageMutationInfoInternal(ctx, m.MessageID)
-		default:
-			info, err = h.db.GetMessageMutationInfoInFolder(ctx, m.MessageID, m.FolderID)
-		}
+		info, err := h.db.GetMessageMutationInfoForReplay(ctx, m)
 		switch {
 		case err != nil:
 			h.finishQueuedMessageMutation(m, err, false)
@@ -110,7 +98,9 @@ func (h *Handler) applyQueuedMessageMutationBatch(parent context.Context, group 
 func (h *Handler) finishQueuedMessageMutation(m storage.MessageMutation, applyErr error, alreadyGone bool) {
 	if applyErr == nil {
 		complete := h.db.CompleteMessageMutation
-		if m.Kind == storage.MessageMutationDelete {
+		if alreadyGone && m.TargetFlagCopy != "" {
+			complete = h.db.DiscardMessageMutation
+		} else if m.Kind == storage.MessageMutationDelete {
 			complete = h.db.CompleteMessageDeleteMutation
 		}
 		applyErr = complete(context.Background(), m.ID)
@@ -192,13 +182,14 @@ func (h *Handler) sendIMAPBatch(ctx context.Context, lead storage.MessageMutatio
 			return errors.New("IMAP account storage is not available")
 		}
 		validity := lead.SourceUIDValidity
-		if lead.Kind == storage.MessageMutationDelete && validity == 0 {
+		_, color := lead.FlagBitsTarget()
+		if (lead.Kind == storage.MessageMutationDelete || color) && validity == 0 {
 			var err error
 			if validity, err = h.db.GetFolderUIDValidity(ctx, lead.FolderID); err != nil {
 				return err
 			}
 			if validity == 0 {
-				return errors.New("IMAP UIDVALIDITY is unavailable; waiting for folder sync before deleting")
+				return errors.New("IMAP UIDVALIDITY is unavailable; waiting for folder sync")
 			}
 		}
 		cfg, err := h.accountStore.GetConfig(ctx, lead.AccountID)
@@ -226,6 +217,9 @@ func (h *Handler) sendIMAPBatch(ctx context.Context, lead storage.MessageMutatio
 				err = errors.New("IMAP UIDVALIDITY changed; waiting for folder resync before deleting")
 			}
 			return err
+		}
+		if bits, color := lead.FlagBitsTarget(); color {
+			return client.StoreFlagColorBatchIfUIDValidity(ctx, infos[0].FolderRemoteID, uids, lead.TargetValue, bits, validity)
 		}
 		op, flag := goimap.StoreFlagsDel, goimap.FlagSeen
 		if lead.TargetValue {
@@ -259,12 +253,15 @@ func (h *Handler) sendJMAPBatch(ctx context.Context, lead storage.MessageMutatio
 	emails := make([]mail.JMAPBatchEmail, len(infos))
 	for i, info := range infos {
 		emails[i] = mail.JMAPBatchEmail{EmailID: info.RemoteMessageID, FolderCopyIDs: info.FolderCopyIDs}
+		if lead.IsScopedFlagColor() {
+			emails[i].FolderCopyIDs = nil
+		}
 	}
-	failures, jmapGone, err := mail.ApplyJMAPBatch(ctx, cfg, password, lead.Kind, lead.TargetValue, emails)
+	failures, jmapGone, err := mail.ApplyJMAPBatch(ctx, cfg, password, lead, emails)
 	if err != nil {
 		return sameMutationError(len(infos), err), gone
 	}
-	if lead.Kind == storage.MessageMutationDelete {
+	if lead.Kind == storage.MessageMutationDelete || lead.IsScopedFlagColor() {
 		gone = jmapGone
 	}
 	return failures, gone

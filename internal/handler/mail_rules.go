@@ -39,7 +39,7 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	if err != nil {
 		return models.MailRulesData{}, fmt.Errorf("tags: %w", err)
 	}
-	data := models.MailRulesData{Rules: rules, Tags: tags}
+	data := models.MailRulesData{Rules: rules, Tags: tags, RetiredFlagLabels: map[string][]string{}}
 	for _, account := range accounts {
 		// Local folders are only somewhere to move mail to; the form
 		// doesn't offer them as an account to watch.
@@ -54,6 +54,25 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 			ID: account.ID, Name: account.Name, Email: account.Email, Color: account.Color, Provider: account.Provider, Hidden: account.Hidden,
 			Folders: folders[account.ID], Tree: tree,
 		})
+	}
+	for _, rule := range rules {
+		for _, action := range rule.Actions {
+			if action.Kind != models.MailRuleActionLabel {
+				continue
+			}
+			for _, account := range data.Accounts {
+				if !rule.WatchesAccount(account.ID) || !storage.SupportsFlagColors(account.Provider) {
+					continue
+				}
+				retired, err := db.RetiredFlagLabelReference(ctx, userID, account.ID, action.Label, "", "")
+				if err != nil {
+					return models.MailRulesData{}, fmt.Errorf("check rule flag labels: %w", err)
+				}
+				if retired && !slices.Contains(data.RetiredFlagLabels[rule.ID], action.Label) {
+					data.RetiredFlagLabels[rule.ID] = append(data.RetiredFlagLabels[rule.ID], action.Label)
+				}
+			}
+		}
 	}
 	return data, nil
 }
@@ -337,6 +356,13 @@ func fitMailRuleForm(rule *models.MailRule, accounts []models.MailRuleAccount, f
 	}
 	for i := range rule.Conditions {
 		condition := &rule.Conditions[i]
+		if condition.Field == models.MailRuleFieldFlagColor {
+			condition.Folder = nil
+			if condition.Operator != models.MailRuleOpIsNot {
+				condition.Operator = models.MailRuleOpIs
+			}
+			continue
+		}
 		if condition.Field == models.MailRuleFieldFolder {
 			if condition.Operator != models.MailRuleOpIs && condition.Operator != models.MailRuleOpIsNot {
 				condition.Operator = models.MailRuleOpIs
@@ -424,6 +450,8 @@ func mailRuleFromForm(r *http.Request) (models.MailRule, []bool) {
 			action.ForGood = at(forGood, i) == "1"
 		case models.MailRuleActionLabel:
 			action.Label = at(labels, i)
+		case models.MailRuleActionSetFlagColor, models.MailRuleActionRemoveFlagColor:
+			action.FlagColor = at(labels, i)
 		}
 		chosen = append(chosen, at(forGood, i) != "")
 		rule.Actions = append(rule.Actions, action)
@@ -489,6 +517,8 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 			data.Error = i18n.T(r.Context(), "server.msg.a_folder_condition_names_a_folder_of")
 		case errors.Is(saveErr, storage.ErrTooManyMailRules):
 			data.Error = serverText(r.Context(), sentence(saveErr.Error()))
+		case errors.Is(saveErr, mailrules.ErrFlagColor):
+			data.Error = i18n.T(r.Context(), "mail.flag_color.choose")
 		default:
 			if mailrules.Validate(&rule) == nil {
 				log.Printf("save mail rule: %v", saveErr)

@@ -28,6 +28,14 @@ templ MailList(accounts []models.Account, emails []models.Email, activeFolder st
 		@MailListHeader(accounts, activeFolder, totalCount, filters)
 		@MailListToolbar(accounts, activeFolder, mailListViewMode(viewMode), filters)
 		@MailSelectAllBanner()
+		if filters.RetiredFlagLabel != "" {
+			<div class="flex flex-wrap items-center gap-x-2 px-4 py-2 text-xs text-muted-foreground" data-mail-retired-flag-label={ filters.RetiredFlagLabel }>
+				<p role="status">{ i18n.T(ctx, "mail.flag_color.retired_search", "label", filters.RetiredFlagLabel) }</p>
+				@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto px-0 text-xs", Attributes: templ.Attributes{"data-mail-edit-retired-flag-filter": ""}}) {
+					{ i18n.T(ctx, "mail.filters.title") }
+				}
+			</div>
+		}
 		@MailCardLayoutDialog()
 		<hr class="divider-etched"/>
 		<div class="relative min-h-0 flex-1 overflow-hidden" data-mail-list-body>
@@ -742,6 +750,12 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 										{ i18n.T(ctx, "mail.filters.tag") }
 										@input.Input(input.Props{Name: "tag", Placeholder: i18n.T(ctx, "mail.filters.tag_placeholder"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
+									if hasFlagColorAccounts(accounts) {
+										<div class="space-y-1.5 text-xs font-medium text-muted-foreground">
+											<p>{ i18n.T(ctx, "mail.flag_color.title") }</p>
+											@MailFlagColorSelect("flag_color", "", templ.Attributes{"data-mail-advanced-filter-input": ""})
+										</div>
+									}
 								</div>
 							</section>
 							<section data-mail-filter-panel="files" class="hidden space-y-3">
@@ -1374,9 +1388,10 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 				<p class="min-w-0 flex-1 text-[13px] text-black dark:text-foreground truncate leading-normal" data-mail-card-field="preview">
 					{ i18n.Preview(ctx, email.Preview) }
 				</p>
-				if len(email.Labels) > 0 {
+				if len(email.Labels) > 0 || email.FlagColor.Valid() {
 					// One field for all labels, so it moves and sizes as a unit.
 					<span class="mail-list-card-labels" data-mail-card-field="labels">
+						@MailFlagColorBadge(email.FlagColor)
 						for _, label := range email.Labels {
 							<span class={ "text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.08)]", label.Color }>
 								{ label.Name }
@@ -1524,6 +1539,7 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 						}
 					>{ i18n.Subject(ctx, email.Subject) }</span>
 				</div>
+				@MailFlagColorBadge(email.FlagColor)
 				if len(email.Labels) > 0 {
 					for _, label := range email.Labels {
 						<span class={ "hidden xl:inline text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0", label.Color }>

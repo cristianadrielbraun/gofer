@@ -9136,3 +9136,22 @@ html.dark:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:no
     grid-template-rows: auto minmax(0, 1fr);
   }
 }
+
+.mail-flag-color-badge {
+  background-color: color-mix(in srgb, var(--mail-flag-color) 18%, var(--background));
+}
+
+.mail-flag-color-dot {
+  width: .5rem;
+  height: .5rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--mail-flag-color);
+}
+
+[data-mail-flag-color="orange"] { --mail-flag-color: var(--color-orange-500); }
+[data-mail-flag-color="yellow"] { --mail-flag-color: var(--color-yellow-500); }
+[data-mail-flag-color="green"] { --mail-flag-color: var(--color-green-500); }
+[data-mail-flag-color="blue"] { --mail-flag-color: var(--color-blue-500); }
+[data-mail-flag-color="purple"] { --mail-flag-color: var(--color-purple-500); }
+[data-mail-flag-color="gray"] { --mail-flag-color: var(--color-gray-500); }

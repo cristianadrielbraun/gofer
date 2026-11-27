@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
@@ -146,8 +147,9 @@ func mailEmailIsArchived(email *models.Email) bool {
 // MailLabelOption is a label in the Labels dialog, with how many of the
 // emails have it.
 type MailLabelOption struct {
-	Name  string
-	State string
+	Name      string
+	State     string
+	FlagColor keywords.FlagColor
 }
 
 const (
@@ -710,6 +712,25 @@ func sidebarTagBaseFolder(activeFolder string) string {
 	return folder
 }
 
+func hasFlagColorAccounts(accounts []models.Account) bool {
+	for _, account := range accounts {
+		if account.EmailSyncEnabled && !account.Hidden && !account.IsDeleting && storage.SupportsFlagColors(account.Provider) {
+			return true
+		}
+	}
+	return false
+}
+
+func sidebarFlagColorURL(folderID string, color keywords.FlagColor, accountID string) templ.SafeURL {
+	values := url.Values{"scope": {string(models.MailSearchAll)}, "flag_color": {color.Key()},
+		"exclude_spam_trash": {"1"}, "search_from": {sidebarTagBaseFolder(folderID)}}
+	if accountID != "" {
+		values.Set("scope", string(models.MailSearchAccount))
+		values.Set("scope_account_id", accountID)
+	}
+	return templ.SafeURL("/mail/search?" + values.Encode())
+}
+
 // sidebarTagFilterURL lists a tag's mail wherever it is: every folder of the
 // tag's account, or of every account for a unified tag, except Spam and
 // Trash. It is a search, which goes back to folderID when it ends.
@@ -739,7 +760,7 @@ func sidebarTagFilterURL(folderID string, label models.Label, accountID string) 
 
 // sidebarTagActive reports whether the open search is the tag's own list.
 func sidebarTagActive(activeFolder string, filters models.EmailFilters, label models.Label, accountID string) bool {
-	if strings.TrimSpace(activeFolder) != "search" || filters.SearchScope == nil {
+	if strings.TrimSpace(activeFolder) != "search" || filters.SearchScope == nil || filters.RetiredFlagLabel != "" {
 		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(filters.Tag), strings.TrimSpace(label.Name)) {
@@ -758,11 +779,24 @@ func sidebarTagActive(activeFolder string, filters models.EmailFilters, label mo
 
 // A tag's own list is a search; a folder filtered by a tag is not.
 func sidebarAccountHasActiveTag(accountID string, filters models.EmailFilters) bool {
-	return filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
+	return sidebarFlagColorMatch(filters, accountID) ||
+		filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
 }
 
 func sidebarUnifiedHasActiveTag(filters models.EmailFilters) bool {
-	return filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == ""
+	return sidebarFlagColorMatch(filters, "") ||
+		filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == ""
+}
+
+func sidebarFlagColorMatch(filters models.EmailFilters, accountID string) bool {
+	scope := filters.SearchScope
+	if !filters.FlagColor.Valid() || filters.Tag != "" || scope == nil || !scope.ExcludeSpamTrash {
+		return false
+	}
+	if accountID == "" {
+		return scope.Kind == models.MailSearchAll
+	}
+	return scope.Kind == models.MailSearchAccount && scope.AccountID == accountID
 }
 
 func sidebarTagGroupActive(filters models.EmailFilters, accountID string) bool {

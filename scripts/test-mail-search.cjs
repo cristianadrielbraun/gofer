@@ -49,6 +49,7 @@ assert.equal(search.payload({targets: request.targets, search_scope: null}).sear
 const list = Object.create(window.VirtualMailList.prototype)
 list.filters = list.emptyFilters()
 list.filters.query = 'invoice'
+list.filters.flagColor = 'blue'
 list.sidebarTag = list.emptySidebarTag()
 list.searchScope = folders
 list.folderID = 'search'
@@ -58,12 +59,17 @@ for (const endpoint of ['/mail/folder/search/items?start=50&limit=50', '/mail/fo
   const url = new URL(list.withFilterParams(endpoint), 'http://localhost')
   assert.ok(url.pathname.startsWith('/mail/search/'))
   assert.equal(url.searchParams.get('q'), 'invoice')
+  assert.equal(url.searchParams.get('flag_color'), 'blue')
   assert.deepEqual(url.searchParams.getAll('scope_folder_id'), folders.folder_ids)
 }
 list.pushUrl()
 let url = new URL(urls.at(-1), 'http://localhost')
 assert.equal(url.pathname, '/mail/search')
 assert.equal(url.searchParams.get('selected'), '12')
+assert.equal(url.searchParams.get('flag_color'), 'blue')
+const colorFilters = list.readFiltersFromURL('?tag=Blue&flag_color=blue')
+assert.equal(colorFilters.tag, 'Blue')
+assert.equal(colorFilters.flagColor, 'blue')
 assert.equal(url.searchParams.get('search_from'), 'projects')
 assert.deepEqual(url.searchParams.getAll('scope_folder_id'), folders.folder_ids)
 list.replaceUrl()

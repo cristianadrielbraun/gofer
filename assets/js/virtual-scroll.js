@@ -2577,6 +2577,7 @@ class VirtualMailList {
     var filters = this.filters || this.emptyFilters()
     var pairs = [
       ["unread", filters.unread ? "1" : ""],
+      ["flag_color", filters.flagColor || ""],
       ["starred", filters.starred ? "1" : ""],
       ["attachments", filters.attachments ? "1" : ""],
       ["read", filters.read ? "1" : ""],
@@ -2672,6 +2673,7 @@ class VirtualMailList {
       minSizeMB: "",
       maxSizeMB: "",
       tag: "",
+      flagColor: "",
       accountId: "",
       query: "",
       afterDate: "",
@@ -2708,7 +2710,8 @@ class VirtualMailList {
     filters.attachmentExtension = (params.get("attachment_extension") || "").trim()
     filters.minSizeMB = (params.get("min_size_mb") || "").trim()
     filters.maxSizeMB = (params.get("max_size_mb") || "").trim()
-    filters.tag = (params.get("tag") || "").trim()
+    filters.tag = (params.get("tag") || params.get("tag_provider_id") || "").trim()
+    filters.flagColor = params.get("flag_color") || ""
     filters.accountId = (params.get("account_id") || "").trim()
     filters.query = (params.get("q") || "").trim()
     filters.afterDate = (params.get("after_date") || "").trim()
@@ -2742,7 +2745,7 @@ class VirtualMailList {
 
   readSidebarTagFromURL(search) {
     var params = new URLSearchParams(search === undefined ? window.location.search : search)
-    var label = (params.get("tag") || "").trim()
+    var label = (params.get("tag") || params.get("tag_provider_id") || "").trim()
     return {
       label: label,
       accountId: label ? (params.get("tag_account_id") || "").trim() : "",
@@ -2799,6 +2802,7 @@ class VirtualMailList {
     var tag = this.sidebarTag || this.emptySidebarTag()
     var filterTag = (filters.tag || tag.label || "").trim()
     if (filterTag) params.set("tag", filterTag)
+    if (filters.flagColor) params.set("flag_color", filters.flagColor)
     if (filters.accountId) params.set("account_id", filters.accountId)
     if (filters.query) params.set("q", filters.query)
     if (filters.afterDate) params.set("after_date", filters.afterDate)
@@ -2824,7 +2828,7 @@ class VirtualMailList {
       (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) + (filters.noTags ? 1 : 0) +
       (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.participant ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
       (filters.recipientType ? 1 : 0) + (filters.recipientDomain ? 1 : 0) + (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
-      (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
+      (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.flagColor ? 1 : 0) + (filters.accountId ? 1 : 0) +
       (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
   }
 

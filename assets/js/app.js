@@ -2378,7 +2378,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // A collapsed thread row stands for the whole thread; expanded messages star alone.
         var threadRow = starRow && starRow.dataset.emailId === emailId && starRow.dataset.hasThread === "true"
         if (emailId && threadRow) toggleThreadStar(emailId, starRow.dataset.threadId)
-        else if (emailId) toggleStar(emailId)
+        else if (emailId) toggleStar(emailId, starRow && starRow.dataset.emailId === emailId ? starRow.dataset.folderId : "")
       }
 
       var repairBtn = e.target.closest("[data-repair-account-action]")
@@ -6685,6 +6685,7 @@ document.addEventListener("DOMContentLoaded", function () {
         minSizeMB: "",
         maxSizeMB: "",
         tag: "",
+        flagColor: "",
         accountId: "",
         query: "",
         afterDate: "",
@@ -6741,6 +6742,7 @@ document.addEventListener("DOMContentLoaded", function () {
           filters.maxSizeMB = originalMin
         }
         filters.tag = (advanced.querySelector('input[name="tag"]') || {}).value || ""
+        filters.flagColor = (advanced.querySelector('input[name="flag_color"]') || {}).value || ""
         filters.accountId = (advanced.querySelector('input[name="account_id"]') || {}).value || ""
         filters.afterDate = (advanced.querySelector('input[name="after_date"]') || {}).value || ""
         filters.beforeDate = (advanced.querySelector('input[name="before_date"]') || {}).value || ""
@@ -6766,7 +6768,7 @@ document.addEventListener("DOMContentLoaded", function () {
         (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) + (filters.noTags ? 1 : 0) +
         (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.participant ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
         (filters.recipientType ? 1 : 0) + (filters.recipientDomain ? 1 : 0) + (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
-        (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
+        (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.flagColor ? 1 : 0) + (filters.accountId ? 1 : 0) +
         (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
     }
 
@@ -6811,6 +6813,7 @@ document.addEventListener("DOMContentLoaded", function () {
         { key: "minSizeMB", name: "min_size_mb", label: goferT("js.mail.filters.min_size_mb") },
         { key: "maxSizeMB", name: "max_size_mb", label: goferT("js.mail.filters.max_size_mb") },
         { key: "tag", name: "tag", label: goferT("js.mail.filters.tag") },
+        { key: "flagColor", name: "flag_color", label: goferT("js.mail.flag_color.title") },
         { key: "unread", name: "unread", label: goferT("js.mail.filters.flag.unread") },
         { key: "read", name: "read", label: goferT("js.mail.filters.flag.read") },
         { key: "attachments", name: "attachments", label: goferT("js.mail.filters.flag.attachments") },
@@ -6823,6 +6826,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function displayValueForAdvanced(name, value) {
+      if (name === "flag_color") return goferT("js.mail.flag_color." + value)
       if (name === "account_id") {
         var item = document.querySelector('[data-tui-selectbox-value="' + value + '"]')
         return item ? item.textContent.trim() : value
@@ -6976,6 +6980,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (filters.minSizeMB) pills.push({ name: "min_size_mb", label: L("min_size_mb"), value: filters.minSizeMB + " MB" })
       if (filters.maxSizeMB) pills.push({ name: "max_size_mb", label: L("max_size_mb"), value: filters.maxSizeMB + " MB" })
       if (filters.tag) pills.push({ name: "tag", label: L("tag"), value: filters.tag })
+      if (filters.flagColor) pills.push({ name: "flag_color", label: goferT("js.mail.flag_color.title"), value: displayValueForAdvanced("flag_color", filters.flagColor) })
       return pills
     }
 
@@ -7278,10 +7283,13 @@ document.addEventListener("DOMContentLoaded", function () {
       setInputValue("min_size_mb", filters.minSizeMB || "")
       setInputValue("max_size_mb", filters.maxSizeMB || "")
       setInputValue("tag", filters.tag || "")
+      setInputValue("flag_color", filters.flagColor || "")
       setInputValue("account_id", filters.accountId || "")
       setInputValue("after_date", filters.afterDate || "")
       setInputValue("before_date", filters.beforeDate || "")
       syncAttachmentExtensionField()
+      var retiredFlag = document.querySelector("[data-mail-retired-flag-label]")
+      if (retiredFlag) retiredFlag.hidden = (filters.tag || "") !== retiredFlag.getAttribute("data-mail-retired-flag-label")
       syncMailFolderHeading(filters)
       renderActivePills(filters)
       syncFilterButton(filters)
@@ -7692,7 +7700,7 @@ document.addEventListener("DOMContentLoaded", function () {
       // Clearing the search in search results goes back to the folder it
       // started from, keeping any other filters; so does clearing a tag's
       // search of its tag, when nothing else is left to search for.
-      if (scoped && (name === "q" || (name === "tag" && activeFilterCount(readFilters()) === 0))) {
+      if (scoped && (name === "q" || ((name === "tag" || name === "flag_color") && activeFilterCount(readFilters()) === 0))) {
         renderActivePills()
         window.GoferMailSearch.navigate(null)
         return
@@ -7780,6 +7788,15 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("click", function (e) {
+      if (e.target.closest("[data-mail-edit-retired-flag-filter]")) {
+        var filterButton = document.querySelector("[data-mail-filter-button]")
+        var contentPanel = document.querySelector('[data-mail-filter-panel-button="content"]')
+        if (filterButton && contentPanel) {
+          filterButton.click()
+          switchAdvancedFilterPanel(contentPanel)
+        }
+        return
+      }
       var panelButton = e.target && e.target.closest && e.target.closest("[data-mail-filter-panel-button]")
       if (panelButton) {
         e.preventDefault()
@@ -10305,6 +10322,8 @@ document.addEventListener("DOMContentLoaded", function () {
     // The tag's pill shows now, as with a typed search, not after the swap.
     var tag = url.searchParams.get("tag") || ""
     if (tag && window.showMailFilterPills) window.showMailFilterPills({ tag: tag })
+    var flagColor = url.searchParams.get("flag_color") || ""
+    if (flagColor && window.showMailFilterPills) window.showMailFilterPills({ flagColor: flagColor })
 
     var mainContent = document.getElementById("main-content")
     var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
@@ -13359,7 +13378,7 @@ function syncSidebarTagLinks(address) {
   var at = new URL(address || window.location.href, window.location.origin)
   var onSearch = at.pathname === "/mail/search"
   var current = at.searchParams
-  var keys = ["scope", "scope_account_id", "exclude_spam_trash", "tag", "tag_account_id"]
+  var keys = ["scope", "scope_account_id", "exclude_spam_trash", "tag", "tag_account_id", "tag_provider_id", "tag_provider_type", "flag_color"]
   var links = aside.querySelectorAll("a[data-sidebar-tag-filter]")
   var active = null
   for (var i = 0; i < links.length && onSearch; i++) {
@@ -24797,6 +24816,10 @@ function setStarButtonIcon(button, starred) {
     svg.setAttribute('class', size + ' text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.3)]')
   } else {
     svg.setAttribute('class', size + ' text-muted-foreground')
+    var reader = button.closest("[data-mail-view-email]")
+    if (reader && (button.hasAttribute("data-star-thread") || button.getAttribute("data-star-email") === reader.getAttribute("data-mail-view-email"))) {
+      reader.querySelectorAll("[data-mail-flag-color]").forEach(function (badge) { badge.remove() })
+    }
   }
 }
 
@@ -24808,8 +24831,12 @@ function syncThreadStarButtons() {
   for (var i = 0; i < threadStars.length; i++) setStarButtonIcon(threadStars[i], starred)
 }
 
-function toggleStar(emailId) {
-  fetch("/api/messages/" + emailId + "/star", { method: "POST" })
+function toggleStar(emailId, folderID) {
+  var search = window.GoferMailSearch
+  var row = search && search.rowData(emailId)
+  folderID = folderID || (row && row.folderId) || mailActionCurrentFolderID()
+  var folder = folderID ? "?folder_id=" + encodeURIComponent(folderID) : ""
+  fetch("/api/messages/" + encodeURIComponent(emailId) + "/star" + folder, { method: "POST" })
     .then(function (r) { return r.json() })
     .then(function (data) {
       var starBtns = document.querySelectorAll('[data-star-email="' + emailId + '"]')
@@ -25505,7 +25532,9 @@ function syncMailSpamActionState(folderID) {
 
 function mailViewRequestURL(emailID, single) {
   var params = new URLSearchParams()
-  var folderID = window.GoferMailSearch && window.GoferMailSearch.scope() ? window.GoferMailSearch.folderFor(emailID) : mailActionCurrentFolderID()
+  var search = window.GoferMailSearch
+  var row = search && search.rowData(emailID)
+  var folderID = row && row.folderId || (search && search.scope() ? search.folderFor(emailID) : mailActionCurrentFolderID())
   if (folderID) params.set("folder_id", folderID)
   if (single) params.set("single", "1")
   var query = params.toString()
@@ -25543,15 +25572,22 @@ function markSpamState(emailId, notSpam, thread) {
 var _labelsDialog = null
 
 function openMessageLabels(emailId, thread) {
-  openLabelsDialog([{ id: String(emailId), thread: !!thread }], function () { refreshAfterLabelMutation(emailId) })
+  var reader = document.querySelector("[data-mail-view-folder]")
+  var folderID = reader ? reader.getAttribute("data-mail-view-folder") : ""
+  openLabelsDialog([{ id: String(emailId), thread: !!thread, folder_id: folderID }], function () { refreshAfterLabelMutation(emailId) })
 }
 
 function openLabelsDialog(targets, done) {
-  var folderID = mailActionCurrentFolderID()
+  var search = window.GoferMailSearch
+  var selection = mailActionPayload({ targets: targets.map(function (target) {
+    if (target.folder_id || !search) return target
+    var row = search.rowData(target.id)
+    return row && row.folderId ? Object.assign({}, target, { folder_id: row.folderId }) : target
+  }), folder_id: mailActionCurrentFolderID() })
   fetch("/mail/labels-dialog", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(mailActionPayload({ targets: targets, folder_id: folderID })),
+    body: JSON.stringify(selection),
   })
     .then(function (response) {
       if (!response.ok) throw new Error("labels dialog unavailable")
@@ -25565,7 +25601,7 @@ function openLabelsDialog(targets, done) {
         document.body.appendChild(host)
       }
       host.innerHTML = html
-      _labelsDialog = { targets: targets, folderID: folderID, done: done }
+      _labelsDialog = { targets: selection.targets, folderID: selection.folder_id, searchScope: selection.search_scope || null, done: done }
       host.querySelectorAll('[data-mail-labels-check][data-state="some"]').forEach(function (check) { check.indeterminate = true })
       if (window.tui && window.tui.dialog) {
         window.tui.dialog.open("mail-labels-dialog")
@@ -25596,10 +25632,35 @@ function cycleLabelOption(check) {
   var next
   if (initial === "some") next = state === "some" ? "all" : state === "all" ? "none" : "some"
   else next = state === "all" ? "none" : "all"
-  check.setAttribute("data-state", next)
-  check.checked = next === "all"
-  check.indeterminate = next === "some"
+  var color = check.closest("[data-mail-flag-color-option]")
+  if (!color) {
+    setLabelOptionState(check, next)
+  } else {
+    var options = Array.from(labelsDialogRoot().querySelectorAll("[data-mail-flag-color-option] [data-mail-labels-check]"))
+    var replacement = options.find(isNewFlagColorChoice)
+    if (replacement && replacement !== check) {
+      setLabelOptionState(replacement, replacement.getAttribute("data-initial"))
+      next = "all"
+    }
+    setLabelOptionState(check, next)
+    replacement = options.find(isNewFlagColorChoice)
+    options.forEach(function (option) {
+      var display = replacement && replacement !== option ? "none" : option.getAttribute("data-state")
+      option.checked = display === "all"
+      option.indeterminate = display === "some"
+    })
+  }
   syncLabelsDialogApply()
+}
+
+function isNewFlagColorChoice(check) {
+  return check.getAttribute("data-state") === "all" && check.getAttribute("data-initial") !== "all"
+}
+
+function setLabelOptionState(check, state) {
+  check.setAttribute("data-state", state)
+  check.checked = state === "all"
+  check.indeterminate = state === "some"
 }
 
 function syncLabelsDialogApply() {
@@ -25632,7 +25693,7 @@ function filterLabelsDialog() {
     if (name) name.textContent = query
   }
   var empty = root.querySelector("[data-mail-labels-empty]")
-  if (empty) empty.classList.toggle("hidden", rows.length > 0 || !!query)
+  if (empty) empty.classList.toggle("hidden", rows.length > 0 || !!query || !!root.querySelector("[data-mail-flag-color-group]"))
 }
 
 // Enter creates the typed label, or toggles the only label left by the search.
@@ -25679,13 +25740,17 @@ function applyLabelsDialog() {
   var state = _labelsDialog
   if (!root || !state) return
   var changes = []
+  var selectedColor = ""
   root.querySelectorAll("[data-mail-labels-check]").forEach(function (check) {
     var row = check.closest("[data-mail-label-option]")
-    var name = row ? row.getAttribute("data-mail-label-option") : ""
+    var colorRow = check.closest("[data-mail-flag-color-option]")
+    var color = colorRow ? colorRow.getAttribute("data-mail-flag-color-option") : ""
+    var name = row ? row.getAttribute("data-mail-label-option") : colorRow ? colorRow.textContent.trim() : ""
     var initial = check.getAttribute("data-initial")
     var next = check.getAttribute("data-state")
     if (!name || next === initial || next === "some") return
-    changes.push({ name: name, add: next === "all" })
+    changes.push({ name: name, color: color, add: next === "all" })
+    if (color && next === "all") selectedColor = color
   })
   _labelsDialog = null
   if (window.tui && window.tui.dialog) {
@@ -25697,8 +25762,11 @@ function applyLabelsDialog() {
   var failures = []
   var run = Promise.resolve()
   changes.forEach(function (change) {
+    // Setting a color atomically replaces the old color on each selected
+    // copy. Sending the temporary unchecked states is unnecessary.
+    if (change.color && selectedColor && change.color !== selectedColor) return
     run = run.then(function () {
-      return postLabelChange(change.add ? "/api/messages/label" : "/api/messages/unlabel", state.targets, change.name, state.folderID)
+      return postLabelChange(change.add ? "/api/messages/label" : "/api/messages/unlabel", state.targets, change.color ? "" : change.name, state.folderID, change.color, state.searchScope)
         .catch(function (err) { failures.push(change.name + ": " + (err && err.reason ? err.reason : goferT("js.common.please_try_again"))) })
     })
   })
@@ -25712,19 +25780,21 @@ function applyLabelsDialog() {
 
 // The server takes a few hundred messages per request, so many emails go in
 // chunks, one after another.
-function postLabelChange(path, targets, label, folderID) {
+function postLabelChange(path, targets, label, folderID, flagColor, searchScope) {
   var run = Promise.resolve()
   for (var start = 0; start < targets.length; start += 200) {
-    run = run.then(postLabelChunk.bind(null, path, targets.slice(start, start + 200), label, folderID))
+    run = run.then(postLabelChunk.bind(null, path, targets.slice(start, start + 200), label, folderID, flagColor, searchScope))
   }
   return run
 }
 
-function postLabelChunk(path, targets, label, folderID) {
+function postLabelChunk(path, targets, label, folderID, flagColor, searchScope) {
+  var body = { targets: targets, label: label, flag_color: flagColor || undefined, folder_id: folderID }
+  if (searchScope !== undefined) body.search_scope = searchScope
   return fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(mailActionPayload({ targets: targets, label: label, folder_id: folderID })),
+    body: JSON.stringify(mailActionPayload(body)),
   }).then(function (response) {
     if (response.ok) return
     return response.text().then(function (text) {

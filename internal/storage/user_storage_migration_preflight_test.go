@@ -285,6 +285,7 @@ func TestUserStorageMigrationPreflightAcceptsMainSchemaAndKeepsHistoricalClaimsU
 	for _, mode := range []string{"main-105", "main-105-no-push-table", "partial-105-claim", "shared-106", "shared-107", "shared-108", "shared-109", "shared-110", "shared-111", "shared-112", "shared-113", "shared-114", "shared-115", "shared-116", "shared-117", "shared-118", "shared-119", "shared-120", "shared-121", "shared-122", "shared-123", "shared-124", "shared-125", "shared-126", "shared-127", "shared-128", "shared-129", "shared-130", "shared-131", "shared-132", "shared-133", "shared-134", "shared-135", "shared-136", "shared-137", "shared-138", "shared-139", "shared-140", "shared-141", "shared-142", "shared-143", "shared-144", "shared-145", "shared-146", "shared-147", "shared-148", "shared-149", "shared-150", "shared-151", "shared-152", "shared-153", "shared-154", "shared-155"} {
 		t.Run(mode, func(t *testing.T) {
 			db := sharedMigrationFixture(t)
+			useSharedSchemaBeforeFlagColors(t, db)
 			version := 155
 			if mode != "shared-155" {
 				// Before calendars kept a color picked in Gofer.
@@ -614,10 +615,12 @@ DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(107)`)
 func TestUserStorageMigrationPreflightRejectsUnknownVersionsAndFalseUpgradeMarkers(t *testing.T) {
 	for _, query := range []string{
 		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(104)`,
-		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(156)`,
+		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(157)`,
 		`DROP TABLE folder_thread_dirty`,
 		`DROP TABLE folder_conversation_dirty`,
 		`ALTER TABLE calendar_response_requests DROP COLUMN claim_id`,
+		`ALTER TABLE message_mutations DROP COLUMN target_flag_color`,
+		`ALTER TABLE message_mutations DROP COLUMN target_flag_copy`,
 		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(106); ALTER TABLE web_push_subscriptions DROP COLUMN revision`,
 		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(106); ALTER TABLE calendar_response_requests DROP COLUMN claim_id; ALTER TABLE calendar_response_requests ADD COLUMN claim_id TEXT`,
 	} {

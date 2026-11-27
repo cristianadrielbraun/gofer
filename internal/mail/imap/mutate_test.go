@@ -68,3 +68,58 @@ func TestStoreFlagsBatchIfUIDValidityMarksEveryMessageInChunks(t *testing.T) {
 		t.Fatalf("UID STORE commands = %d, want 2 for %d messages", stores, count)
 	}
 }
+
+func TestFlagColorStoreKeepsUnrelatedFlagsAndRejectsAnOldUIDEpoch(t *testing.T) {
+	cfg, recorder := startRecordedIMAPServer(t, goimap.CapSet{goimap.CapIMAP4rev1: {}})
+	ctx := t.Context()
+	client, err := NewClient(ctx, cfg, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	raw := "From: ida@example.test\r\nSubject: Garden notes\r\n\r\nPlant the beans.\r\n"
+	keep := []goimap.Flag{goimap.FlagSeen, "$hasmemo", "$VendorKeyword"}
+	added := client.client.Append("INBOX", int64(len(raw)), &goimap.AppendOptions{
+		Flags: append(keep, goimap.FlagFlagged, "$MailFlagBit0"),
+	})
+	if _, err := added.Write([]byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := added.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := added.Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	validity := data.UIDValidity
+	uids := []uint32{uint32(data.UID)}
+	if err := client.StoreFlagColorBatchIfUIDValidity(ctx, "INBOX", uids, true, 4, validity+1); !errors.Is(err, ErrMutationUIDValidityChanged) {
+		t.Fatalf("STORE with stale UIDVALIDITY = %v", err)
+	}
+	if strings.Contains(strings.ToUpper(recorder.String()), " UID STORE ") {
+		t.Fatal("stale UIDVALIDITY sent STORE")
+	}
+	assertFlags := func(on, off []goimap.Flag) {
+		t.Helper()
+		if _, err := client.client.Select("INBOX", nil).Wait(); err != nil {
+			t.Fatal(err)
+		}
+		defer client.unselect()
+		result, err := client.client.UIDSearch(&goimap.SearchCriteria{Flag: on, NotFlag: off}, nil).Wait()
+		if err != nil || len(result.AllUIDs()) != 1 || result.AllUIDs()[0] != data.UID {
+			t.Fatalf("required %v and absent %v: result %v (%v)", on, off, result, err)
+		}
+	}
+	// A repeat is safe after an uncertain previous response.
+	for range 2 {
+		if err := client.StoreFlagColorBatchIfUIDValidity(ctx, "INBOX", uids, true, 4, validity); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertFlags(append(keep, goimap.FlagFlagged, "$MailFlagBit2"), []goimap.Flag{"$MailFlagBit0", "$MailFlagBit1"})
+	if err := client.StoreFlagColorBatchIfUIDValidity(ctx, "INBOX", uids, false, 0, validity); err != nil {
+		t.Fatal(err)
+	}
+	assertFlags(keep, []goimap.Flag{goimap.FlagFlagged, "$MailFlagBit0", "$MailFlagBit1", "$MailFlagBit2"})
+}

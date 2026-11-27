@@ -1734,10 +1734,10 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 
 		isRead, isStarred, visible := m.IsRead, m.IsStarred, true
 		if !isNew {
-			if err := refreshIMAPDeleteUIDValidityTx(ctx, tx, msgID, m.FolderID); err != nil {
-				return fmt.Errorf("refresh pending IMAP delete identity: %w", err)
+			if err := refreshIMAPMutationUIDValidityTx(ctx, tx, msgID, m.FolderID); err != nil {
+				return fmt.Errorf("refresh pending IMAP mutation identity: %w", err)
 			}
-			if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, "", &isRead, &isStarred); err != nil {
+			if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, "", &isRead, &isStarred, m.KeywordSnapshot); err != nil {
 				return fmt.Errorf("protect pending message mutation: %w", err)
 			}
 			if visible, err = protectProviderMoveFolderTx(ctx, tx, msgID, m.FolderID, ""); err != nil {
@@ -2023,7 +2023,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		}
 
 		isRead, isStarred := m.IsRead, m.IsStarred
-		if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, m.ProviderMessageID, &isRead, &isStarred); err != nil {
+		if err := resolveMessageMutationTargetsTx(ctx, tx, msgID, m.FolderID, m.ProviderMessageID, &isRead, &isStarred, m.KeywordSnapshot); err != nil {
 			return nil, fmt.Errorf("protect pending provider mutation: %w", err)
 		}
 		visible, err := protectProviderMoveFolderTx(ctx, tx, msgID, m.FolderID, m.ProviderMessageID)
@@ -5428,7 +5428,7 @@ type emailFilterParts struct {
 }
 
 func emailFiltersEmpty(filters models.EmailFilters) bool {
-	return !filters.Unread && !filters.Starred && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.NoTags && !filters.ThreadsOnly && !filters.NoThreads && filters.Participant == "" && filters.From == "" && filters.To == "" && filters.RecipientType == "" && filters.RecipientDomain == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.AttachmentType == "" && filters.AttachmentExt == "" && filters.MinSizeBytes == 0 && filters.MaxSizeBytes == 0 && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
+	return !filters.Unread && !filters.Starred && !filters.FlagColor.Valid() && !filters.Attachments && !filters.Read && !filters.NoAttach && !filters.HasTags && !filters.NoTags && !filters.ThreadsOnly && !filters.NoThreads && filters.Participant == "" && filters.From == "" && filters.To == "" && filters.RecipientType == "" && filters.RecipientDomain == "" && filters.Subject == "" && filters.Body == "" && filters.FromDomain == "" && filters.Attachment == "" && filters.AttachmentType == "" && filters.AttachmentExt == "" && filters.MinSizeBytes == 0 && filters.MaxSizeBytes == 0 && filters.Tag == "" && filters.AccountID == "" && filters.Query == "" && filters.After == "" && filters.Before == ""
 }
 
 func participantMailScopeWhere() string {
@@ -5590,6 +5590,10 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 	if filters.Starred {
 		outerParts = append(outerParts, "thread_is_starred = 1")
 	}
+	if filters.FlagColor.Valid() {
+		cteParts = append(cteParts, flagColorSQL("mfs", "a.provider")+" = ?")
+		args = append(args, filters.FlagColor)
+	}
 	if filters.Attachments {
 		outerParts = append(outerParts, "thread_has_attachments = 1")
 	} else if filters.NoAttach {
@@ -5601,9 +5605,9 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		outerParts = append(outerParts, "thread_count = 1")
 	}
 	if filters.HasTags {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = m.id)")
+		cteParts = append(cteParts, "(EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = m.id) OR "+flagColorSQL("mfs", "a.provider")+" != 0)")
 	} else if filters.NoTags {
-		cteParts = append(cteParts, "NOT EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = m.id)")
+		cteParts = append(cteParts, "NOT EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = m.id) AND "+flagColorSQL("mfs", "a.provider")+" = 0")
 	}
 	if filters.AccountID != "" {
 		cteParts = append(cteParts, "m.account_id = ?")
@@ -5675,7 +5679,11 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		cteParts = append(cteParts, "m.size_bytes > 0 AND m.size_bytes <= ?")
 		args = append(args, filters.MaxSizeBytes)
 	}
-	if filters.Tag != "" {
+	if filters.RetiredFlagLabel != "" {
+		// A retired provider identity must not fall back to an unrelated
+		// ordinary label that happens to have used the same display name.
+		cteParts = append(cteParts, "0")
+	} else if filters.Tag != "" {
 		predicate := `
 			l.name = ? COLLATE NOCASE
 			OR EXISTS (
@@ -6016,11 +6024,12 @@ func (db *DB) getEmailByID(ctx context.Context, id, userID string) (*models.Emai
 	var folderID, folderRole string
 	var isRead, isStarred, isDraft int
 	err = db.Read().QueryRowContext(ctx,
-		`SELECT mfs.folder_id, f.role, mfs.is_read, mfs.is_starred, mfs.is_draft
+		`SELECT mfs.folder_id, f.role, mfs.is_read, mfs.is_starred, mfs.is_draft, `+flagColorSQL("mfs", "a.provider")+`
 			 FROM message_folder_state mfs
 			 JOIN folders f ON mfs.folder_id = f.id
-			 WHERE mfs.message_id = ? LIMIT 1`, msgID,
-	).Scan(&folderID, &folderRole, &isRead, &isStarred, &isDraft)
+			 JOIN accounts a ON a.id = f.account_id
+			 WHERE mfs.message_id = ? AND mfs.is_deleted = 0 LIMIT 1`, msgID,
+	).Scan(&folderID, &folderRole, &isRead, &isStarred, &isDraft, &email.FlagColor)
 	if err == nil {
 		email.FolderID = folderID
 		email.FolderRole = folderRole
@@ -6108,6 +6117,7 @@ func (db *DB) getEmailByIDForFolder(ctx context.Context, id, folderID, userID st
 	}
 	email.IsStarred = isStarred == 1
 	email.IsDraft = isDraft == 1
+	email.FlagColor = info.FlagColor
 	return email, nil
 }
 
@@ -6501,6 +6511,9 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 	emails := make([]models.Email, len(items))
 	for i, r := range items {
 		emails[i] = r.email
+	}
+	if err := db.hydrateFlagColors(ctx, emails); err != nil {
+		return nil, err
 	}
 	return emails, nil
 }
@@ -7564,6 +7577,7 @@ type MessageMutationInfo struct {
 	ProviderThreadID  string
 	IsRead            bool
 	IsStarred         bool
+	FlagColor         keywords.FlagColor
 }
 
 type ThreadMessageMutationInfo struct {
@@ -7658,7 +7672,7 @@ func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folde
 
 	query := `SELECT m.account_id, a.provider, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role,
 	                 ` + stateOrAnyProviderCopyIDSQL("mfs", "m") + `, m.internet_message_id, m.thread_id, m.provider_thread_id,
-	                 mfs.is_read, mfs.is_starred
+	                 mfs.is_read, mfs.is_starred, ` + flagColorSQL("mfs", "a.provider") + `
 			  FROM messages m
 			  JOIN accounts a ON m.account_id = a.id
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
@@ -7684,7 +7698,7 @@ func (db *DB) getMessageMutationInfo(ctx context.Context, messageID int64, folde
 	err := db.Read().QueryRowContext(ctx,
 		query, args...,
 	).Scan(&info.AccountID, &info.AccountProvider, &info.FolderID, &info.FolderRemoteID, &remoteUID, &role,
-		&remoteMessageID, &internetMessageID, &threadID, &providerThreadID, &isRead, &isStarred)
+		&remoteMessageID, &internetMessageID, &threadID, &providerThreadID, &isRead, &isStarred, &info.FlagColor)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -7786,7 +7800,7 @@ func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, f
 
 	query := `SELECT m.id, m.account_id, a.provider, mfs.folder_id, f.remote_id, mfs.remote_uid, f.role,
 	                 ` + stateOrAnyProviderCopyIDSQL("mfs", "m") + `, m.internet_message_id, m.provider_thread_id,
-	                 mfs.is_read, mfs.is_starred
+	                 mfs.is_read, mfs.is_starred, ` + flagColorSQL("mfs", "a.provider") + `
 			 FROM messages m
 			 JOIN accounts a ON m.account_id = a.id
 		 JOIN message_folder_state mfs ON m.id = mfs.message_id
@@ -7815,7 +7829,7 @@ func (db *DB) getThreadMutationInfos(ctx context.Context, accountID, threadID, f
 		var remoteUID sql.NullInt64
 		var remoteMessageID, internetMessageID, providerThreadID sql.NullString
 		var isRead, isStarred int
-		if err := rows.Scan(&info.MessageID, &info.AccountID, &info.AccountProvider, &info.FolderID, &info.FolderRemoteID, &remoteUID, &info.FolderRole, &remoteMessageID, &internetMessageID, &providerThreadID, &isRead, &isStarred); err != nil {
+		if err := rows.Scan(&info.MessageID, &info.AccountID, &info.AccountProvider, &info.FolderID, &info.FolderRemoteID, &remoteUID, &info.FolderRole, &remoteMessageID, &internetMessageID, &providerThreadID, &isRead, &isStarred, &info.FlagColor); err != nil {
 			return nil, err
 		}
 		if remoteUID.Valid {
@@ -8966,6 +8980,14 @@ func (db *DB) ResetFolderUIDState(ctx context.Context, folderID string, uidValid
 	}
 	defer tx.Rollback()
 
+	// A scoped color edit names an IMAP copy. After its UID epoch ends, a
+	// matching Message-ID in the rebuilt folder does not identify that copy.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_mutations
+		WHERE folder_id = ? AND provider_type = 'imap' AND kind = 'starred' AND target_flag_color != 0
+		  AND source_uid_validity != 0 AND source_uid_validity != ?`, folderID, uidValidity); err != nil {
+		return fmt.Errorf("drop flag edits for obsolete IMAP UIDs: %w", err)
+	}
+
 	_, err = tx.ExecContext(ctx, `
 		DELETE FROM message_folder_state
 		WHERE folder_id = ?
@@ -9071,7 +9093,7 @@ func (db *DB) applyIMAPFlagUpdates(ctx context.Context, folderID string, expecte
 
 		newRead := 0
 		incomingRead, incomingStarred := u.IsRead, u.IsStarred
-		if err := resolveMessageMutationTargetsTx(ctx, tx, messageID, folderID, "", &incomingRead, &incomingStarred); err != nil {
+		if err := resolveMessageMutationTargetsTx(ctx, tx, messageID, folderID, "", &incomingRead, &incomingStarred, u.KeywordSnapshot); err != nil {
 			return 0, fmt.Errorf("protect pending IMAP flag mutation for UID %d: %w", u.UID, err)
 		}
 		if incomingRead {

@@ -20,6 +20,7 @@ import (
 	mail "github.com/cristianadrielbraun/gofer/internal/mail"
 	mailautodiscover "github.com/cristianadrielbraun/gofer/internal/mail/autodiscover"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
+	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
@@ -806,6 +807,9 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		settings := h.db.GetUISettings(ctx, userID)
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, h.db, userID, "", folderID, &filters); err != nil {
+			return nil, err
+		}
 		emailID := r.URL.Query().Get("email")
 		count := h.scheduledSidebarCount(ctx, userID)
 		if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
@@ -836,7 +840,11 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 			return nil, err
 		}
 		settings := h.db.GetUISettings(ctx, userID)
-		return views.Layout(accounts, folderID, nil, nil, -1, -1, 0, settings, nil, r.PathValue("email"), h.scheduledSidebarCount(ctx, userID), applyEmailListSettings(parseEmailFilters(r), r, settings)), nil
+		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, h.db, userID, "", folderID, &filters); err != nil {
+			return nil, err
+		}
+		return views.Layout(accounts, folderID, nil, nil, -1, -1, 0, settings, nil, r.PathValue("email"), h.scheduledSidebarCount(ctx, userID), filters), nil
 	})
 }
 
@@ -953,6 +961,7 @@ func (h *Handler) handleLabelsDialog(w http.ResponseWriter, r *http.Request) {
 				accountIDs[info.AccountID] = true
 			}
 		}
+		colorOptions, mixedProviders := flagColorOptions(targets)
 		labelsByMessage, err := h.db.GetMessageLabels(ctx, messageIDs)
 		if err != nil {
 			return nil, err
@@ -1000,7 +1009,7 @@ func (h *Handler) handleLabelsDialog(w http.ResponseWriter, r *http.Request) {
 		slices.SortFunc(options, func(a, b views.MailLabelOption) int {
 			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 		})
-		return views.MailLabelsDialog(options), nil
+		return views.MailLabelsDialog(options, colorOptions, mixedProviders), nil
 	})
 }
 
@@ -2568,6 +2577,9 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, h.db, userID, "", folderID, &filters); err != nil {
+			return nil, err
+		}
 		if r.Header.Get("HX-Request") != "true" {
 			return views.Layout(accounts, folderID, nil, nil, -1, -1, 0, settings, nil, "", h.scheduledSidebarCount(ctx, userID), filters), nil
 		}
@@ -2597,6 +2609,9 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, h.db, userID, "", folderID, &filters); err != nil {
+			return nil, err
+		}
 		selected := r.URL.Query().Get("selected")
 		window, err := h.loadMailWindow(ctx, userID, folderID, filters, selected, 50, settings["mail_list_navigation"] == "pagination")
 		if err != nil {
@@ -2709,6 +2724,9 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		settings := h.db.GetUISettings(ctx, userID)
 		ctx = storage.WithTimezone(ctx, settings["timezone"])
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(ctx, h.db, userID, "", folderID, &filters); err != nil {
+			return nil, err
+		}
 		var page *models.EmailPage
 		if around := r.URL.Query().Get("around"); around != "" {
 			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit, filters, settings["mail_list_navigation"] == "pagination")
@@ -2777,6 +2795,9 @@ func (h *Handler) handleMailItemIDs(w http.ResponseWriter, r *http.Request) {
 		settings := db.GetUISettings(ctx, userID)
 		listCtx := storage.WithTimezone(ctx, settings["timezone"])
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
+		if err := setRetiredFlagLabelWarning(listCtx, db, userID, "", folderID, &filters); err != nil {
+			return err
+		}
 		total := -1
 		for start := 0; ; start += pageSize {
 			page, err := db.GetEmailsRangeFilteredForUserWithTotal(listCtx, userID, folderID, start, pageSize, filters, total)
@@ -2817,6 +2838,9 @@ func (h *Handler) handleMailItemIDs(w http.ResponseWriter, r *http.Request) {
 func parseEmailFilters(r *http.Request) models.EmailFilters {
 	q := r.URL.Query()
 	tag := strings.TrimSpace(q.Get("tag"))
+	if tag == "" {
+		tag = strings.TrimSpace(q.Get("tag_provider_id"))
+	}
 	tagAccountID := ""
 	tagProviderID := ""
 	tagProviderType := ""
@@ -2828,6 +2852,7 @@ func parseEmailFilters(r *http.Request) models.EmailFilters {
 	filters := models.EmailFilters{
 		Unread:          q.Get("unread") == "1",
 		Starred:         q.Get("starred") == "1",
+		FlagColor:       keywords.ParseFlagColor(q.Get("flag_color")),
 		Attachments:     q.Get("attachments") == "1",
 		Read:            q.Get("read") == "1",
 		NoAttach:        q.Get("no_attachments") == "1",
@@ -2979,7 +3004,7 @@ func normalizeEmailSortBy(value string) string {
 }
 
 func emailFiltersActive(filters models.EmailFilters) bool {
-	return filters.Unread || filters.Starred || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.NoTags || filters.ThreadsOnly || filters.NoThreads || filters.Participant != "" || filters.From != "" || filters.To != "" || filters.RecipientType != "" || filters.RecipientDomain != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.AttachmentType != "" || filters.AttachmentExt != "" || filters.MinSizeBytes > 0 || filters.MaxSizeBytes > 0 || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != "" || (filters.SortBy != "" && filters.SortBy != "date") || (filters.SortOrder != "" && filters.SortOrder != "desc")
+	return filters.Unread || filters.Starred || filters.FlagColor.Valid() || filters.Attachments || filters.Read || filters.NoAttach || filters.HasTags || filters.NoTags || filters.ThreadsOnly || filters.NoThreads || filters.Participant != "" || filters.From != "" || filters.To != "" || filters.RecipientType != "" || filters.RecipientDomain != "" || filters.Subject != "" || filters.Body != "" || filters.FromDomain != "" || filters.Attachment != "" || filters.AttachmentType != "" || filters.AttachmentExt != "" || filters.MinSizeBytes > 0 || filters.MaxSizeBytes > 0 || filters.Tag != "" || filters.AccountID != "" || filters.Query != "" || filters.After != "" || filters.Before != "" || (filters.SortBy != "" && filters.SortBy != "date") || (filters.SortOrder != "" && filters.SortOrder != "desc")
 }
 
 func (h *Handler) resolveFolderID(ctx context.Context, userID, requested string) (string, error) {
@@ -6741,6 +6766,7 @@ type messageBulkRequest struct {
 	State       string                  `json:"state"`
 	FolderID    string                  `json:"folder_id"`
 	Label       string                  `json:"label"`
+	FlagColor   string                  `json:"flag_color"`
 	// SourceFolderID is the folder a move takes messages from. FolderID is the
 	// destination for moves, so the source travels separately.
 	SourceFolderID string `json:"source_folder_id"`
@@ -7232,7 +7258,7 @@ func (h *Handler) handleToggleStar(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	ctx := r.Context()
 
-	msgID, info, err := h.getMessageInfo(ctx, idStr)
+	msgID, info, err := h.getMessageInfoForFolder(ctx, idStr, r.URL.Query().Get("folder_id"))
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return

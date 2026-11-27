@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 155
+	return version >= 105 && version <= 156
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -474,6 +474,9 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	}
 	if version < 155 && table.Name == "calendar_sources" {
 		missing = append(missing, "chosen_color")
+	}
+	if version < 156 && table.Name == "message_mutations" {
+		missing = append(missing, "target_flag_color", "target_flag_copy")
 	}
 	for _, name := range missing {
 		if actual[name] {

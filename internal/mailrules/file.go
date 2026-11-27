@@ -78,10 +78,11 @@ type FileCondition struct {
 
 // FileAction is one action.
 type FileAction struct {
-	Kind    string      `json:"kind"`
-	Folder  *FileFolder `json:"folder,omitempty"`
-	Label   string      `json:"label,omitempty"`
-	ForGood bool        `json:"for_good,omitempty"`
+	Kind      string      `json:"kind"`
+	Folder    *FileFolder `json:"folder,omitempty"`
+	Label     string      `json:"label,omitempty"`
+	FlagColor string      `json:"flag_color,omitempty"`
+	ForGood   bool        `json:"for_good,omitempty"`
 }
 
 // FileFolder is a folder by Role, for whichever account the mail is in, or
@@ -167,7 +168,7 @@ func Export(rules []models.MailRule, accounts []models.MailRuleAccount, now time
 			})
 		}
 		for _, action := range rule.Actions {
-			exported.Actions = append(exported.Actions, FileAction{Kind: action.Kind, Folder: folder(action.Folder), Label: action.Label, ForGood: action.ForGood})
+			exported.Actions = append(exported.Actions, FileAction{Kind: action.Kind, Folder: folder(action.Folder), Label: action.Label, FlagColor: action.FlagColor, ForGood: action.ForGood})
 		}
 		file.Rules = append(file.Rules, exported)
 	}
@@ -382,7 +383,7 @@ func PlanImport(file *File, accounts []models.MailRuleAccount, existing []models
 			})
 		}
 		for _, action := range fileRule.Actions {
-			rule.Actions = append(rule.Actions, models.MailRuleAction{Kind: action.Kind, Folder: folder(action.Folder), Label: action.Label, ForGood: action.ForGood})
+			rule.Actions = append(rule.Actions, models.MailRuleAction{Kind: action.Kind, Folder: folder(action.Folder), Label: action.Label, FlagColor: action.FlagColor, ForGood: action.ForGood})
 		}
 		if plan.Missing() {
 			rule.Enabled = false
