@@ -4,12 +4,12 @@ const path = require('node:path')
 const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/navigation.js'), 'utf8')
-const documentListeners = [], windowListeners = []
+const documentListeners = [], windowListeners = [], bodyListeners = []
 const window = {
   location: new URL('https://gofer.test/folder/inbox?unread=true'),
   addEventListener(...args) { windowListeners.push(args) },
 }
-const document = {addEventListener(...args) { documentListeners.push(args) }}
+const document = {addEventListener(...args) { documentListeners.push(args) }, body: {addEventListener(...args) { bodyListeners.push(args) }}}
 const context = vm.createContext({window, document, URL, history: {state: {folder: 'inbox'}}})
 vm.runInContext(source, context)
 const route = address => JSON.parse(JSON.stringify(window.GoferNavigation.route(address)))
@@ -34,9 +34,9 @@ for (const address of ['https://other.test/settings/accounts', '//other.test/con
 assert.equal(window.GoferNavigation.navigate('/settings/accounts'), false, 'Retain normal links if HTMX/controllers are unavailable')
 assert.equal(documentListeners.find(([name]) => name === 'click')[2], true, 'Navigation must mount before HTMX handles links')
 assert.equal(windowListeners.find(([name]) => name === 'popstate')[2], true, 'History must restore the whole screen before old pane listeners run')
-const count = documentListeners.length + windowListeners.length
+const count = documentListeners.length + windowListeners.length + bodyListeners.length
 vm.runInContext(source, context)
-assert.equal(documentListeners.length + windowListeners.length, count, 'History restores must not install duplicate listeners')
+assert.equal(documentListeners.length + windowListeners.length + bodyListeners.length, count, 'History restores must not install duplicate listeners')
 
 // The long-lived compose dialog receives current sender choices, but account
 // refreshes must never change the sender of an open or saved draft.
@@ -45,6 +45,7 @@ const start = app.indexOf('function refreshComposeAccountData(')
 const end = app.indexOf('function composeModeForForm(', start)
 assert(start >= 0 && end > start)
 let open = false, content = false, uploads = 0, updates = 0
+const accountsSet = []
 const account = {value: 'old'}, identity = {value: 'old-identity'}, display = {textContent: ''}
 const menu = {replaceChildren() { updates++ }}
 const form = {
@@ -63,6 +64,7 @@ const senderContext = vm.createContext({
     querySelector() { return open },
   },
   _composeHasDraftContent() { return content }, _composePendingUploads() { return uploads }, updateComposeSendState() {},
+  setComposeAccount(form, accountId, identityId) { accountsSet.push([accountId, identityId]) },
 })
 vm.runInContext(app.slice(start, end), senderContext)
 for (const state of ['open', 'draft', 'upload', 'sending']) {
@@ -71,6 +73,7 @@ for (const state of ['open', 'draft', 'upload', 'sending']) {
   senderContext.refreshComposeAccountData()
   assert.equal(account.value, 'old', 'Do not change the sender while ' + state)
   assert.equal(updates, 0)
+  assert.equal(accountsSet.length, 0)
 }
 open = content = false; uploads = 0; form.dataset.composeSending = 'false'
 senderContext.refreshComposeAccountData()
@@ -78,4 +81,5 @@ assert.equal(account.value, 'current', 'A fresh compose receives the current acc
 assert.equal(identity.value, '')
 assert.equal(display.textContent, 'Current sender <current@example.test>')
 assert.equal(updates, 1)
+assert.deepEqual(accountsSet, [['current', '']], 'A fresh compose starts from the current account and its default identity')
 console.log('Client navigation: all screens, query/deep links, unsupported/auth/external routes, fallback links, capture ordering, and idempotent installation passed.')

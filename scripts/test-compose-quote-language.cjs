@@ -12,12 +12,14 @@ const slice = (start, end) => source.slice(source.indexOf(start), source.indexOf
 const code = [
   slice('function composeQuoteAttribution(', 'function composeReferencesForReply('),
   slice('function composeReferencesForReply(', 'function focusComposePrefill('),
+  source.slice(source.indexOf('function composeRecipientAddress('), source.indexOf('\n}\n', source.indexOf('function composeRecipientAddress(')) + 3),
 ].join('\n')
 
 function run(locale) {
   const context = vm.createContext({
     composeAddress: (name, email) => name ? name + ' <' + email + '>' : email,
     composeAccountEmail: () => 'me@example.test',
+    composeDefaultFormat: () => 'html',
     composeDedupeAddresses: parts => parts.filter(Boolean).join(', '),
     composeNormalizeMessageID: id => id,
     _sanitizeComposeHTML: html => html,

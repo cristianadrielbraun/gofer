@@ -99,6 +99,8 @@ open('sent')
 table.setOwn(false)
 assert.equal(shown(), 'from,date')
 assert.deepEqual(JSON.parse(context.GoferSettings.get('mail_table_place_columns')), {})
-assert(saved.length > 0 && 'mail_table_place_columns' in saved[saved.length - 1], 'The places are saved with the other settings')
-
-console.log('Mail table columns per folder: own columns and widths, tags, search, and turning it off passed.')
+// Saves wait in a queue behind earlier ones, so the request goes out a tick later.
+setImmediate(() => {
+  assert(saved.length > 0 && 'mail_table_place_columns' in saved[saved.length - 1], 'The places are saved with the other settings')
+  console.log('Mail table columns per folder: own columns and widths, tags, search, and turning it off passed.')
+})

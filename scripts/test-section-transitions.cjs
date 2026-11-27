@@ -61,7 +61,8 @@ for (const bundle of ['tabs.js', 'tabs.min.js']) {
     setTimeout(callback) { timers.push(callback); return timers.length },
     clearTimeout() {}, addEventListener() {}, location: {pathname: '/settings/sync'},
   }
-  const context = vm.createContext({document, window, MutationObserver: class { observe() {} }})
+  // Tab indicators move in the next frame; this test only checks the panels.
+  const context = vm.createContext({document, window, MutationObserver: class { observe() {} }, requestAnimationFrame() { return 1 }})
   vm.runInContext(app.slice(entryStart, entryEnd) + app.slice(filterStart, filterEnd), context)
   vm.runInContext(settings.slice(settingsStart, settingsEnd), context)
   vm.runInContext(read(bundle), context)

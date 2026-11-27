@@ -32,7 +32,7 @@ const runtime = vm.createContext({
   _saveComposeSelection(node) { saved.push(node) }, _restoreComposeSelection(node) { restored.push(node) },
 })
 loadI18n(runtime)
-vm.runInContext(['syncCalendarDescription', 'calendarDescriptionSelection', 'promptForLink', 'calendarDescriptionExec'].map(fn).join('\n'), runtime)
+vm.runInContext(['syncCalendarDescription', 'calendarDescriptionSelection', 'promptForLink', '_normalizeLinkAddress', 'calendarDescriptionExec'].map(fn).join('\n'), runtime)
 runtime.syncCalendarDescription(editor)
 assert.equal(fields.description_html.value, editor.innerHTML, 'send HTML, not only the visible text')
 assert.equal(fields.description.value, 'Agenda', 'retain the plain fallback')

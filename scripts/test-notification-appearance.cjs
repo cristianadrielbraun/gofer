@@ -14,11 +14,15 @@ context.window.GoferSettings = context.GoferSettings
 vm.createContext(context)
 loadI18n(context)
 vm.runInContext(source.slice(start, end), context)
+// The sender's initials come from the same helper the compose recipients use.
+vm.runInContext(source.slice(source.indexOf('function _composeRecipientInitials('), source.indexOf('function _composeRecipientSuggestionBox(')), context)
 const cases = JSON.parse(fs.readFileSync(path.join(root, 'internal/notifications/testdata/appearance.json'), 'utf8'))
 for (const tc of cases) {
   context.settings = tc.settings
   const actual = context.newMailNotificationAppearance(tc.payload, tc.count)
-  assert.deepEqual(JSON.parse(JSON.stringify(actual)), { title: tc.title, body: tc.body, icon: tc.icon }, tc.name)
+  // The cases are shared with the server; initials for the avatar circle are
+  // only added in the browser.
+  assert.deepEqual({ title: actual.title, body: actual.body, icon: actual.icon }, { title: tc.title, body: tc.body, icon: tc.icon }, tc.name)
 }
 
 // An intentionally empty body must stay empty through the service worker.
